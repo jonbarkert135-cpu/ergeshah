@@ -708,3 +708,46 @@ The crypto chunk is instead verified by its content-addressed name, its digest i
 `/build.txt`, and `default-src 'self'` — weaker in kind, and said so in `docs/AUDIT.md`
 rather than glossed over. The gain is that a first visit is thirteen times lighter, which on
 Tor is the difference between usable and not.
+
+## ADR-0028 — Integrity under concurrency lives in the database
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Points 43–44 of the brief ask that the schema be constrained, indexed and
+transaction-safe, and that no race let a user buy one thing several times, receive it twice,
+move an order illegally, or bypass seller approval. The routes already checked all of that —
+with a `SELECT` followed by a write. Under `Promise.all` in the test suite (and under two
+browser tabs in production), every handler runs its `SELECT` before any runs its write, and
+the checks pass for everyone.
+
+**Decision.**
+
+- *Partial unique indexes* for the two rules that were only application checks: one pending
+  seller application per account, one open order per buyer per listing. Same syntax on SQLite
+  and PostgreSQL, no cost on rows that do not match.
+- *Compare-and-swap transitions.* Every status change — order, delivery, application
+  decision, report resolution — is `UPDATE … WHERE id = ? AND status = ? RETURNING id`. No
+  row back means someone moved it first, and the caller gets `409 stale_status` instead of
+  overwriting their work.
+- *Constraint violations are a `409`, not a `500`.* The database refusing a row is the
+  designed second line of defence doing its job, so `isConstraintViolation()` (SQLite extended
+  code with low byte 19, PostgreSQL SQLSTATE class 23) turns it into a conflict; routes that
+  can say something more useful wrap the write in `orConflict()`.
+- *Indexes* on `orders.listing_id` (a foreign key that had none), on report targets, and on
+  `(seller, author)` for per-author reputation.
+
+**What was tried and rejected: retrofitting `CHECK` constraints.** SQLite has no
+`ALTER TABLE … ADD CONSTRAINT`; the documented route is to create the new table, copy, drop
+the old one and rename. Inside a transaction with `PRAGMA foreign_keys = ON` (which cannot
+be switched off mid-transaction, and the migration runner runs everything in one) the
+`DROP TABLE orders` cascades through `order_events`, `reviews` and `deliveries` — verified by
+running exactly that against `node:sqlite`, with `legacy_alter_table` on and off. A migration
+that can silently empty three tables on a production VPS is a worse risk than the one it
+removes. Enum columns therefore stay guarded by `asEnum` at the trust boundary, which is the
+only path a request has to them, and any table created from now on carries `CHECK` from the
+start.
+
+**Consequences.** A racing client sees `409` where it used to see either success (bad) or
+`500` (confusing). Tests for concurrency are cheap to write (`test/integrity.test.ts`) and
+run on SQLite, whose single writer serialises the handlers — so the tests also accept the
+role check refusing the loser, and the compare-and-swap SQL is asserted directly.

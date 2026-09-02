@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { Config } from "./config.ts";
 import type { Db } from "./db/index.ts";
-import { HttpError, unauthorized, forbidden } from "./lib/errors.ts";
+import { HttpError, unauthorized, forbidden, isConstraintViolation } from "./lib/errors.ts";
 import { parseCookies, serializeCookie } from "./lib/cookies.ts";
 import { resolveSession, type SessionUser } from "./lib/sessions.ts";
 import { consume, type LimitName } from "./lib/rate_limit.ts";
@@ -137,6 +137,11 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof HttpError) {
       return reply.status(error.statusCode).send({ error: error.code, message: error.message });
+    }
+    // A unique, foreign-key or check constraint did its job (migration 007). The request
+    // conflicted with a row that arrived first; that is the client's news, not an incident.
+    if (isConstraintViolation(error)) {
+      return reply.status(409).send({ error: "conflict", message: "conflicts with an existing record" });
     }
     // Fastify's own client errors (malformed JSON, body too large, unsupported media
     // type) are the client's fault, not an incident: answer them tersely and truthfully

@@ -8,7 +8,7 @@
  * channel attached to the order.
  */
 import type { FastifyInstance } from "fastify";
-import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
+import { badRequest, conflict, forbidden, notFound, orConflict } from "../lib/errors.ts";
 import { newId, randomToken } from "../lib/ids.ts";
 import { dayToIsoDate, today } from "../lib/time.ts";
 import {
@@ -77,10 +77,15 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     if (nameTaken) throw conflict("that seller name is taken", "display_name_taken");
 
     const id = newId();
-    await db.run(
-      `INSERT INTO seller_applications (id, user_id, display_name, statement, status, created_day)
-       VALUES (?, ?, ?, ?, 'pending', ?)`,
-      [id, user.id, displayName, statement, today()],
+    // The checks above are for the error message; `seller_applications_one_pending` is
+    // what actually holds when two submissions arrive together.
+    await orConflict(
+      db.run(
+        `INSERT INTO seller_applications (id, user_id, display_name, statement, status, created_day)
+         VALUES (?, ?, ?, ?, 'pending', ?)`,
+        [id, user.id, displayName, statement, today()],
+      ),
+      conflict("you already have an application under review", "already_applied"),
     );
     return { id, status: "pending" };
   });
@@ -286,16 +291,24 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     // Opaque channel id: the encrypted order chat is linked to the order only by a value
     // both clients know. The server cannot tie it to any other conversation.
     const channel = randomToken(24);
-    await db.run(
-      `INSERT INTO orders (id, listing_id, buyer_user_id, seller_user_id, price_minor, currency,
-                           status, channel, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'placed', ?, ?, ?)`,
-      [id, listing.id, user.id, listing.seller_user_id, listing.price_minor, listing.currency, channel, now, now],
-    );
-    await db.run(
-      `INSERT INTO order_events (id, order_id, actor_user_id, from_status, to_status, created_at)
-       VALUES (?, ?, ?, '', 'placed', ?)`,
-      [newId(), id, user.id, now],
+    // One open order per buyer per listing, enforced by `orders_one_open_per_listing`: a
+    // double-click, a retried request or two tabs produce one order, and the loser of the
+    // race is told so rather than billed twice (point 44).
+    await orConflict(
+      db.transaction(async (tx) => {
+        await tx.run(
+          `INSERT INTO orders (id, listing_id, buyer_user_id, seller_user_id, price_minor, currency,
+                               status, channel, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'placed', ?, ?, ?)`,
+          [id, listing.id, user.id, listing.seller_user_id, listing.price_minor, listing.currency, channel, now, now],
+        );
+        await tx.run(
+          `INSERT INTO order_events (id, order_id, actor_user_id, from_status, to_status, created_at)
+           VALUES (?, ?, ?, '', 'placed', ?)`,
+          [newId(), id, user.id, now],
+        );
+      }),
+      conflict("you already have an open order for this listing", "already_ordered"),
     );
     return { id, status: "placed", channel };
   });
@@ -378,7 +391,15 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
 
     const now = Date.now();
     await db.transaction(async (tx) => {
-      await tx.run("UPDATE orders SET status = ?, updated_at = ? WHERE id = ?", [next, now, id]);
+      // Compare-and-swap on the status that was authorised above. Two requests racing
+      // from the same state (a buyer completing and disputing at once, a seller accepting
+      // an order the buyer is cancelling) both pass the role check; only the one whose
+      // UPDATE finds the row still in that state wins, and the other is told the truth.
+      const moved = await tx.get(
+        "UPDATE orders SET status = ?, updated_at = ? WHERE id = ? AND status = ? RETURNING id",
+        [next, now, id, order.status],
+      );
+      if (!moved) throw conflict(`this order is no longer ${order.status}`, "stale_status");
       // A finished order keeps no file: the buyer has saved it or has lost the chance to.
       if (next === "completed" || next === "cancelled") {
         await tx.run("DELETE FROM deliveries WHERE order_id = ?", [id]);

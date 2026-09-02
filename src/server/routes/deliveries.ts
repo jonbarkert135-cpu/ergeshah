@@ -50,11 +50,14 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
         [newId(), order.id, ciphertext, now, now + config.deliveryTtlMs],
       );
       // Delivering *is* the status change: an order can never be "delivered" with no file,
-      // or hold a file the buyer was never told about.
-      await tx.run("UPDATE orders SET status = 'delivered', updated_at = ? WHERE id = ?", [
-        now,
-        order.id,
-      ]);
+      // or hold a file the buyer was never told about. The UPDATE is conditional on the
+      // status checked above, so a cancellation that lands in between wins and the file
+      // is never stored (point 44).
+      const moved = await tx.get(
+        "UPDATE orders SET status = 'delivered', updated_at = ? WHERE id = ? AND status = 'accepted' RETURNING id",
+        [now, order.id],
+      );
+      if (!moved) throw conflict("this order is no longer accepted", "stale_status");
       await tx.run(
         `INSERT INTO order_events (id, order_id, actor_user_id, from_status, to_status, created_at)
          VALUES (?, ?, ?, ?, 'delivered', ?)`,

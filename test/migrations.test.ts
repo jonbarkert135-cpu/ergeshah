@@ -87,6 +87,8 @@ describe("migrations apply to an empty database", () => {
       ["orders", "buyer_id"],
       ["listings", "seller_id"],
       ["audit_log", "created_at"],
+      ["orders", "listing_id"],
+      ["reports", "target_type"],
     ] as const) {
       expect(indexed, `${table}.${column}`).toMatch(new RegExp(`${table}[^\\n]*${column}`, "i"));
     }

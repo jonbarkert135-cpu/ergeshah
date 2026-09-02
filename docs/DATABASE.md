@@ -76,6 +76,33 @@ to prove the runner is idempotent, and checks the indexes hot queries depend on.
 | `rate_limits` | bucket key, tokens, updated | The key is an HMAC of the subject with a daily-rotating pepper — **no address is stored**, and yesterday's buckets cannot be linked to today's |
 | `schema_migrations` | migration name, applied at | |
 
+## Invariants the database holds by itself
+
+Application checks (a `SELECT`, then an `INSERT`) are only as strong as the gap between the
+two statements; on PostgreSQL that gap is a network round trip. Since migration 007 the rules
+that matter under concurrency are also constraints, and a constraint violation is answered
+with `409` rather than logged as an incident (`isConstraintViolation` in `lib/errors.ts`):
+
+| Rule | Enforced by |
+| --- | --- |
+| One review per order | `reviews.order_id UNIQUE` |
+| One application under review per account | partial unique index `seller_applications_one_pending` |
+| One *open* order per buyer per listing (a double-click is one order) | partial unique index `orders_one_open_per_listing` |
+| One seller per display name, one device per identity key, one session per token | `UNIQUE` columns |
+| An order moves only from the state its caller saw | every transition is `UPDATE … WHERE id = ? AND status = ? RETURNING id`; no row returned → `409 stale_status` |
+| A delivery exists only for an order that is `delivered`, and vice versa | the blob insert and the status change share one transaction, and the status change is conditional |
+| Nothing references a deleted account | foreign keys on (`PRAGMA foreign_keys = ON` in SQLite), `ON DELETE CASCADE` |
+
+`test/integrity.test.ts` fires the same request several times at once and asserts exactly one
+winner for each rule above.
+
+What is *not* there, and why: `CHECK` constraints on the status and enum columns of the
+original tables. SQLite cannot add a constraint to an existing table — the table has to be
+rebuilt, which with foreign keys enabled inside a transaction cascades a delete through every
+child table (reproduced, not theorised; ADR-0028). Enum values are validated at the trust
+boundary by `asEnum`, the only path a request has to a status column; tables created after
+007 carry `CHECK` from birth.
+
 ## Retention, and what deletes what
 
 - Envelopes: on acknowledgement, or at `ENVELOPE_TTL_MS` (30 days).

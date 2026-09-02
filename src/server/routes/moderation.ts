@@ -30,7 +30,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/reports", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "moderation");
+       await app.limit(request, "moderation");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const targetType = asEnum(body.targetType, "targetType", REPORT_TARGETS);
     const targetId = asString(body.targetId, "targetId", 64);
@@ -48,7 +48,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.get("/api/moderation/queue", async (request) => {
     await app.requireRole(request, [...staff]);
-    await app.limit(request, "moderation");
+       await app.limit(request, "moderation");
     const reports = await db.all<{
       id: string;
       target_type: string;
@@ -95,7 +95,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/seller-applications/:id/decide", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
- await app.limit(request, "moderation");
+    await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const decision = asEnum(body.decision, "decision", ["approved", "rejected"] as const);
@@ -111,11 +111,14 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     if (application.status !== "pending") throw conflict("this application was already decided");
 
     await db.transaction(async (tx) => {
-      await tx.run(
+      // Two moderators deciding the same application at once: one decision is recorded,
+      // the other is told it came second (point 44).
+      const decided = await tx.get(
         `UPDATE seller_applications SET status = ?, decision_note = ?, decided_by = ?, decided_day = ?
-          WHERE id = ?`,
+          WHERE id = ? AND status = 'pending' RETURNING id`,
         [decision, note, moderator.id, today(), id],
       );
+      if (!decided) throw conflict("this application was already decided");
       if (decision === "approved") {
         const taken = await tx.get("SELECT user_id FROM sellers WHERE display_name = ?", [
           application.display_name,
@@ -139,7 +142,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/listings/:id/remove", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
- await app.limit(request, "moderation");
+    await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const note = asOptionalString((request.body as Record<string, unknown>)?.note, "note", 1000);
     const listing = await db.get<{ id: string }>("SELECT id FROM listings WHERE id = ?", [id]);
@@ -160,7 +163,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/users/:username/status", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
- await app.limit(request, "moderation");
+    await app.limit(request, "moderation");
     const username = asUsername((request.params as { username: string }).username);
     const body = (request.body ?? {}) as Record<string, unknown>;
     const status = asEnum(body.status, "status", ["active", "suspended"] as const);
@@ -199,7 +202,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/reviews/:id/hide", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
- await app.limit(request, "moderation");
+    await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const note = asOptionalString((request.body as Record<string, unknown>)?.note, "note", 1000);
     const review = await db.get<{ id: string }>("SELECT id FROM reviews WHERE id = ?", [id]);
@@ -217,7 +220,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/reports/:id/resolve", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
- await app.limit(request, "moderation");
+    await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const outcome = asEnum(body.outcome, "outcome", ["actioned", "dismissed"] as const);
@@ -228,10 +231,12 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     );
     if (!report) throw notFound("no such report");
     if (report.status !== "open") throw conflict("this report is already resolved");
-    await db.run(
-      "UPDATE reports SET status = ?, resolution_note = ?, resolved_by = ?, resolved_day = ? WHERE id = ?",
+    const resolved = await db.get(
+      `UPDATE reports SET status = ?, resolution_note = ?, resolved_by = ?, resolved_day = ?
+        WHERE id = ? AND status = 'open' RETURNING id`,
       [outcome, note, moderator.id, today(), id],
     );
+    if (!resolved) throw conflict("this report is already resolved");
     await recordAudit(db, {
       actorUserId: moderator.id,
       action: "report.resolved",
@@ -269,7 +274,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
   /** The audit log is readable by staff: oversight that only admins can see is not oversight. */
   app.get("/api/moderation/audit", async (request) => {
     await app.requireRole(request, [...staff]);
-    await app.limit(request, "moderation");
+       await app.limit(request, "moderation");
     const rows = await db.all<{
       id: string;
       action: string;
