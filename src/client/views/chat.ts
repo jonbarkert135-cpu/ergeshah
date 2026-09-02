@@ -63,7 +63,7 @@ export function renderChat(root: HTMLElement): void {
       panel.append(
         emptyState(
           "No conversation selected",
-          "Pick a conversation on the left, or start one by username. Nothing here is stored in readable form on the server.",
+          "Pick a conversation, or start one by username. Nothing here is stored in readable form on the server.",
         ),
       );
       return;

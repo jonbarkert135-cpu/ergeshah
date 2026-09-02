@@ -87,10 +87,51 @@ spinner, the skeleton shimmer, the toast entrance, the dialog entrance, and the 
 spin. Each explains a state change. `prefers-reduced-motion: reduce` removes all of them —
 there is nothing in this interface that is worth overriding that request for.
 
-## Accessibility, briefly
+## Accessibility (point 40)
 
-Focus is always visible (`:focus-visible`, a 2 px ring in a token colour, never removed).
-Every interactive element is a real button or input, so keyboard and screen readers work
-without ARIA patching. Toasts live in a `role="status"` region; loading regions carry
-`aria-busy`. Colour never carries meaning alone — a status is a word in a tag, and the tag's
-colour is a second signal.
+Not a pass at the end; a property of the helpers every view is built from.
+
+- **Semantic HTML first.** Navigation is `<nav aria-label="Primary">` with links (history,
+  middle-click, link lists), pages start with one `<h1>`, data is a `<table>` with `<thead>`
+  and `scope="col"`, questions are `<dialog>` with `<form method="dialog">`. ARIA appears
+  only where HTML has no word for it: `role="log"` on the message history, `aria-pressed` on
+  the buyer/seller toggle, `aria-expanded` on the address reveal.
+- **Every control has a name.** `field()` associates the label (`for`/`id`) and wires the
+  hint with `aria-describedby`; controls without a visible label carry `aria-label`. The
+  browser pass checks the page for controls that have neither.
+- **Keyboard.** A skip link is the first tab stop. A hash navigation moves focus to the new
+  `<h1>` (`announce()`), so a screen reader hears the page change and the keyboard starts at
+  the content, not on a button from the previous view. Dialogs trap and return focus
+  natively; Escape cancels, Enter submits.
+- **No `window.prompt`/`confirm`/`alert`.** They have no label, no hint and no styling. The
+  lint rule `browser-prompt` refuses them; `formDialog()` and `confirmDialog()` replace them.
+- **Contrast is computed, not assumed.** `test/design.test.ts` resolves every text token
+  against every surface token in both themes and fails below 4.5:1. The first run of that
+  test failed: `--text-faint` was 3.65–4.35 and the light theme's `--danger` 3.66. Both were
+  fixed by adding palette steps, not by weakening the rule.
+- **Visible focus** everywhere (`:focus-visible`, 2 px ring in a token colour); a focused
+  heading shows no ring because it is a landing point, not a control. Toasts are a
+  `role="status"` live region; nothing else is live — the whole app used to be, which reads
+  every render aloud.
+
+## Mobile first (point 41)
+
+Breakpoints: 640 px (phone), 860 px (tablet), and the content width of 1120 px. Everything
+below is in the stylesheet's responsive section and asserted by `test/design.test.ts`.
+
+- **Navigation** becomes a fixed bar along the bottom under 640 px, every destination
+  visible, under the thumb. (Six labels do not fit beside the brand at 360 px, and a strip
+  that scrolls with its scrollbar hidden looks like three.) The header loses its
+  `backdrop-filter` there, because that property makes it the containing block for fixed
+  descendants.
+- **Tables stack.** `table()` puts each column's name on its cells (`data-label`); below
+  640 px the header row disappears and each row is a labelled block.
+- **Messaging is the screen** on a phone: the conversation list is a strip above, the
+  history scrolls in its own box, and the composer is a `<form>` that sticks above the
+  navigation bar. Inputs are 16 px so iOS does not zoom into them.
+- **Touch targets** are 44 px on coarse pointers (`@media (pointer: coarse)` raises
+  `--control-height`); the browser pass lists any visible control shorter than that.
+- **Checked in a real browser**, not only in CSS: Chromium at 360 × 740 with touch and at
+  1280 × 800, both themes, the whole path from registration through ordering, text delivery,
+  dispute and moderation. That pass is what found the bottom bar pinned to the header and the
+  skeleton widths silently dropped by the style-src policy.

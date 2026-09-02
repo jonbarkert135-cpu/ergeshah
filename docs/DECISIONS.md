@@ -835,3 +835,38 @@ price is a second write per listing change and the tokeniser's opinions: no subs
 inside a word ("synth" finds "synthesizer", "thesi" does not), and no stemming, so "guitars"
 and "guitar" are different terms. If that becomes the complaint, the lazy fix is indexing a
 few suffixes per word, not a search engine.
+
+## ADR-0031 — Accessibility and the small screen as properties of the helpers
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Points 40–42: accessibility that is not bolted on at the end, a product that
+works from a phone to a large screen with the messenger treated with particular care, and
+domain boundaries without microservices. The client had `<label>` elements next to inputs
+but not associated with them, six `window.prompt` calls, tables without `<thead>`, an
+`aria-live` region around the entire application, a header navigation that hid three of its
+six destinations on a phone, and text tokens that failed WCAG AA in both themes. None of
+that was visible to the test suite.
+
+**Decision.**
+
+- Put the properties into the three helpers every view uses — `field()`, `table()`,
+  `formDialog()` — and add `announce()` for hash navigation. A view cannot then forget them.
+- Refuse the alternatives by lint (`browser-prompt`, `raw-table`) and by test: contrast is
+  computed from the tokens, the responsive rules are asserted, and the shell is checked for
+  the skip link and the absence of a global live region.
+- Below 640 px the navigation is a bottom bar; tables stack; the composer is a form under the
+  thumb; controls are 44 px on touch.
+- Domain boundaries are module boundaries in one process (`docs/ARCHITECTURE.md`), enforced
+  by `test/architecture.test.ts` reading every import. Route modules never import each
+  other; shared logic lives in `lib/`. The one refactor this forced was moving the report
+  constants and reputation queries out of route files.
+
+**Found by the browser pass, not by tests.** Skeleton widths were inline styles, dropped
+silently by `style-src 'self'` — the same class of bug as ADR-0027's. The bottom bar was
+first pinned to the header, because `backdrop-filter` makes an element the containing block
+for `position: fixed` descendants.
+
+**Consequences.** The entry bundle grew from 88 kB to 95 kB (27 kB brotli) for the dialog
+and table helpers; the budget is 150 kB. Two palette steps were added to reach 4.5:1
+(`--grey-550`, `--grey-800`, `--state-danger-deep`) and two unused ones removed.

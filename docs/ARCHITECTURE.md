@@ -64,6 +64,31 @@ test/                RFC vectors, protocol properties, API behaviour, authorizat
 `src/shared` is imported by both sides unchanged; the protocol has exactly one
 implementation, and the tests exercise that implementation, not a copy of it.
 
+## Domain boundaries (a modular monolith)
+
+One process, one container, one database: on a single VPS a network hop between services
+is latency, an attack surface and an operations burden, and buys nothing. The boundaries are
+still real — they are module boundaries, and `test/architecture.test.ts` reads every import
+in `src/` and fails if one crosses a line in the table below.
+
+| Domain | Where it lives | Owns |
+| --- | --- | --- |
+| AUTH | `routes/auth.ts`, `lib/sessions.ts`, `lib/password.ts`, `lib/pgp.ts` | accounts, sessions, second factor, recovery, deletion |
+| IDENTITY | `routes/keys.ts`, `shared/crypto/identity.ts`, `vault.ts` | devices, prekeys, the sealed vault, device linking |
+| MESSAGING | `routes/messages.ts`, `client/messaging.ts` | store-and-forward envelopes, delivery, acknowledgement |
+| CRYPTO | `shared/crypto/*` | the protocol: one implementation, imported by both sides, imports neither |
+| MARKETPLACE / SELLERS / ORDERS / REVIEWS | `routes/market.ts`, `lib/reputation.ts` | listings, applications, the order state machine, reviews and reputation |
+| DELIVERY (STORAGE) | `routes/deliveries.ts` | blind blobs for digital goods, and their deletion |
+| MODERATION / ADMIN | `routes/moderation.ts`, `lib/audit.ts` | reports and disputes, decisions, roles, the audit trail |
+| SECURITY | `app.ts`, `security.ts`, `lib/rate_limit.ts`, `lib/validate.ts` | authentication of requests, CSRF, CSP, limits, input validation at the boundary |
+| INFRASTRUCTURE | `db/*`, `config.ts`, `main.ts`, `routes/static.ts` | drivers, migrations, configuration, the built client and its digests |
+| NOTIFICATIONS | — | deliberately absent: a notification is a server that knows when to contact you. The client polls; see `docs/PRIVACY.md` |
+
+Rules the test enforces: `shared/` imports no side; the client never imports the server and
+vice versa; `lib/` never imports `routes/`; `db/` knows no domain; and one route module never
+imports another — what two domains share goes to `lib/` (validation constants, reputation,
+audit), and the only place they meet is `app.ts`, which wires them.
+
 ## Request lifecycle
 
 1. The reverse proxy terminates TLS and forwards the request with `X-Forwarded-For`.
