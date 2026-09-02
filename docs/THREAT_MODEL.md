@@ -116,3 +116,22 @@ to be a residual risk.
 
 If any of these is unacceptable for your use case, the honest answer is that this
 platform is not yet suitable for it.
+
+## What an attacker gets, per starting point
+
+Scenarios rather than assurances, so each line can be checked against the code.
+
+| They hold | They can | They cannot |
+| --- | --- | --- |
+| A username | Learn that the name is taken — registration says so; login and recovery do not | Anything else |
+| Username + password | Sign in, read that device's history, send as the user | Open the recovery-wrapped copy of the master key, produce a recovery signature, or decrypt messages delivered only to another device |
+| A database dump | See usernames, coarse days, public keys, wrapped blobs, ciphertext | Open a vault, read a message, derive a phrase, or replay a session — tokens are stored hashed |
+| A stolen session cookie | Act as the user until the session expires or is revoked, including reading envelopes the server still holds | Open the vault (the master key is not on the server), change the password (needs the current one), or complete a recovery |
+| A PGP public key | Nothing; it is public | Impersonate the user — only the private half signs |
+| A recovery phrase | Take the account: rotate the password, sign in, open the backup, read history | Nothing more. This is the strongest secret in the system, which is why the interface says so and why the recovery copy of the master key is a choice |
+| A compromised VPS | Everything the server can do: serve modified client code, watch traffic timing and sizes, read the database | Read past messages (forward secrecy, no plaintext at rest), derive keys, or recover a phrase |
+| A compromised browser | Everything that device can do while it is unlocked | Read another device's history, or produce a recovery signature without the phrase |
+
+The last two rows are the ones to reread. A hostile server serving modified JavaScript is
+the residual risk this architecture cannot close on its own; the answer is reproducible
+builds with published hashes (roadmap CRY-2), not a promise.

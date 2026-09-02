@@ -8,7 +8,17 @@
  */
 import { api } from "./api.ts";
 import { sodiumReady } from "../shared/crypto/sodium.ts";
-import { deriveAccountKeys, openVault, sealVault, type SealedVault } from "../shared/crypto/vault.ts";
+import {
+  deriveAccountKeys,
+  generateMasterKey,
+  openVault,
+  sealVault,
+  unwrapMasterKey,
+  wrapMasterKey,
+  type KeyEnvelope,
+  type SealedVault,
+  type VaultBackup,
+} from "../shared/crypto/vault.ts";
 import {
   createDeviceIdentity,
   generateOneTimePreKeys,
@@ -59,9 +69,12 @@ const STORAGE_KEY = "symvolon.vault.v2";
 
 export const state: {
   account: Account | null;
-  vaultKey: Uint8Array | null;
+  /** The key that seals the vault. Random, unwrapped at unlock, never derived directly. */
+  masterKey: Uint8Array | null;
   vault: VaultContents | null;
-} = { account: null, vaultKey: null, vault: null };
+  /** The wrapped copies as last written, so a rewrap keeps the one it is not touching. */
+  envelopes: { password: KeyEnvelope; recovery?: KeyEnvelope | null } | null;
+} = { account: null, masterKey: null, vault: null, envelopes: null };
 
 export async function ready(): Promise<void> {
   await sodiumReady();
@@ -121,13 +134,52 @@ export function deriveKeys(username: string, password: string) {
   return deriveAccountKeys(username, password);
 }
 
-export function unlockVault(vaultKey: Uint8Array, sealed: SealedVault): VaultContents {
-  return JSON.parse(fromUtf8(openVault(vaultKey, sealed))) as VaultContents;
+/**
+ * Open a backup with a wrapping key: unwrap the master key, then the vault. Which
+ * envelope is used decides what the caller had to know — a password or a phrase.
+ */
+export function unlockBackup(
+  wrapKey: Uint8Array,
+  backup: VaultBackup,
+  route: "password" | "recovery" = "password",
+): { vault: VaultContents; masterKey: Uint8Array } {
+  const envelope = route === "password" ? backup.password : backup.recovery;
+  if (!envelope) throw new Error("this backup has no recovery copy of its keys");
+  const masterKey = unwrapMasterKey(wrapKey, envelope);
+  return {
+    vault: JSON.parse(fromUtf8(openVault(masterKey, backup.vault))) as VaultContents,
+    masterKey,
+  };
 }
 
-function sealCurrentVault(): SealedVault {
-  if (!state.vaultKey || !state.vault) throw new Error("vault is locked");
-  return sealVault(state.vaultKey, utf8(JSON.stringify(state.vault)));
+function currentBackup(): VaultBackup {
+  if (!state.masterKey || !state.vault || !state.envelopes) throw new Error("vault is locked");
+  return {
+    v: 3,
+    vault: sealVault(state.masterKey, utf8(JSON.stringify(state.vault))),
+    password: state.envelopes.password,
+    recovery: state.envelopes.recovery ?? null,
+  };
+}
+
+/** The current vault, sealed under the current master key. Used when rewrapping keys. */
+export function sealedVaultNow(): SealedVault {
+  if (!state.masterKey || !state.vault) throw new Error("vault is locked");
+  return sealVault(state.masterKey, utf8(JSON.stringify(state.vault)));
+}
+
+/** Start a brand-new vault: a random master key, wrapped for each route we were given. */
+export function initialiseVault(
+  vault: VaultContents,
+  wrapKeys: { password: Uint8Array; recovery?: Uint8Array | null },
+): void {
+  const masterKey = generateMasterKey();
+  state.vault = vault;
+  state.masterKey = masterKey;
+  state.envelopes = {
+    password: wrapMasterKey(wrapKeys.password, masterKey),
+    recovery: wrapKeys.recovery ? wrapMasterKey(wrapKeys.recovery, masterKey) : null,
+  };
 }
 
 /**
@@ -138,19 +190,21 @@ function sealCurrentVault(): SealedVault {
  * vault would destroy the only copy of that device's keys.
  */
 export async function persistVault(sync = true): Promise<void> {
-  if (!state.vault || !state.vaultKey) return;
-  const sealed = sealCurrentVault();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sealed));
+  if (!state.vault || !state.masterKey || !state.envelopes) return;
+  const backup = currentBackup();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(backup));
   if (sync && !state.vault.linked) {
-    await api("/api/keys/vault", { method: "PUT", body: { sealedVault: sealed } }).catch(() => {
+    await api("/api/keys/vault", { method: "PUT", body: { sealedVault: backup } }).catch(() => {
       /* offline or rate-limited: the local copy is authoritative anyway */
     });
   }
 }
 
-export function localSealedVault(): SealedVault | null {
+export function localSealedVault(): VaultBackup | null {
   const raw = localStorage.getItem(STORAGE_KEY);
-  return raw ? (JSON.parse(raw) as SealedVault) : null;
+  if (!raw) return null;
+  const parsed = JSON.parse(raw) as VaultBackup;
+  return parsed.v === 3 ? parsed : null;
 }
 
 export function forgetLocalVault(): void {
@@ -210,10 +264,11 @@ export async function publishDevice(label: string | null = null): Promise<void> 
 }
 
 export function lock(): void {
-  state.vaultKey?.fill(0);
-  state.vaultKey = null;
+  state.masterKey?.fill(0);
+  state.masterKey = null;
   state.vault = null;
   state.account = null;
+  state.envelopes = null;
 }
 
 /**
@@ -221,27 +276,41 @@ export function lock(): void {
  * the vault re-sealed under the new vault key in one request, because a password that
  * authenticates but no longer opens the vault is worse than no change at all.
  */
+/**
+ * Change the password. Only the password-wrapped copy of the master key is rewrapped —
+ * 32 bytes — so the vault, the recovery copy and every session key stay exactly as they
+ * are. The recovery phrase keeps working, which is the point of the indirection.
+ */
 export async function changePassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<void> {
-  if (!state.account || !state.vault) throw new Error("unlock the vault first");
+  if (!state.account || !state.vault || !state.masterKey || !state.envelopes) {
+    throw new Error("unlock the vault first");
+  }
   const current = deriveAccountKeys(state.account.username, currentPassword);
   const next = deriveAccountKeys(state.account.username, newPassword);
-  const sealed = sealVault(next.vaultKey, utf8(JSON.stringify(state.vault)));
+  // Prove the current password locally too: the server checks the auth secret, but only
+  // the wrap key can open the envelope, and a mismatch here means a corrupt backup.
+  unwrapMasterKey(current.wrapKey, state.envelopes.password).fill(0);
+
+  state.envelopes = {
+    password: wrapMasterKey(next.wrapKey, state.masterKey),
+    recovery: state.envelopes.recovery ?? null,
+  };
+  const backup = currentBackup();
   await api("/api/auth/password", {
     method: "POST",
     body: {
       currentAuthSecret: toBase64Url(current.authSecret),
       newAuthSecret: toBase64Url(next.authSecret),
-      sealedVault: sealed,
+      sealedVault: backup,
     },
   });
   current.authSecret.fill(0);
-  current.vaultKey.fill(0);
-  state.vaultKey?.fill(0);
-  state.vaultKey = next.vaultKey;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sealed));
+  current.wrapKey.fill(0);
+  next.wrapKey.fill(0);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(backup));
 }
 
 /** Delete the account server-side, then leave nothing behind in this browser. */
@@ -253,7 +322,7 @@ export async function deleteAccount(password: string): Promise<void> {
     body: { authSecret: toBase64Url(keys.authSecret) },
   });
   keys.authSecret.fill(0);
-  keys.vaultKey.fill(0);
+  keys.wrapKey.fill(0);
   forgetLocalVault();
   lock();
 }
@@ -274,12 +343,9 @@ export async function adoptLinkedIdentity(
   const keys = deriveAccountKeys(account.username, devicePassword);
   keys.authSecret.fill(0);
   state.account = account;
-  state.vaultKey = keys.vaultKey;
-  state.vault = {
-    identity: encodeIdentity(identity),
-    deviceId: null,
-    conversations: {},
-    linked: true,
-  };
+  initialiseVault(
+    { identity: encodeIdentity(identity), deviceId: null, conversations: {}, linked: true },
+    { password: keys.wrapKey },
+  );
   await publishDevice("linked device");
 }

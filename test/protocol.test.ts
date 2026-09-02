@@ -23,7 +23,14 @@ import {
   serializeState,
   MAX_SKIP_PER_CHAIN,
 } from "../src/shared/crypto/ratchet.ts";
-import { deriveAccountKeys, openVault, sealVault } from "../src/shared/crypto/vault.ts";
+import {
+  deriveAccountKeys,
+  generateMasterKey,
+  openVault,
+  sealVault,
+  unwrapMasterKey,
+  wrapMasterKey,
+} from "../src/shared/crypto/vault.ts";
 
 const FAST = { opsLimit: 1, memLimit: 8192 };
 
@@ -345,26 +352,33 @@ describe("X3DH + Double Ratchet", () => {
 });
 
 describe("password derivation and vault", () => {
-  it("splits the password into independent auth and vault halves", () => {
+  it("splits the password into independent auth and wrap halves", () => {
     const keys = deriveAccountKeys("Alice", "correct horse battery staple", FAST);
     expect(keys.authSecret.length).toBe(32);
-    expect(keys.vaultKey.length).toBe(32);
-    expect(toBase64Url(keys.authSecret)).not.toBe(toBase64Url(keys.vaultKey));
+    expect(keys.wrapKey.length).toBe(32);
+    expect(toBase64Url(keys.authSecret)).not.toBe(toBase64Url(keys.wrapKey));
     // deterministic for the same inputs, and username-insensitive to case only
     const again = deriveAccountKeys("alice", "correct horse battery staple", FAST);
     expect(toBase64Url(again.authSecret)).toBe(toBase64Url(keys.authSecret));
     const other = deriveAccountKeys("alice2", "correct horse battery staple", FAST);
     expect(toBase64Url(other.authSecret)).not.toBe(toBase64Url(keys.authSecret));
     const wrongPassword = deriveAccountKeys("alice", "correct horse battery stapl", FAST);
-    expect(toBase64Url(wrongPassword.vaultKey)).not.toBe(toBase64Url(keys.vaultKey));
+    expect(toBase64Url(wrongPassword.wrapKey)).not.toBe(toBase64Url(keys.wrapKey));
   });
 
-  it("seals and opens the vault, and rejects the wrong key", () => {
+  it("seals the vault with a master key, wrapped for the password", () => {
     const keys = deriveAccountKeys("alice", "pw-one", FAST);
     const wrong = deriveAccountKeys("alice", "pw-two", FAST);
+    const masterKey = generateMasterKey();
     const secret = fromBase64Url(toBase64Url(createDeviceIdentity(1).identity.privateKey));
-    const sealed = sealVault(keys.vaultKey, secret);
-    expect(toBase64Url(openVault(keys.vaultKey, sealed))).toBe(toBase64Url(secret));
-    expect(() => openVault(wrong.vaultKey, sealed)).toThrow();
+
+    const sealed = sealVault(masterKey, secret);
+    expect(toBase64Url(openVault(masterKey, sealed))).toBe(toBase64Url(secret));
+
+    // The password never touches the vault: it only opens the envelope around the key.
+    const envelope = wrapMasterKey(keys.wrapKey, masterKey);
+    expect(toBase64Url(unwrapMasterKey(keys.wrapKey, envelope))).toBe(toBase64Url(masterKey));
+    expect(() => unwrapMasterKey(wrong.wrapKey, envelope)).toThrow();
+    expect(JSON.stringify(envelope)).not.toContain(toBase64Url(masterKey));
   });
 });

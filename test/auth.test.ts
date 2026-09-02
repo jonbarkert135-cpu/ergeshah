@@ -11,9 +11,13 @@ import {
 } from "./helpers.ts";
 import {
   deriveAccountKeys,
+  deriveRecoveryKeys,
+  generateMasterKey,
   openVault,
   sealVault,
-  type SealedVault,
+  unwrapMasterKey,
+  wrapMasterKey,
+  type VaultBackup,
 } from "../src/shared/crypto/vault.ts";
 import { fromUtf8, utf8 } from "../src/shared/encoding.ts";
 
@@ -48,6 +52,7 @@ describe("registration and login", () => {
       "status",
       "status_reason",
       "created_day",
+      "recovery_public_key",
     ]);
     // No email, no phone, no address, no IP, and the stored hash is not the client secret.
     expect(String(stored?.password_hash)).toMatch(/^scrypt\$32768\$8\$1\$/);
@@ -177,10 +182,32 @@ describe("privacy of what is stored", () => {
   });
 });
 
-/** What the browser does: seal a vault under the key derived from a password. */
-function sealedFor(username: string, password: string, note: string): SealedVault {
+/**
+ * What the browser does: a random master key seals the vault, and the master key itself
+ * is wrapped under the password (and under the recovery phrase, when there is one).
+ */
+function backupFor(
+  username: string,
+  password: string,
+  note: string,
+  phrase?: string,
+): VaultBackup {
   const keys = deriveAccountKeys(username, password, FAST_KDF);
-  return sealVault(keys.vaultKey, utf8(JSON.stringify({ note })));
+  const masterKey = generateMasterKey();
+  const recovery = phrase ? deriveRecoveryKeys(username, phrase, FAST_KDF) : null;
+  return {
+    v: 3,
+    vault: sealVault(masterKey, utf8(JSON.stringify({ note }))),
+    password: wrapMasterKey(keys.wrapKey, masterKey),
+    recovery: recovery ? wrapMasterKey(recovery.wrapKey, masterKey) : null,
+  };
+}
+
+/** Open a backup the way a browser would, and return what was inside the vault. */
+function openBackup(username: string, password: string, backup: VaultBackup): unknown {
+  const keys = deriveAccountKeys(username, password, FAST_KDF);
+  const masterKey = unwrapMasterKey(keys.wrapKey, backup.password);
+  return JSON.parse(fromUtf8(openVault(masterKey, backup.vault)));
 }
 
 describe("changing the password", () => {
@@ -188,7 +215,7 @@ describe("changing the password", () => {
   it("moves the auth secret and the sealed vault together, and drops other sessions", async () => {
     const client = await register(server, "alice");
     await client.put("/api/keys/vault", {
-      sealedVault: sealedFor("alice", "correct horse battery staple", "before"),
+      sealedVault: backupFor("alice", "correct horse battery staple", "before"),
     });
 
     // A second browser, signed in under the old password.
@@ -203,7 +230,7 @@ describe("changing the password", () => {
     const changed = await client.post("/api/auth/password", {
       currentAuthSecret: authSecretFor("alice", "correct horse battery staple"),
       newAuthSecret: authSecretFor("alice", "a much longer passphrase entirely"),
-      sealedVault: sealedFor("alice", "a much longer passphrase entirely", "after"),
+      sealedVault: backupFor("alice", "a much longer passphrase entirely", "after"),
     });
     expect(changed.status).toBe(200);
 
@@ -220,7 +247,7 @@ describe("changing the password", () => {
     ).toBe(401);
     const relogin = new TestClient(server);
     await relogin.get("/");
-    const fresh = await relogin.post<{ sealedVault: SealedVault }>(
+    const fresh = await relogin.post<{ sealedVault: VaultBackup }>(
       "/api/auth/login",
       {
         username: "alice",
@@ -229,13 +256,13 @@ describe("changing the password", () => {
     );
     expect(fresh.status).toBe(200);
 
-    // And the stored vault opens with the new vault key, not the old one.
-    const newKeys = deriveAccountKeys("alice", "a much longer passphrase entirely", FAST_KDF);
-    const oldKeys = deriveAccountKeys("alice", "correct horse battery staple", FAST_KDF);
-    expect(JSON.parse(fromUtf8(openVault(newKeys.vaultKey, fresh.body.sealedVault)))).toEqual({
+    // And the stored backup opens under the new password, not the old one.
+    expect(openBackup("alice", "a much longer passphrase entirely", fresh.body.sealedVault!)).toEqual({
       note: "after",
     });
-    expect(() => openVault(oldKeys.vaultKey, fresh.body.sealedVault)).toThrow();
+    expect(() =>
+      openBackup("alice", "correct horse battery staple", fresh.body.sealedVault!),
+    ).toThrow();
 
     // The other browser's session was authorised under the old password: it is gone.
     expect((await other.get("/api/auth/me")).status).toBe(401);
@@ -246,13 +273,13 @@ describe("changing the password", () => {
   it("refuses a wrong current password, and refuses to orphan an existing vault", async () => {
     const client = await register(server, "bob");
     await client.put("/api/keys/vault", {
-      sealedVault: sealedFor("bob", "correct horse battery staple", "keys"),
+      sealedVault: backupFor("bob", "correct horse battery staple", "keys"),
     });
 
     const wrong = await client.post("/api/auth/password", {
       currentAuthSecret: authSecretFor("bob", "not my password"),
       newAuthSecret: authSecretFor("bob", "a much longer passphrase entirely"),
-      sealedVault: sealedFor("bob", "a much longer passphrase entirely", "keys"),
+      sealedVault: backupFor("bob", "a much longer passphrase entirely", "keys"),
     });
     expect(wrong.status).toBe(401);
 
@@ -266,10 +293,9 @@ describe("changing the password", () => {
     // Neither failure changed anything.
     expect((await client.get("/api/auth/me")).status).toBe(200);
     const stored = await server.db.get<{ sealed: string }>("SELECT sealed FROM vaults");
-    const keys = deriveAccountKeys("bob", "correct horse battery staple", FAST_KDF);
-    expect(JSON.parse(fromUtf8(openVault(keys.vaultKey, JSON.parse(stored!.sealed))))).toEqual({
-      note: "keys",
-    });
+    expect(
+      openBackup("bob", "correct horse battery staple", JSON.parse(stored!.sealed) as VaultBackup),
+    ).toEqual({ note: "keys" });
   });
 });
 
@@ -279,7 +305,7 @@ describe("deleting an account", () => {
     const bob = await register(server, "bob");
     await publishDevice(bob);
     await alice.put("/api/keys/vault", {
-      sealedVault: sealedFor("alice", "correct horse battery staple", "keys"),
+      sealedVault: backupFor("alice", "correct horse battery staple", "keys"),
     });
     const aliceDevice = await publishDevice(alice);
     const sent = await bob.post("/api/messages", {

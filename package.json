@@ -23,6 +23,7 @@
     "pg": "^8.13.1"
   },
   "devDependencies": {
+    "@scure/bip39": "^2.4.0",
     "@types/libsodium-wrappers-sumo": "^0.7.8",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",

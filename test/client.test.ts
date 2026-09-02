@@ -9,9 +9,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startTestServer, type TestServer } from "./helpers.ts";
 import { toBase64Url } from "../src/shared/encoding.ts";
-import { deriveAccountKeys } from "../src/shared/crypto/vault.ts";
+import { deriveAccountKeys, deriveRecoveryKeys } from "../src/shared/crypto/vault.ts";
+import { generatePhrase } from "../src/shared/crypto/mnemonic.ts";
 import { api } from "../src/client/api.ts";
 import {
+  initialiseVault,
   localSealedVault,
   lock,
   newVault,
@@ -19,11 +21,13 @@ import {
   publishDevice,
   ready,
   state,
-  unlockVault,
+  unlockBackup,
 } from "../src/client/state.ts";
 import { conversations, receiveMessages, sendMessage, startConversation } from "../src/client/messaging.ts";
 
 const FAST = { opsLimit: 1, memLimit: 8192 };
+/** Generated once libsodium is up, in `beforeEach`; one phrase for the whole file. */
+let recoveryPhrase = "";
 let server: TestServer;
 
 function installBrowserGlobals(): void {
@@ -82,11 +86,15 @@ function installFetch(): void {
 /** What `renderAuth` does, minus the DOM. */
 async function signUp(username: string, password = "a rather long passphrase"): Promise<void> {
   const keys = deriveAccountKeys(username, password, FAST);
-  state.vault = newVault();
-  state.vaultKey = keys.vaultKey;
+  const recovery = deriveRecoveryKeys(username, recoveryPhrase, FAST);
+  initialiseVault(newVault(), { password: keys.wrapKey, recovery: recovery.wrapKey });
   const account = await api<{ id: string; username: string; role: string }>("/api/auth/register", {
     method: "POST",
-    body: { username, authSecret: toBase64Url(keys.authSecret) },
+    body: {
+      username,
+      authSecret: toBase64Url(keys.authSecret),
+      recoveryPublicKey: toBase64Url(recovery.signPublicKey),
+    },
   });
   state.account = { id: account.id, username: account.username, role: account.role as never };
   await persistVault();
@@ -95,6 +103,7 @@ async function signUp(username: string, password = "a rather long passphrase"): 
 
 beforeEach(async () => {
   await ready();
+  recoveryPhrase ||= generatePhrase(24);
   server = await startTestServer();
   installBrowserGlobals();
   installFetch();
@@ -111,29 +120,39 @@ describe("browser client against the real server", () => {
 
     expect(state.vault?.deviceId).toBeTruthy();
     const sealed = localSealedVault();
-    expect(sealed?.v).toBe(2);
+    expect(sealed?.v).toBe(3);
     // What is on disk is ciphertext, not keys.
     expect(JSON.stringify(sealed)).not.toContain(state.vault!.identity.identity.privateKey);
 
     const stored = await server.db.get<{ sealed: string }>("SELECT sealed FROM vaults");
-    expect(JSON.parse(stored!.sealed).data).toBe(sealed!.data);
+    expect(JSON.parse(stored!.sealed).vault.data).toBe(sealed!.vault.data);
 
     // And it opens again with the password-derived key.
     const keys = deriveAccountKeys("alice", "a rather long passphrase", FAST);
-    expect(unlockVault(keys.vaultKey, sealed!).deviceId).toBe(state.vault!.deviceId);
+    expect(unlockBackup(keys.wrapKey, sealed!).vault.deviceId).toBe(state.vault!.deviceId);
   });
 
   it("carries a two-way conversation between two client instances", async () => {
     await fetch("/");
     await signUp("alice");
-    const alice = { account: state.account, vault: state.vault, vaultKey: state.vaultKey };
+    const alice = {
+      account: state.account,
+      vault: state.vault,
+      masterKey: state.masterKey,
+      envelopes: state.envelopes,
+    };
 
     await api("/api/auth/logout", { method: "POST" });
     lock();
     localStorage.clear();
     await fetch("/");
     await signUp("bob");
-    const bob = { account: state.account, vault: state.vault, vaultKey: state.vaultKey };
+    const bob = {
+      account: state.account,
+      vault: state.vault,
+      masterKey: state.masterKey,
+      envelopes: state.envelopes,
+    };
 
     const use = (who: typeof alice) => Object.assign(state, who);
 

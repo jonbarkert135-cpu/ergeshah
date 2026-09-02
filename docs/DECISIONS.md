@@ -187,3 +187,29 @@ sealed vault, and would buy exactly nothing — the laziest correct change is no
 **Consequences.** Anyone reading `src/shared/crypto` will find the old name in the labels;
 a comment there and this ADR explain why. If the protocol is ever versioned for real
 (v2 labels), that is the moment to switch the prefix, together with a migration.
+
+## ADR-0014 — A random master key, wrapped once per unlocking route
+
+**Status:** accepted (2026-09-02)
+
+**Context.** The vault was encrypted directly with a password-derived key. That made a
+password change a full re-encryption, and it made recovery impossible in principle: a
+phrase could at best restore *access* to an account whose message keys stayed sealed under
+a forgotten password. The security extension asks for cryptographic recovery, strict key
+separation, and a server that never holds recovery secrets.
+
+**Decision.** The vault is sealed with a master key: 32 random bytes, never derived from
+anything typed. The master key exists only as wrapped blobs, one per route that may unlock
+it — the password wrap key, plus an optional recovery wrap key derived from the phrase.
+Adding a route wraps 32 bytes; changing a password rewraps 32 bytes; the vault is untouched
+by both. Recovery phrases use the BIP-39 *encoding* with a vendored wordlist and about
+fifty lines of our own, cross-checked against `@scure/bip39` in the tests (which stays a
+dev dependency), but not BIP-39's PBKDF2 seed derivation: the entropy goes into Argon2id at
+the same cost as the password path.
+
+**Consequences.** Recovery restores conversations, not just login, and a password change no
+longer invalidates a phrase. The costs: one more indirection to reason about, a backup
+format carrying two envelopes, and one honest trade-off — the recovery copy makes the
+phrase the most valuable secret in the system, so it is offered as a choice with the
+consequence spelled out rather than switched on silently. Declining it means a forgotten
+password loses the history for good.

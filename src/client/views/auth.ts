@@ -4,19 +4,23 @@ import {
   adoptLinkedIdentity,
   deriveKeys,
   forgetLocalVault,
+  initialiseVault,
   localSealedVault,
   newVault,
   persistVault,
   publishDevice,
   state,
-  unlockVault,
+  unlockBackup,
 } from "../state.ts";
 import { claimDeviceLink, newDeviceCode } from "../linking.ts";
-import type { SealedVault } from "../../shared/crypto/vault.ts";
+import { recoverAccount, recoveryMaterial } from "../recovery.ts";
+import { generatePhrase, type PhraseLength } from "../../shared/crypto/mnemonic.ts";
+import { toBase64Url } from "../../shared/encoding.ts";
+import type { VaultBackup } from "../../shared/crypto/vault.ts";
 
 export function renderAuth(root: HTMLElement, onReady: () => void): void {
   clear(root);
-  let mode: "login" | "register" | "link" = localSealedVault() ? "login" : "register";
+  let mode: "login" | "register" | "link" | "recover" = localSealedVault() ? "login" : "register";
   const container = el("div", {});
   root.append(container);
   draw();
@@ -25,6 +29,10 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
     clear(container);
     if (mode === "link") {
       drawLink(message);
+      return;
+    }
+    if (mode === "recover") {
+      drawRecover(message);
       return;
     }
     const username = input("username", { autocomplete: "username", minlength: "3", maxlength: "32" });
@@ -50,6 +58,8 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
           mode === "login" ? "Create an account instead" : "I already have an account"),
         el("button", { type: "button", class: "ghost", onclick: () => { mode = "link"; draw(); } },
           "Link this browser to an account"),
+        el("button", { type: "button", class: "ghost", onclick: () => { mode = "recover"; draw(); } },
+          "Use a recovery phrase"),
       ),
       status,
     );
@@ -140,47 +150,233 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
 
   async function run(username: string, password: string): Promise<void> {
     if (password.length < 12) throw new Error("password must be at least 12 characters");
-    const keys = deriveKeys(username, password);
-    const authSecret = btoa(String.fromCharCode(...keys.authSecret))
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
 
     if (mode === "register") {
-      state.vault = newVault();
-      state.vaultKey = keys.vaultKey;
-      const account = await api<{ id: string; username: string; role: string }>(
-        "/api/auth/register",
-        { method: "POST", body: { username, authSecret } },
-      );
-      state.account = { id: account.id, username: account.username, role: account.role as never };
-      await persistVault();
-      await publishDevice("browser");
-      onReady();
+      // The phrase is generated before the account exists, shown once, and checked here.
+      // Nothing about it reaches the server except a public key derived from it.
+      drawPhrase(username, password);
       return;
     }
 
+    const keys = deriveKeys(username, password);
+    const authSecret = toBase64Url(keys.authSecret);
     const account = await api<{
       id: string;
       username: string;
       role: string;
-      sealedVault: SealedVault | null;
+      sealedVault: VaultBackup | null;
     }>("/api/auth/login", { method: "POST", body: { username, authSecret } });
-    const sealed = localSealedVault() ?? account.sealedVault;
-    state.vaultKey = keys.vaultKey;
-    if (sealed) {
+    const backup = localSealedVault() ?? account.sealedVault;
+    if (backup) {
       try {
-        state.vault = unlockVault(keys.vaultKey, sealed);
+        const opened = unlockBackup(keys.wrapKey, backup);
+        state.vault = opened.vault;
+        state.masterKey = opened.masterKey;
+        state.envelopes = { password: backup.password, recovery: backup.recovery ?? null };
       } catch {
         throw new Error("could not decrypt the local key vault with that password");
       }
     } else {
       // No vault anywhere: this account's old keys are unrecoverable, start a new device.
       forgetLocalVault();
-      state.vault = newVault();
+      initialiseVault(newVault(), { password: keys.wrapKey });
     }
     state.account = { id: account.id, username: account.username, role: account.role as never };
     await publishDevice("browser");
     onReady();
   }
+
+  /** Step two of registration: the phrase, its one-time display, and the confirmation. */
+  function drawPhrase(username: string, password: string): void {
+    let length: PhraseLength = 24;
+    let phrase = generatePhrase(length);
+    render();
+
+    function render(message?: HTMLElement) {
+      clear(container);
+      const words = phrase.split(" ");
+      const grid = el("div", { class: "phrase" });
+      words.forEach((word, index) =>
+        grid.append(el("div", { class: "phrase-word" },
+          el("span", { class: "phrase-index" }, String(index + 1)),
+          el("span", { class: "mono" }, word)),
+        ),
+      );
+
+      const positions = pickPositions(words.length);
+      const answers = positions.map(() => input("word", { autocomplete: "off", spellcheck: "false" }));
+      const status = el("div", {});
+      const finish = el("button", { class: "primary" }, "I have written it down — create the account");
+
+      finish.addEventListener("click", () => {
+        const wrong = positions.filter(
+          (position, index) => answers[index]!.value.trim().toLowerCase() !== words[position - 1],
+        );
+        if (wrong.length > 0) {
+          status.replaceChildren(notice(`Words ${wrong.join(", ")} do not match. Check the list above.`, "error"));
+          return;
+        }
+        finish.disabled = true;
+        status.replaceChildren(notice("Deriving keys — this is deliberately slow…"));
+        setTimeout(() => {
+          void createAccount(username, password, phrase)
+            .catch((error: unknown) => {
+              finish.disabled = false;
+              const text = error instanceof ApiError ? error.message : (error as Error).message;
+              render(notice(text, "error"));
+            });
+        }, 30);
+      });
+
+      const swap = el("button", { class: "ghost", type: "button" },
+        length === 24 ? "Use 12 words instead" : "Use 24 words (recommended)");
+      swap.addEventListener("click", () => {
+        length = length === 24 ? 12 : 24;
+        phrase = generatePhrase(length);
+        render();
+      });
+
+      const download = el("button", { class: "ghost", type: "button" }, "Download as a text file");
+      download.addEventListener("click", () => {
+        const blob = new Blob([`Symvolon recovery phrase for @${username}\n\n${phrase}\n`], {
+          type: "text/plain",
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = el("a", { href: url, download: `symvolon-recovery-${username}.txt` });
+        anchor.click();
+        URL.revokeObjectURL(url);
+      });
+
+      const copy = el("button", { class: "ghost", type: "button" }, "Copy");
+      copy.addEventListener("click", () => void navigator.clipboard?.writeText(phrase));
+
+      container.append(
+        el(
+          "div",
+          { class: "card" },
+          el("h1", {}, "Your recovery phrase"),
+          el("p", { class: "lede" },
+            "This is the only way back into your account if you forget your password. It is shown once, here, and never again — not by us, not by anyone."),
+          grid,
+          el("div", { class: "row", style: "margin-top:12px" }, copy, download, swap),
+          notice(
+            "Write it on paper and keep it somewhere private. Anyone who has these words can take the account and read its history; if you lose them along with your password, nobody can restore access — there is no email reset and no administrator override.",
+          ),
+          el("h2", {}, "Confirm you have it"),
+          el("p", { class: "muted" }, `Type words ${positions.join(", ")} — they are checked in this browser and never sent anywhere.`),
+          el("div", { class: "confirm" },
+            ...positions.map((position, index) => field(`Word ${position}`, answers[index]!)),
+          ),
+          el("div", { class: "row", style: "margin-top:16px" }, finish,
+            el("button", { class: "ghost", type: "button", onclick: () => { mode = "register"; draw(); } }, "Back"),
+          ),
+          status,
+        ),
+      );
+      if (message) status.append(message);
+    }
+  }
+
+  async function createAccount(username: string, password: string, phrase: string): Promise<void> {
+    const keys = deriveKeys(username, password);
+    const recovery = recoveryMaterial(username, phrase);
+    try {
+      initialiseVault(newVault(), { password: keys.wrapKey, recovery: recovery.wrapKey });
+      const account = await api<{ id: string; username: string; role: string }>(
+        "/api/auth/register",
+        {
+          method: "POST",
+          body: {
+            username,
+            authSecret: toBase64Url(keys.authSecret),
+            recoveryPublicKey: recovery.publicKey,
+          },
+        },
+      );
+      state.account = { id: account.id, username: account.username, role: account.role as never };
+      await persistVault();
+      await publishDevice("browser");
+      onReady();
+    } finally {
+      recovery.forget();
+      keys.authSecret.fill(0);
+    }
+  }
+
+  /** Recovery: phrase in, new password out, every old session gone. */
+  function drawRecover(message?: HTMLElement) {
+    const username = input("username", { autocomplete: "username" });
+    const phrase = el("textarea", { rows: "3", class: "mono", placeholder: "twelve or twenty-four words", style: "width:100%" });
+    const password = input("new password", { type: "password", minlength: "12" });
+    const status = el("div", {});
+    const submit = el("button", { class: "primary" }, "Recover the account");
+
+    submit.addEventListener("click", () => {
+      const words = (phrase as HTMLTextAreaElement).value;
+      if (password.value.length < 12) {
+        status.replaceChildren(notice("The new password needs at least 12 characters.", "error"));
+        return;
+      }
+      submit.disabled = true;
+      status.replaceChildren(notice("Deriving keys from the phrase — this is deliberately slow…"));
+      setTimeout(() => {
+        void recoverAccount(username.value.trim().toLowerCase(), words, password.value)
+          .then(async (result) => {
+            state.account = result.account;
+            if (result.backup && result.masterKey) {
+              const opened = unlockBackup(
+                deriveKeys(result.account.username, password.value).wrapKey,
+                result.backup,
+              );
+              state.vault = opened.vault;
+              state.masterKey = opened.masterKey;
+              state.envelopes = { password: result.backup.password, recovery: result.backup.recovery };
+              await persistVault(false);
+            } else {
+              forgetLocalVault();
+              initialiseVault(newVault(), {
+                password: deriveKeys(result.account.username, password.value).wrapKey,
+              });
+              await persistVault();
+            }
+            await publishDevice("recovered browser");
+            onReady();
+          })
+          .catch((error: unknown) => {
+            submit.disabled = false;
+            const text = error instanceof ApiError ? error.message : (error as Error).message;
+            drawRecover(notice(text, "error"));
+          });
+      }, 30);
+    });
+
+    container.append(
+      el(
+        "div",
+        { class: "card" },
+        el("h1", {}, "Recover with your phrase"),
+        el("p", { class: "lede" },
+          "The words are turned into keys in this browser. They are never sent to the server — it only sees a signature that proves you hold them."),
+        field("Username", username),
+        field("Recovery phrase", phrase, "Order matters. Case and spacing do not."),
+        field("New password", password, "At least 12 characters."),
+        notice("Recovering signs out every other session, and sets this password everywhere."),
+        el("div", { class: "row", style: "margin-top:16px" }, submit,
+          el("button", { class: "ghost", type: "button", onclick: () => { mode = "login"; draw(); } }, "Back"),
+        ),
+        status,
+      ),
+    );
+    if (message) status.append(message);
+  }
+}
+
+/** Three positions spread across the phrase, so the check is not all from one corner. */
+function pickPositions(words: number): number[] {
+  const thirds = [
+    1 + Math.floor(Math.random() * Math.floor(words / 3)),
+    1 + Math.floor(words / 3) + Math.floor(Math.random() * Math.floor(words / 3)),
+    1 + Math.floor((2 * words) / 3) + Math.floor(Math.random() * Math.floor(words / 3)),
+  ];
+  return [...new Set(thirds)].sort((a, b) => a - b);
 }
