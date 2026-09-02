@@ -477,47 +477,29 @@ under a non-compete licence (verifiable, not reusable — most of the benefit, m
 protection). Delaying the decision until launch. The owner considered these and chose full
 closure; this ADR records the choice and its price rather than arguing with it further.
 
-## ADR-0023 — The open/closed split is built now, switched on at launch
+## ADR-0023 — One project, one tree: no pre-built open/closed split
 
-**Status:** accepted (2026-09-02); refines ADR-0022, which stays in force meanwhile
+**Status:** accepted (2026-09-02). Records a proposal that was built, reviewed by the owner,
+and reverted the same day.
 
-**Context.** The owner wants the Telegram arrangement eventually — publish the client so
-that outsiders can check the cryptography, keep the server closed so the business logic
-stays private — but not yet: until launch the project stays whole in one repository, and
-the split happens when the product is ready.
+**Context.** Anticipating a future Telegram-style arrangement (published client, closed
+server), a tool was added that assembled the client half into a separate tree and verified
+it built the served bundle byte for byte, running on every push. The owner rejected it: we
+are building one project, and a machine that continuously carves it into two halves is a
+source of mistakes and, worse, of anonymity leaks — the seam between "publishable" and
+"closed" is a new place for a file, a constant or a code path to end up on the wrong side,
+and a mistake there is public before anyone notices.
 
-That is a reasonable sequencing decision and a dangerous one to leave as an intention. A
-split done late is usually a bad split: by then the client imports a helper that lives in
-the server tree, the "shared" directory has grown a database type, and publishing means
-either untangling it under deadline or publishing a subset that no longer builds the thing
-the service actually serves. Telegram's clients are open and its critics still say the
-published source is not demonstrably the app you install; the failure mode is drift, not
-malice.
+**Decision.** Work on the whole project as one tree. No published subset, no second
+licence, no split-maintenance tooling; `scripts/publish-client-source.mjs`, the `audit:oss`
+check and the unused AGPL text are removed. The whole repository stays proprietary
+(ADR-0022) until the owner decides otherwise.
 
-**Decision.** Build the split now, run it in CI, and do not switch it on.
-`scripts/publish-client-source.mjs` assembles the publishable half — `src/client`,
-`src/shared`, the build script, the lockfile, the four server-free test files, and the
-documents that describe the protocol and the threat model — into `dist-oss/`, then *proves
-the assembly is complete* by building it and comparing the output with the real production
-build, byte for byte. `npm run audit:oss` runs that comparison on every push, so a client
-file that starts depending on the closed half breaks the build check the same day it is
-written, and not six months later.
-
-The intended licence for the published half is AGPL-3.0-only (text kept at
-`deploy/client-mirror/LICENSE-AGPL.txt`, unused until then), with the copyright holder also
-using the same files under the proprietary terms of `LICENSE` — the standard dual-licensing
-position, which is why contributions will need an agreement. Until the switch, the whole
-repository remains proprietary under ADR-0022 and every document keeps saying so; nothing
-in this repository is allowed to describe the client as published while it is not.
-
-**Consequences.** One extra esbuild pass in CI (about a second). A list in the publish
-script that has to be extended deliberately when the client grows a new directory — which
-is the point, since the alternative is discovering the omission at launch. And a standing
-constraint for anything written from now on: **whatever is meant to stay closed must not be
-imported by `src/client` or `src/shared`.** `AGENTS.md` states it as a rule.
-
-**What switching it on will require, when the owner decides.** Create the public mirror
-repository, run `npm run publish:client`, push `dist-oss/`, and rewrite the honesty
-paragraphs in `README.md`, `docs/AUDIT.md` and residual risk #1 of `docs/THREAT_MODEL.md`
-so they describe an open client instead of a closed one. Roughly an afternoon, most of it
-prose, precisely because the hard half is already done and tested.
+**Consequences.** Publishing the client later becomes one deliberate piece of work on a
+finished codebase, with a human deciding what goes out, instead of a standing invariant
+maintained by a script nobody re-reads. The properties that made the split verifiable are
+not lost, because they were never part of it: the build is reproducible (ADR-0018), the
+served digests are published at `/build.txt` with subresource integrity, and
+`npm run audit:deployment` compares a live deployment with a local build. Emulating
+Telegram remains a fine ambition; it is a decision to take once, at launch, with the whole
+system in view.

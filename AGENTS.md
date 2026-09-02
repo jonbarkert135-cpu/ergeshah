@@ -45,14 +45,3 @@ scripts (`npm run check`, `npm test`, `npm run audit:*`), never inline commands.
 check is a new script in `package.json`; the workflow calls the optional ones with
 `--if-present`, so it keeps working before the script exists. Only a change that cannot
 be expressed as an npm script justifies asking for a re-copy.
-
-## The client half will be published one day
-
-`src/client/**` and `src/shared/**` are the half of this codebase that is meant to become
-public (ADR-0023) — the split is already assembled and checked by `npm run audit:oss`.
-Therefore: never import server-only code from them, and never put anything there that must
-stay closed (business rules, pricing logic, internal endpoints beyond the public API,
-anything embarrassing). Shared code is protocol code. If a change makes the published
-subset stop building the served bundle, the audit fails and the change is wrong, not the
-audit.
-
