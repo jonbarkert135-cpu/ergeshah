@@ -69,17 +69,22 @@ describe("recovery phrases", () => {
   });
 
   it("rejects a phrase with a typo, a wrong word, or the wrong length", () => {
-    const phrase = generatePhrase(24);
-    const words = phrase.split(" ");
+    // Fixed vectors, not a generated phrase: a random 24-word phrase whose last word is
+    // replaced still passes the 8-bit checksum about once in 256 runs, and this test used
+    // to fail in CI at exactly that rate. `abandon…art` and `abandon…about` are the
+    // all-zero-entropy phrases from the BIP-39 test vectors.
+    const words = [...Array<string>(23).fill("abandon"), "art"];
+    expect(phraseIsValid(words.join(" "))).toBe(true);
+    expect(phraseIsValid([...Array<string>(11).fill("abandon"), "about"].join(" "))).toBe(true);
 
     // Swapping two words keeps every word legal but breaks the checksum.
     const swapped = [...words];
-    [swapped[0], swapped[1]] = [swapped[1]!, swapped[0]!];
+    [swapped[0], swapped[23]] = [swapped[23]!, swapped[0]!];
     expect(phraseIsValid(swapped.join(" "))).toBe(false);
 
     expect(() => decodePhrase([...words.slice(0, 23), "notaword"].join(" "))).toThrow(/not a word/);
     expect(() => decodePhrase(words.slice(0, 23).join(" "))).toThrow(/12 or 24/);
-    expect(() => decodePhrase([...words.slice(0, 23), words[0]!].join(" "))).toThrow(/typo/);
+    expect(() => decodePhrase([...words.slice(0, 23), "abandon"].join(" "))).toThrow(/typo/);
   });
 
   it("survives the way people actually write it down", () => {
