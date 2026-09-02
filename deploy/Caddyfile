@@ -29,8 +29,6 @@ example.com {
 	}
 }
 
-# Tor onion service (optional): no TLS, no ACME, no logs.
-# symvolonxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion:80 {
-# 	log { output discard }
-# 	reverse_proxy app:8080
-# }
+# The onion service does not pass through Caddy at all: the `tor` container in
+# docker-compose.yml maps HiddenServicePort 80 straight to app:8080, so there is no second
+# place where a request could be logged or a header rewritten. Nothing to configure here.

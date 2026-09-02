@@ -21,6 +21,8 @@ export interface Config {
   /** Ciphertext cap for one order delivery, in bytes before base64url expansion. */
   maxDeliveryBytes: number;
   deliveryTtlMs: number;
+  /** v3 onion address of this service, advertised to Tor Browser. Empty = not published. */
+  onionHostname: string;
   behindTls: boolean;
 }
 
@@ -33,6 +35,21 @@ function requiredSecret(name: string, env: string): string {
     );
   }
   return `development-only-${name}-not-secret-0000000000`;
+}
+
+const ONION_V3 = /^[a-z2-7]{56}\.onion$/;
+
+/**
+ * Validated at boot rather than trusted: this string is put into a header that tells Tor
+ * Browser where to redirect, so a typo or an injected value is worth catching here.
+ */
+function onionHostname(value: string | undefined): string {
+  if (!value) return "";
+  const host = value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (!ONION_V3.test(host)) {
+    throw new Error("ONION_HOSTNAME must be a v3 onion address, e.g. abcd…56chars….onion");
+  }
+  return host;
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -51,6 +68,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     maxEnvelopeBytes: Number(process.env.MAX_ENVELOPE_BYTES ?? 64 * 1024),
     maxDeliveryBytes: Number(process.env.MAX_DELIVERY_BYTES ?? 5 * 1024 * 1024),
     deliveryTtlMs: Number(process.env.DELIVERY_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
+    onionHostname: onionHostname(process.env.ONION_HOSTNAME),
     behindTls: process.env.BEHIND_TLS !== "false",
     ...overrides,
   };

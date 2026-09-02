@@ -49,14 +49,21 @@ services:
   #     test: ["CMD-SHELL", "pg_isready -U symvolon"]
   #     interval: 10s
 
-  # Uncomment to publish the same application as a Tor onion service. See
-  # docs/DEPLOYMENT.md — the onion service reaches `app` directly, so the clearnet proxy
-  # and the onion entrypoint never share a log or a TLS terminator.
+  # Uncomment to publish the same application as a Tor onion service. It talks to `app`
+  # directly on the internal network, so the clearnet proxy and the onion entrypoint share
+  # no TLS terminator and no log. Read the onion section of docs/DEPLOYMENT.md first —
+  # the address lands in tor-data, and the cookie/CSP behaviour adapts to it automatically.
   # tor:
-  #   image: ghcr.io/hectorm/tor-proxy:latest
+  #   build:
+  #     context: ./tor
   #   restart: unless-stopped
-  #   volumes: [tor-data:/var/lib/tor]
+  #   depends_on: [app]
+  #   volumes:
+  #     - ./tor/torrc:/etc/tor/torrc:ro
+  #     - tor-data:/var/lib/tor
   #   networks: [internal]
+  #   security_opt: ["no-new-privileges:true"]
+  #   cap_drop: [ALL]
 
 volumes:
   app-data:

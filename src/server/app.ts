@@ -120,19 +120,46 @@ function clientAddress(request: FastifyRequest): string {
   return request.ip ?? "unknown";
 }
 
-export function sessionCookie(config: Config, token: string, maxAgeSeconds: number): string {
+/**
+ * `Secure` means "HTTPS only", which is right everywhere except one place: an onion
+ * service is reached over plain HTTP *inside* an authenticated, encrypted Tor circuit, so
+ * a Secure cookie would simply never be sent and nobody could log in. Tor Browser already
+ * treats `.onion` origins as trustworthy for exactly this reason.
+ *
+ * The Host header is client-controlled, but the only thing a client can do by lying is
+ * weaken its own cookie on its own request — the browser sends the real host.
+ */
+export function isOnionHost(host: string | undefined): boolean {
+  return typeof host === "string" && /\.onion(?::\d+)?$/i.test(host.trim());
+}
+
+export function cookiesAreSecure(config: Config, request: FastifyRequest): boolean {
+  return config.behindTls && !isOnionHost(request.headers.host);
+}
+
+export function sessionCookie(
+  config: Config,
+  request: FastifyRequest,
+  token: string,
+  maxAgeSeconds: number,
+): string {
   return serializeCookie(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: config.behindTls,
+    secure: cookiesAreSecure(config, request),
     sameSite: "Strict",
     maxAgeSeconds,
   });
 }
 
-export function csrfCookie(config: Config, token: string, maxAgeSeconds: number): string {
+export function csrfCookie(
+  config: Config,
+  request: FastifyRequest,
+  token: string,
+  maxAgeSeconds: number,
+): string {
   return serializeCookie(CSRF_COOKIE, token, {
     httpOnly: false,
-    secure: config.behindTls,
+    secure: cookiesAreSecure(config, request),
     sameSite: "Strict",
     maxAgeSeconds,
   });

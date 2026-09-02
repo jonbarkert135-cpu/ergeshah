@@ -4,7 +4,7 @@
  * The server never sees a password — only `authSecret`, the half of the client-side
  * Argon2id output that is meant to be shown to it (see `src/shared/crypto/vault.ts`).
  */
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { csrfCookie, sessionCookie } from "../app.ts";
 import { badRequest, conflict, unauthorized } from "../lib/errors.ts";
 import { newId, randomToken, sha256 } from "../lib/ids.ts";
@@ -117,7 +117,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     });
 
     const session = await createSession(db, userId, config.sessionTtlMs, label);
-    return replyWithSession(reply, config, {
+    return replyWithSession(reply, request, config, {
       id: userId,
       username,
       role: isFirstUser ? "admin" : "user",
@@ -180,7 +180,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       "SELECT sealed FROM vaults WHERE user_id = ?",
       [user.id],
     );
-    return replyWithSession(reply, config, {
+    return replyWithSession(reply, request, config, {
       id: user.id,
       username: user.username,
       role: user.role,
@@ -194,8 +194,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const user = await app.authenticate(request);
     await destroySession(db, user.sessionId);
     reply.header("set-cookie", [
-      sessionCookie(config, "", 0),
-      csrfCookie(config, "", 0),
+      sessionCookie(config, request, "", 0),
+      csrfCookie(config, request, "", 0),
     ]);
     return { ok: true };
   });
@@ -203,7 +203,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/auth/logout-everywhere", async (request, reply) => {
     const user = await app.authenticate(request);
     await destroyAllSessions(db, user.id);
-    reply.header("set-cookie", [sessionCookie(config, "", 0), csrfCookie(config, "", 0)]);
+    reply.header("set-cookie", [sessionCookie(config, request, "", 0), csrfCookie(config, request, "", 0)]);
     return { ok: true };
   });
 
@@ -259,7 +259,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     await destroyAllSessions(db, user.id);
     const session = await createSession(db, user.id, config.sessionTtlMs, null);
-    return replyWithSession(reply, config, {
+    return replyWithSession(reply, request, config, {
       id: user.id,
       username: user.username,
       role: user.role,
@@ -307,7 +307,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       await tx.run("DELETE FROM users WHERE id = ?", [user.id]);
     });
 
-    reply.header("set-cookie", [sessionCookie(config, "", 0), csrfCookie(config, "", 0)]);
+    reply.header("set-cookie", [sessionCookie(config, request, "", 0), csrfCookie(config, request, "", 0)]);
     return { ok: true };
   });
 
@@ -363,7 +363,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     if (!user || user.status !== "active") throw unauthorized("account is not active");
 
     const session = await createSession(db, user.id, config.sessionTtlMs, claimed.label);
-    return replyWithSession(reply, config, {
+    return replyWithSession(reply, request, config, {
       id: user.id,
       username: user.username,
       role: user.role,
@@ -459,7 +459,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     ]);
 
     const session = await createSession(db, user.id, config.sessionTtlMs, "recovered");
-    return replyWithSession(reply, config, {
+    return replyWithSession(reply, request, config, {
       id: user.id,
       username: user.username,
       role: user.role,
@@ -575,7 +575,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const vault = await db.get<{ sealed: string }>("SELECT sealed FROM vaults WHERE user_id = ?", [
       user.id,
     ]);
-    return replyWithSession(reply, config, {
+    return replyWithSession(reply, request, config, {
       id: user.id,
       username: user.username,
       role: user.role,
@@ -707,6 +707,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
 function replyWithSession(
   reply: FastifyReply,
+  request: FastifyRequest,
   config: FastifyInstance["config"],
   payload: {
     id: string;
@@ -720,8 +721,8 @@ function replyWithSession(
   const maxAge = Math.floor((payload.expiresAt - Date.now()) / 1000);
   const csrf = randomToken(24);
   reply.header("set-cookie", [
-    sessionCookie(config, payload.token, maxAge),
-    csrfCookie(config, csrf, maxAge),
+    sessionCookie(config, request, payload.token, maxAge),
+    csrfCookie(config, request, csrf, maxAge),
   ]);
   return {
     id: payload.id,

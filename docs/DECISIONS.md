@@ -333,3 +333,36 @@ deployment is convenience only — the check hashes what was received, never wha
 claims. And the honest limit stands: this detects a global or accidental substitution, not
 a bundle served to one targeted user. That sentence is now in the threat model instead of
 an aspiration in the roadmap.
+
+## ADR-0019 — One instance serves both the clearnet and the onion service
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Running an onion service used to require `BEHIND_TLS=false`, and the previous
+deployment guide said so — which silently disabled `Secure` on the clearnet cookies of the
+same instance. The alternative it suggested, a second instance for Tor, means two
+databases or a shared one plus twice the operational surface, for a difference that is
+about *transport*, not about the application.
+
+**Decision.** Decide the three transport-dependent behaviours per request, from the Host
+header: `Secure` on cookies, `Strict-Transport-Security`, and `upgrade-insecure-requests`
+in the CSP are emitted for ordinary hosts and omitted for `.onion` ones — because an onion
+service is plain HTTP inside an authenticated, encrypted circuit, where `Secure` cookies
+would never be sent, HSTS would pin an address that speaks no HTTPS, and the upgrade
+directive would break the page's own requests. Everything else is byte-identical. With
+`ONION_HOSTNAME` set (validated as a v3 address at boot) the clearnet site sends
+`Onion-Location` so Tor Browser can offer the switch. The `tor` container is built from
+Alpine's signed package and maps the hidden service straight at the app, bypassing Caddy.
+
+**Alternatives.** A second instance (two deployments to keep in step, and users' accounts
+split or the database shared anyway). A `TRANSPORT=onion` environment switch (a mode flag
+whose two values must both be tested forever, and which cannot serve both at once). TLS
+inside the onion service (a certificate for an onion address is possible and pointless: the
+circuit already authenticates and encrypts).
+
+**Consequences.** The Host header is client-controlled, so a client can talk itself into a
+non-`Secure` cookie — on its own request, in its own browser, which is not an attack. The
+behaviour is asserted in `test/onion.test.ts` rather than described in a document, because
+this is exactly the kind of conditional that rots. And the honest limit is unchanged: both
+entrypoints share one database, so Tor hides a user's network location from the operator,
+not their activity.

@@ -55,20 +55,48 @@ load or want streaming backups; SQLite is genuinely fine for a small instance.
 
 ## Tor onion service
 
-Two reasons to run one: users who do not want to reveal their address to your proxy, and
-an entrypoint that needs no certificate authority.
+Two reasons to run one: users who do not want to reveal their address to your proxy or to
+your hosting provider, and an entrypoint that needs no certificate authority.
 
-1. Uncomment the `tor` service in the compose file and give it a `torrc` that maps
-   `HiddenServicePort 80 app:8080`.
-2. Uncomment the onion block in `deploy/Caddyfile` (or let Tor reach `app` directly).
-3. Set `BEHIND_TLS=false` **only** if you serve the onion service without TLS, and
-   remember this disables `Secure` on cookies — run a separate instance rather than
-   weakening the clearnet one.
+```bash
+# 1. Uncomment the `tor` service (and the tor-data volume) in deploy/docker-compose.yml
+docker compose -f deploy/docker-compose.yml up -d --build tor
 
-What this hides: your users' IP addresses from your server and your hosting provider.
-What it does not hide: message timing and volume, and anything a compromised client
-would leak. The onion service and the clearnet proxy see the same database, so an
-operator can still correlate account activity across both.
+# 2. Read the address Tor generated for you
+docker compose -f deploy/docker-compose.yml exec tor cat /var/lib/tor/symvolon/hostname
+
+# 3. Tell the clearnet site about it, so Tor Browser can offer the switch
+echo "ONION_HOSTNAME=<that address>" >> .env
+docker compose -f deploy/docker-compose.yml up -d app
+```
+
+The `tor` container is built from Alpine's signed `tor` package (`deploy/tor/Dockerfile`),
+runs with `SocksPort 0` — it is a hidden service and nothing else — and maps
+`HiddenServicePort 80` straight to `app:8080`. The clearnet proxy is not involved: there is
+no second place a request could be logged or a header rewritten. Tor's introduction-point
+DoS defences and proof-of-work defence are enabled in `deploy/tor/torrc`;
+single-hop/non-anonymous mode deliberately is not.
+
+**The application adapts itself when it is reached over `.onion`** — you do not set
+`BEHIND_TLS=false` and you do not run a second instance:
+
+| Behaviour | Clearnet | Onion |
+| --- | --- | --- |
+| `Secure` on session and CSRF cookies | yes | no — an onion service is HTTP inside an authenticated circuit, and a Secure cookie would never be sent |
+| `Strict-Transport-Security` | yes | no — it would pin an address that speaks no HTTPS |
+| `upgrade-insecure-requests` in the CSP | yes | no — it would upgrade the page's own requests and break it |
+| `Onion-Location` header | when `ONION_HOSTNAME` is set | not sent |
+
+Everything else — the rest of the CSP, `SameSite=Strict`, the Origin check, rate limiting —
+is identical, and `test/onion.test.ts` asserts exactly this table.
+
+Back up `/var/lib/tor/symvolon` (the `tor-data` volume) the way you back up a private key,
+because that is what it is: whoever holds it *is* your onion address.
+
+What Tor hides: your users' network location from you and from your host. What it does not
+hide: message timing and volume, anything a compromised client would leak, and the fact
+that the same account can be used from both entrypoints — the onion service and the
+clearnet site share one database, so an operator can still correlate activity across them.
 
 ## Backups
 

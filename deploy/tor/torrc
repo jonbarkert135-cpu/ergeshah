@@ -1,0 +1,19 @@
+# Tor configuration for a Symvolon onion service.
+#
+# This daemon publishes the application as a v3 onion service and does nothing else: it is
+# not a relay, not an exit, and not a SOCKS proxy for anything on the host.
+
+SocksPort 0
+Log notice stderr
+
+HiddenServiceDir /var/lib/tor/symvolon
+HiddenServicePort 80 app:8080
+
+# Onion services are a popular target for cheap introduction-point floods. These two are
+# Tor's own defences and cost nothing when nobody is attacking.
+HiddenServiceEnableIntroDoSDefense 1
+HiddenServicePoWDefensesEnabled 1
+
+# Deliberately NOT set: HiddenServiceSingleHopMode / NonAnonymousMode. They halve latency
+# by giving up the server's own location privacy, which is not a trade this project makes
+# for you. If you want it, you know why, and you can add it here yourself.

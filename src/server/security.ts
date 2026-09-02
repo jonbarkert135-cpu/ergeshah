@@ -8,12 +8,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Config } from "./config.ts";
 import { forbidden } from "./lib/errors.ts";
+import { cookiesAreSecure, isOnionHost } from "./app.ts";
 import { parseCookies, serializeCookie } from "./lib/cookies.ts";
 import { randomToken } from "./lib/ids.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-const CSP = [
+const CSP_DIRECTIVES = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
@@ -28,8 +29,15 @@ const CSP = [
   "base-uri 'none'",
   "worker-src 'self'",
   "manifest-src 'self'",
-  "upgrade-insecure-requests",
-].join("; ");
+];
+
+/**
+ * `upgrade-insecure-requests` is right for a clearnet deployment and wrong for an onion
+ * one: an onion service is plain HTTP by design, and upgrading its own same-origin
+ * requests to HTTPS would break the page. Everything else in the policy is identical.
+ */
+const CSP = CSP_DIRECTIVES.concat("upgrade-insecure-requests").join("; ");
+const CSP_ONION = CSP_DIRECTIVES.join("; ");
 
 const PERMISSIONS_POLICY = [
   "accelerometer=()",
@@ -54,15 +62,16 @@ export function registerSecurity(app: FastifyInstance, config: Config): void {
       "set-cookie",
       serializeCookie("csrf", randomToken(24), {
         httpOnly: false,
-        secure: config.behindTls,
+        secure: cookiesAreSecure(config, request),
         sameSite: "Strict",
         maxAgeSeconds: 12 * 60 * 60,
       }),
     );
   });
 
-  app.addHook("onSend", async (_request, reply, payload) => {
-    reply.header("content-security-policy", CSP);
+  app.addHook("onSend", async (request, reply, payload) => {
+    const onion = isOnionHost(request.headers.host);
+    reply.header("content-security-policy", onion ? CSP_ONION : CSP);
     reply.header("referrer-policy", "no-referrer");
     reply.header("x-content-type-options", "nosniff");
     reply.header("x-frame-options", "DENY");
@@ -72,8 +81,15 @@ export function registerSecurity(app: FastifyInstance, config: Config): void {
     reply.header("origin-agent-cluster", "?1");
     // No caching of anything that could contain user data; assets are hashed instead.
     reply.header("cache-control", "no-store");
-    if (config.behindTls) {
+    // HSTS on an onion address would pin it to HTTPS, which no onion service speaks.
+    if (config.behindTls && !onion) {
       reply.header("strict-transport-security", "max-age=63072000; includeSubDomains");
+    }
+    // Onion-Location tells Tor Browser that this site has an onion address and offers to
+    // switch to it. It is only meaningful on the clearnet document responses, and Tor
+    // Browser ignores it unless it arrives over HTTPS.
+    if (config.onionHostname && !onion && request.method === "GET" && !request.url.startsWith("/api/")) {
+      reply.header("onion-location", `http://${config.onionHostname}${request.url}`);
     }
     reply.removeHeader("x-powered-by");
     return payload;

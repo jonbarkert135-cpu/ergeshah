@@ -42,6 +42,7 @@ Design philosophy, in priority order:
 | Moderation: reports, admin review queue, privacy-safe audit log | working |
 | Reproducible client build: published digests, subresource integrity, one-command deployment check | working |
 | Single-VPS deployment: Docker Compose + reverse proxy + TLS, SQLite or PostgreSQL | working |
+| Tor onion service: one instance serves both entrypoints, headers and cookies adapt, `Onion-Location` advertised | working |
 | Payments | **not implemented by design** — see `docs/ROADMAP.md` |
 | Post-quantum hybrid handshake (PQXDH-style) | **planned** — see `docs/ROADMAP.md` |
 
