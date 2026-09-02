@@ -3,8 +3,13 @@
 const B64U_PAD = /=+$/;
 
 export function toBase64Url(bytes: Uint8Array): string {
+  // Chunked because a delivery is megabytes, not a 32-byte key: byte-at-a-time string
+  // concatenation is quadratic-ish on that size, `fromCharCode` on a whole array overflows
+  // the argument limit, and 8 KB chunks avoid both without a dependency.
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
   const base64 =
     typeof btoa === "function"
       ? btoa(binary)

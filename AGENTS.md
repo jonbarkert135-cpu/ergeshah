@@ -14,7 +14,20 @@ Then read `docs/ARCHITECTURE.md` and `docs/THREAT_MODEL.md`. New security claims
 in the threat model with their residual risk, or nowhere. `docs/DECISIONS.md` records why
 things are the way they are; add an ADR when you change one of them.
 
-Before opening a PR: `npm run check && npm test && npm run audit:deps`.
+## Branching: there is none
+
+The owner wants the whole project on `main`, not spread across branches. Commit and push
+straight to `main`, one commit per coherent change, with a message that says what changed
+and why. No feature branches, no pull requests unless the owner asks for one.
+
+That makes the local checks the only gate, so they are not optional. Before every push:
+
+```
+npm run check && npm test && npm run audit
+```
+
+`npm run audit` reads git-*tracked* files, so run it after `git add`, not before — an
+untracked file it would reject passes locally and fails in CI.
 
 ## CI files: what an agent may and may not touch
 

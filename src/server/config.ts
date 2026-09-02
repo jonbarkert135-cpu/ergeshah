@@ -18,6 +18,9 @@ export interface Config {
   sessionTtlMs: number;
   envelopeTtlMs: number;
   maxEnvelopeBytes: number;
+  /** Ciphertext cap for one order delivery, in bytes before base64url expansion. */
+  maxDeliveryBytes: number;
+  deliveryTtlMs: number;
   behindTls: boolean;
 }
 
@@ -46,6 +49,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     sessionTtlMs: Number(process.env.SESSION_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     envelopeTtlMs: Number(process.env.ENVELOPE_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     maxEnvelopeBytes: Number(process.env.MAX_ENVELOPE_BYTES ?? 64 * 1024),
+    maxDeliveryBytes: Number(process.env.MAX_DELIVERY_BYTES ?? 5 * 1024 * 1024),
+    deliveryTtlMs: Number(process.env.DELIVERY_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     behindTls: process.env.BEHIND_TLS !== "false",
     ...overrides,
   };

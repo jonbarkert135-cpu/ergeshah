@@ -10,6 +10,7 @@ import { registerAuthRoutes } from "./routes/auth.ts";
 import { registerKeyRoutes } from "./routes/keys.ts";
 import { registerMessageRoutes } from "./routes/messages.ts";
 import { registerMarketRoutes } from "./routes/market.ts";
+import { registerDeliveryRoutes } from "./routes/deliveries.ts";
 import { registerModerationRoutes } from "./routes/moderation.ts";
 import { registerStaticRoutes } from "./routes/static.ts";
 
@@ -36,7 +37,9 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     logger: false,
     disableRequestLogging: true,
     trustProxy: config.trustProxy,
-    bodyLimit: Math.max(config.maxEnvelopeBytes * 4, 512 * 1024),
+    // Large enough for one base64url-encoded delivery (4/3 expansion plus JSON framing),
+    // which is the biggest body this API accepts by design.
+    bodyLimit: Math.max(config.maxEnvelopeBytes * 4, Math.ceil(config.maxDeliveryBytes * 1.4)),
     routerOptions: { ignoreTrailingSlash: true },
   });
 
@@ -75,8 +78,16 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     if (error instanceof HttpError) {
       return reply.status(error.statusCode).send({ error: error.code, message: error.message });
     }
-    if ((error as { statusCode?: number }).statusCode === 400) {
-      return reply.status(400).send({ error: "bad_request", message: "malformed request" });
+    // Fastify's own client errors (malformed JSON, body too large, unsupported media
+    // type) are the client's fault, not an incident: answer them tersely and truthfully
+    // instead of turning them into a 500 and a log line.
+    const status = (error as { statusCode?: number }).statusCode ?? 500;
+    if (status >= 400 && status < 500) {
+      const tooLarge = status === 413;
+      return reply.status(status).send({
+        error: tooLarge ? "too_large" : "bad_request",
+        message: tooLarge ? "request body too large" : "malformed request",
+      });
     }
     // Deliberately terse: no stack traces, no request details, nothing user-identifying.
     process.stderr.write(
@@ -97,6 +108,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   await registerKeyRoutes(app);
   await registerMessageRoutes(app);
   await registerMarketRoutes(app);
+  await registerDeliveryRoutes(app);
   await registerModerationRoutes(app);
   await registerStaticRoutes(app);
 

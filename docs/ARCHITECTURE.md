@@ -39,7 +39,7 @@ exist on the server. Everything else the server *can* see is enumerated in
 ## Module layout
 
 ```
-src/shared/crypto/   protocol: hkdf, aead, identity, x3dh, ratchet, vault, session
+src/shared/crypto/   protocol: hkdf, aead, identity, x3dh, ratchet, vault, session, file
 src/shared/          encoding helpers used by both sides
 src/server/
   app.ts             Fastify wiring, authentication, CSRF, rate limiting
@@ -47,7 +47,7 @@ src/server/
   config.ts          configuration, refuses weak secrets in production
   db/                driver interface + sqlite/postgres drivers + migrations
   lib/               sessions, password hashing, validation, audit, rate limiting
-  routes/            auth, keys, messages, market, moderation, static
+  routes/            auth, keys, messages, market, deliveries, moderation, static
 src/client/
   state.ts           encrypted vault, device publication
   messaging.ts       sessions, send/receive/acknowledge
@@ -79,7 +79,9 @@ status. `devices` and `one_time_prekeys` hold public key material only. `envelop
 ciphertext addressed to a device, with a channel id the clients chose and no sender
 column. `vaults` hold a blob the server cannot open. The marketplace tables
 (`sellers`, `listings`, `orders`, `order_events`, `reviews`) hold public or two-party
-commercial data with day-granularity timestamps. `reports` and `audit_log` support
+commercial data with day-granularity timestamps. `deliveries` holds at most one encrypted
+file per order — ciphertext, order id and two timestamps, deleted on pickup, completion or
+expiry. `reports` and `audit_log` support
 moderation. `rate_limits` holds rotating HMACs, never addresses. Full field-by-field
 justification: [`PRIVACY.md`](PRIVACY.md).
 

@@ -102,10 +102,14 @@ describe("orders and reviews", () => {
     expect(order.body.status).toBe("placed");
     expect(order.body.channel).toHaveLength(32);
 
-    // The buyer cannot skip the seller's steps.
-    expect((await buyer.post(`/api/market/orders/${order.body.id}/status`, { status: "delivered" })).status).toBe(403);
+    // The buyer cannot skip the seller's steps, and nobody can *declare* a delivery:
+    // "delivered" is reached by uploading one (see delivery.test.ts).
+    expect((await buyer.post(`/api/market/orders/${order.body.id}/status`, { status: "delivered" })).status).toBe(400);
     expect((await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" })).status).toBe(200);
-    expect((await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "delivered" })).status).toBe(200);
+    expect(
+      (await seller.post(`/api/market/orders/${order.body.id}/delivery`, { ciphertext: "Zm9vYmFy" }))
+        .status,
+    ).toBe(200);
     // Only the buyer can confirm completion.
     expect((await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "completed" })).status).toBe(403);
     expect((await buyer.post(`/api/market/orders/${order.body.id}/status`, { status: "completed" })).status).toBe(200);

@@ -98,6 +98,7 @@ to be a residual risk.
 | Error logs | Method, route and error message only — no bodies, no identifiers |
 | Backups | Contain no plaintext messages by construction; still encrypt them (see DEPLOYMENT.md) |
 | Message timing/size | Sizes are padded to buckets (64/256/1024/4096·n) and headers are encrypted, so ratchet keys, counters and exact lengths are hidden. **Timing, count and bucket remain visible to the operator** — no cover traffic or delayed delivery (roadmap MD-2) |
+| Delivered files | Stored as ciphertext only, padded to 4 KB, with no filename or type; the key never reaches the server. **The operator learns that an order was delivered, the padded size, and the upload and pickup times**, and can delete or withhold a blob (denial of service, not disclosure) |
 | Browser fingerprinting | Not performed by us; not preventable by us |
 
 ## Residual risks, stated plainly

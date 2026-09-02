@@ -31,9 +31,14 @@ export function paddedLength(plaintextLength: number): number {
   return Math.ceil(withMarker / BUCKET_STEP) * BUCKET_STEP;
 }
 
-export function pad(plaintext: Uint8Array): Uint8Array {
-  if (plaintext.length > MAX_PLAINTEXT_BYTES) {
-    throw new Error(`padding: plaintext exceeds ${MAX_PLAINTEXT_BYTES} bytes`);
+/**
+ * `limit` exists for the file path: a delivery is padded by the same scheme (multiples of
+ * 4 KB once past the small buckets), it is simply allowed to be much larger than a chat
+ * message. Everything else — the marker, `unpad`, the guarantees — is shared.
+ */
+export function pad(plaintext: Uint8Array, limit = MAX_PLAINTEXT_BYTES): Uint8Array {
+  if (plaintext.length > limit) {
+    throw new Error(`padding: plaintext exceeds ${limit} bytes`);
   }
   const padded = new Uint8Array(paddedLength(plaintext.length));
   padded.set(plaintext, 0);

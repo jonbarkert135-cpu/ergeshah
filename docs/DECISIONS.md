@@ -265,3 +265,40 @@ passwords under `test/` are exempt from the credential heuristic, key material i
 The checks stop honest mistakes, not a hostile committer — that is stated in the document
 instead of being implied away, and the real mitigation for the served-bundle risk remains
 reproducible builds (roadmap OPS-1).
+
+## ADR-0017 — Digital delivery: a blind blob plus a key sent over the ratchet
+
+**Status:** accepted (2026-09-02)
+
+**Context.** A marketplace that sells digital goods has to move a file from seller to
+buyer. The default answers all leak: object storage means a third party holds the artefact
+and sees who fetches it; an email attachment leaves plaintext on two mail providers; and
+"upload the file, we'll keep it safe" is exactly the promise this project refuses to make.
+The file also needs a key, and inventing a second key-agreement protocol for it would
+double the cryptographic surface to review.
+
+**Decision.** The seller's browser encrypts the file with a fresh random key
+(XChaCha20-Poly1305, padded to 4 KB with the message padding scheme, the order id as
+associated data), uploads only the ciphertext, and sends the key to the buyer as an
+ordinary Double Ratchet message in the order's existing encrypted channel. The server row
+(`deliveries`) is id, order id, ciphertext, created, expires — no uploader, no filename, no
+media type, no hash: the first is implied by the order, the rest are content.
+
+Uploading *is* the status transition to `delivered`, so `POST /status {delivered}` was
+removed; the blob is deleted when the buyer acknowledges it, when the order reaches a
+terminal status, or after 30 days.
+
+**Alternatives.** Per-file X3DH handshake (a second protocol for no gain — the channel
+already has forward secrecy and authentication). Server-side encryption with a key held by
+the operator (defeats the point). Streaming/chunked upload with resumption (more code and
+state for a 3 MB cap; when large files matter, that is a separate decision). A SHA-256 of
+the plaintext alongside the key (the AEAD tag already authenticates, and the key arrives
+over an authenticated channel, so the hash would prove nothing extra).
+
+**Consequences.** A delivery is one buffer in memory on both sides, which is why the cap
+is 3 MB of plaintext and the body limit is derived from it. Base64url in a TEXT column
+costs a third more storage than bytes would, and keeps the schema identical on SQLite and
+PostgreSQL — the choice the whole schema already makes. The operator still learns that an
+order was delivered, the padded size and the timings, and can withhold a blob; that is
+denial of service, not disclosure, and it is written down in `docs/THREAT_MODEL.md`. A
+seller can still upload the wrong file: delivery is not escrow (MKT-1).

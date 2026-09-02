@@ -53,6 +53,13 @@ titles, descriptions, prices, statuses, ratings, and day-granularity dates. Orde
 no address, no payment identifier, no invoice, because payments are deliberately not part
 of this system.
 
+`deliveries` holds one encrypted file per order: an id, the order id, the ciphertext, and
+the times it was created and expires. There is no uploader column (only the order's seller
+can write it), no filename, no media type and no hash — a filename is content, and it
+travels inside the ciphertext with everything else. The operator learns that an order was
+delivered, the padded size of the file (a multiple of 4 KB), and when it was uploaded and
+collected.
+
 `order_events` keeps millisecond timestamps: a dispute needs an ordered record of who did
 what, and both parties already know it.
 
@@ -80,6 +87,7 @@ an address without the address, and the key rotates daily.
 | Data | Kept |
 | --- | --- |
 | Undelivered envelope | Until acknowledged, at most 30 days |
+| Delivered file (`deliveries`) | Until the buyer saves it, the order is completed or cancelled, or 30 days |
 | Delivered envelope | Deleted immediately |
 | Session | Until logout or 30 days |
 | Rate-limit bucket | 24 hours |

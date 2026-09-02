@@ -36,7 +36,7 @@ const ORDER_TRANSITIONS: Record<OrderStatus, Partial<Record<OrderStatus, Array<"
     cancelled: ["buyer", "seller", "moderator"],
   },
   accepted: {
-    delivered: ["seller"],
+    delivered: ["seller"], // only via POST /api/market/orders/:id/delivery
     cancelled: ["seller", "moderator"],
     disputed: ["buyer"],
   },
@@ -342,7 +342,8 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const id = asId((request.params as { id: string }).id, "id");
     const next = asEnum((request.body as { status?: unknown })?.status, "status", [
       "accepted",
-      "delivered",
+      // 'delivered' is deliberately absent: it is set by POST .../delivery, so the status
+      // cannot claim a delivery that does not exist.
       "completed",
       "cancelled",
       "disputed",
@@ -370,6 +371,10 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const now = Date.now();
     await db.transaction(async (tx) => {
       await tx.run("UPDATE orders SET status = ?, updated_at = ? WHERE id = ?", [next, now, id]);
+      // A finished order keeps no file: the buyer has saved it or has lost the chance to.
+      if (next === "completed" || next === "cancelled") {
+        await tx.run("DELETE FROM deliveries WHERE order_id = ?", [id]);
+      }
       await tx.run(
         `INSERT INTO order_events (id, order_id, actor_user_id, from_status, to_status, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,

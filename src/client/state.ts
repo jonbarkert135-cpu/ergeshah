@@ -45,6 +45,17 @@ export interface Conversation {
   sessions: Record<string, SerializedRatchetState>;
 }
 
+/**
+ * The key to one delivered file, received over the encrypted channel and kept in the
+ * vault — never on the server, which is the whole point of the feature.
+ */
+export interface DeliveryKey {
+  key: string;
+  nonce: string;
+  name: string;
+  at: number;
+}
+
 export interface VaultContents {
   identity: {
     identity: { publicKey: string; privateKey: string };
@@ -55,6 +66,8 @@ export interface VaultContents {
   };
   deviceId: string | null;
   conversations: Record<string, Conversation>;
+  /** Delivery keys by order id. Absent on vaults written before deliveries existed. */
+  deliveries?: Record<string, DeliveryKey>;
   /** True on a device that was linked rather than signed in: it does not own the backup. */
   linked?: boolean;
 }

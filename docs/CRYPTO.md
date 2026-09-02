@@ -172,6 +172,26 @@ plaintext       = message ‖ 0x80 ‖ 0x00…    padded to 64 / 256 / 1024 / 40
   4096) with ISO/IEC 7816-4 padding *inside* the AEAD. A sealed header is always 80
   bytes, so an envelope reveals a bucket rather than a byte count.
 
+## File delivery
+
+```
+key             = 32 random bytes, used for exactly one file
+nonce           = 24 random bytes
+plaintext       = file ‖ 0x80 ‖ 0x00…   padded to 64 / 256 / 1024 / 4096·n bytes
+ciphertext      = XChaCha20-Poly1305(key, padded plaintext, AD = order id)
+```
+
+The key and nonce are then sent to the buyer as an ordinary ratchet message in the order's
+channel, so the file inherits the messaging layer's forward secrecy and authentication
+without a second key-agreement protocol. The order id as associated data binds the
+ciphertext to the order it was uploaded for. The server holds the ciphertext and nothing
+else; it cannot distinguish a PDF from a zip, and sees a size rounded up to 4 KB.
+
+Limits, stated rather than hidden: a delivery is a single buffer in memory on both sides
+(cap: 3 MB of plaintext), there is no chunking, no resumption, and no streaming, and a
+seller who is willing to lie can upload the wrong file — this is a delivery mechanism, not
+an escrow (roadmap MKT-1).
+
 ## Known limitations
 
 1. **Traffic analysis is only partly addressed.** Headers are encrypted and lengths are

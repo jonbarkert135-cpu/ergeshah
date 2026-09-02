@@ -38,6 +38,7 @@ Design philosophy, in priority order:
 | Encrypted ratchet headers + padded plaintexts (no ratchet keys, counters or exact sizes on the wire) | working |
 | Store-and-forward envelopes, deleted from the server on delivery | working |
 | Marketplace: seller applications, listings, orders, reviews | working |
+| Digital delivery: file encrypted in the browser, blind blob on the server, key over the encrypted channel | working |
 | Moderation: reports, admin review queue, privacy-safe audit log | working |
 | Single-VPS deployment: Docker Compose + reverse proxy + TLS, SQLite or PostgreSQL | working |
 | Payments | **not implemented by design** — see `docs/ROADMAP.md` |
