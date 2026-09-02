@@ -21,6 +21,15 @@ Design philosophy, in priority order:
 > unbreakable, or free of metadata. It claims a specific, written-down threat model with
 > documented trust boundaries, residual risks and known limitations. Read
 > [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) before you trust it with anything.
+>
+> **The source is closed.** Symvolon is proprietary (see [`LICENSE`](LICENSE)), so the
+> architecture below is something you are *told*, not something an outsider can check. The
+> design still assumes the server is hostile — keys stay in the browser, the database holds
+> ciphertext, and there is no code path from an operator to a plaintext message — but with
+> the source closed, an outsider cannot verify that the deployed client is the client
+> described here. That limitation is real, it is listed as residual risk #1 in
+> [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), and no wording in this repository is
+> allowed to paper over it.
 
 ## What is implemented
 
@@ -69,7 +78,8 @@ marketplace, moderation). `npm run check` runs TypeScript in strict mode. `npm r
 checks dependency advisories, greps the production bundle for anything that would contact
 a third party, verifies the build repeats byte-for-byte, and scans the repository for
 committed key material. `npm run audit:deployment -- https://host` compares a running
-deployment with your own build of this source — see
+deployment with a build of this source, which is now an *internal* check — with the source
+closed, only someone holding this repository can run it. See
 [`docs/AUDIT.md`](docs/AUDIT.md), which also lists what those checks do *not* prove.
 
 ## Production
@@ -103,6 +113,7 @@ never simplified away. In this codebase they *are* the product.
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | ADRs: tech choices, dependency + license justification |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | what is deliberately not built yet, and in which order |
 | [`SECURITY.md`](SECURITY.md) | how to report a vulnerability |
+| [`THIRD_PARTY.md`](THIRD_PARTY.md) | open-source components we depend on, and their obligations |
 
 ## Краткое описание (RU)
 
@@ -114,5 +125,8 @@ never simplified away. In this codebase they *are* the product.
 
 ## License
 
-[AGPL-3.0-only](LICENSE). Rationale — including compatibility with the cryptographic
-libraries we may adopt later — is recorded in `docs/DECISIONS.md` (ADR-0002).
+Proprietary — all rights reserved. See [`LICENSE`](LICENSE); the reasoning and what it
+costs are recorded in `docs/DECISIONS.md` (ADR-0022, which supersedes ADR-0002).
+
+Third-party components keep their own licences, and one of them constrains us:
+[`THIRD_PARTY.md`](THIRD_PARTY.md) lists what survives a proprietary distribution.

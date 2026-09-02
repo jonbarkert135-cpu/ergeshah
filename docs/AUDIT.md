@@ -1,9 +1,19 @@
-# Auditing this system for nothing but time
+# Auditing this system
 
-An external cryptographic audit costs money this project does not have. What it *can*
-have is a system that is cheap to audit: small, dependency-poor, and checked by
-machine on every push. This document says what is checked automatically, what you can
-verify yourself in an hour, and — the part that matters — what neither of those proves.
+An external cryptographic audit costs money this project does not have. What it *can* have
+is a system that is cheap to audit: small, dependency-poor, and checked by machine on every
+push.
+
+**Read this first: the source is closed** (`LICENSE`). Everything below is therefore an
+*internal* audit — it is run by the people who hold the repository, and its results are a
+claim to everyone else. A user of a deployment cannot repeat any of it. Where this document
+used to say "what you can verify yourself", it now says "what the operator can verify", and
+the difference is not cosmetic: an internal check that nobody outside can reproduce is
+evidence of diligence, not evidence of behaviour.
+
+The one thing an outsider can still do is read the client their own browser downloads — it
+is minified, but it is there, and the network tab shows every request it makes. That is the
+floor of verifiability for any web application, and closing the source does not lower it.
 
 ## What CI enforces on every push
 
@@ -56,7 +66,7 @@ staged is invisible to it, and to CI it will not be. A line can opt out with an
 `audit:allow` comment plus a reason. That is deliberately
 ugly and shows up in review.
 
-## What you can verify yourself, for free
+## What the operator can verify, for free
 
 1. **Read the dependency list.** `package.json` — four production dependencies
    (`fastify`, `libsodium-wrappers-sumo`, `openpgp`, `pg`). Every one is justified in
@@ -69,8 +79,8 @@ ugly and shows up in review.
    locally, use it, and read the tables yourself.
 4. **Watch the network tab.** No requests to anything but the origin. That is the claim
    `audit:bundle` protects.
-5. **Compare the served bundle with your own build.** The build is reproducible, so this
-   is one command:
+5. **Compare the served bundle with a build of this source.** The build is reproducible, so
+   this is one command — available to whoever holds the repository, and to nobody else:
 
    ```bash
    npm ci                                   # locked dependency versions, or the bytes differ
@@ -79,10 +89,13 @@ ugly and shows up in review.
 
    It builds the client here, fetches `/`, `/assets/app.js`, `/assets/app.css` and
    `/favicon.svg` from that deployment, and compares SHA-256 digests of the bytes actually
-   sent. The deployment also publishes its own digests at `/build.txt`; that file is
-   convenience, not evidence — the comparison hashes what was served, not what the server
-   claims. Additionally, `index.html` pins the script and stylesheet with subresource
-   integrity, so a browser refuses a bundle that does not match the page it arrived with.
+   sent. It catches a deployment that has drifted from the source, a bad build, or a
+   compromised host — which is worth having — but it proves nothing to a user, who has no
+   source to build. The deployment publishes its digests at `/build.txt`, and `index.html`
+   pins the script and stylesheet with subresource integrity, so a browser refuses a bundle
+   that does not match the page it arrived with. A user *can* compare that digest across
+   browsers, machines and networks: identical digests everywhere mean at least that nobody
+   is being served a personalised bundle.
 
 ## What none of this proves
 
@@ -95,6 +108,11 @@ ugly and shows up in review.
 - **`audit:secrets` has both error kinds.** It misses a credential that does not look
   like one, and it will occasionally shout about a constant that is not one. Rotate
   anything it finds; never resolve a finding by widening the placeholder rule.
+- **Closed source caps all of it.** With the source private, every statement in this
+  repository about what the software does is a statement of intent that an outsider must
+  take on trust. The mitigations that survive are indirect: the client is delivered to the
+  browser and can be inspected there, the served digests can be compared between users, and
+  the network tab shows where requests go.
 - **Reproducible is not trustworthy.** A reproducible build proves the deployment matches
   *this source*; it says nothing about whether this source is correct. And it is an
   after-the-fact check by whoever runs it: a server can serve one bundle to an auditor and
@@ -110,7 +128,8 @@ ugly and shows up in review.
 
 ## When you find something
 
-Do not open a public issue for a vulnerability — `SECURITY.md` explains the private
-route (a GitHub security advisory) and what is in scope. Findings from the checks above that are *not* vulnerabilities — a false
+Do not open a public issue for a vulnerability — `SECURITY.md` explains the private route
+and what is in scope. A closed-source project depends on that channel more than an open one
+does: nobody will read the code and send a patch, so the report is the only signal. Findings from the checks above that are *not* vulnerabilities — a false
 positive, a missing rule — are ordinary issues and pull requests; new rules go in
 `scripts/audit.mjs` with a test in `test/audit.test.ts` that fails without them.

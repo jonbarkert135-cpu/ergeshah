@@ -14,7 +14,7 @@ browser); a compiled TypeScript build (an extra artefact that can drift from sou
 eliminates a whole class of "the two sides disagree" bugs, and the deployed source is
 the source you can read. The cost is Node's performance ceiling and an experimental flag.
 
-## ADR-0002 — AGPL-3.0-only
+## ADR-0002 — AGPL-3.0-only *(superseded by ADR-0022)*
 
 **Decision.** License the project under AGPL-3.0-only.
 
@@ -228,8 +228,9 @@ write by hand.
 **Decision.** Add `openpgp` (6.x) as a production dependency, imported only from
 `src/server/lib/pgp.ts`. It has no dependencies of its own, is maintained by ProtonMail,
 has been audited by Cure53, and is the reference JavaScript implementation. It is LGPL-3.0+,
-which combines cleanly into this AGPL-3.0 project; we use it unmodified, so the copyleft
-obligation on the library itself is satisfied by keeping it as an untouched dependency.
+which combines with a proprietary project on two conditions — use it unmodified, keep it
+replaceable — both of which we meet by leaving it an ordinary runtime dependency and never
+distributing a bundled artefact (see `THIRD_PARTY.md` and ADR-0022).
 Nothing from it reaches the browser: the client only moves armoured text around, and the
 production bundle is checked for the string.
 
@@ -432,3 +433,46 @@ again — the same trade this project already makes for message history, and the
 the address, which is intentional: dispute evidence belongs in the encrypted channel with
 only a hash committed server-side (MKT-1). And a physical marketplace still leaks what it
 must: the operator knows an order exists, between whom, and for how much.
+
+## ADR-0022 — Proprietary license; supersedes ADR-0002
+
+**Status:** accepted (2026-09-02), superseding ADR-0002 (AGPL-3.0-only)
+
+**Context.** The owner decided the source should be closed. The stated reason is commercial
+and precautionary: the platform is heading towards physical goods, sellers' and buyers'
+personal data, and a market where the code being readable is seen as a liability.
+
+**Decision.** Symvolon is proprietary — all rights reserved, no licence granted (`LICENSE`).
+`package.json` is `private` and `UNLICENSED` so it cannot be published by accident.
+Third-party obligations that survive the change are written down in `THIRD_PARTY.md`; the
+binding one is `openpgp` (LGPL-3.0+), used unmodified and kept replaceable, which is
+satisfied as long as the server is operated rather than distributed as an artefact.
+
+**What this does not change.** Nothing about the architecture. Keys are still generated and
+held in the browser, the database still holds ciphertext, there is still no code path from
+an operator to a plaintext message, and the delivery address of a physical order is still
+not a column (ADR-0021). Closing the source protects business logic; it does not protect
+data — that is what "collect nothing that is not strictly required" is for, and a stolen
+database is equally readable whether or not the source that wrote it is public.
+
+**What it costs, stated rather than hidden.** The project's own philosophy is "security is
+enforced by architecture, not by promises", and verification by outsiders was one of the
+architectural pieces. It is now gone:
+
+- Users cannot rebuild the client and compare it with what they are served. `audit:bundle`,
+  `audit:secrets` and `audit:deployment` still run, but as *internal* checks whose results
+  are a claim.
+- Residual risk #1 in `docs/THREAT_MODEL.md` widened accordingly, and `docs/AUDIT.md` now
+  opens by saying what its checks are worth to an outsider: diligence, not proof.
+- No outside reviewer will find a bug for free; `SECURITY.md` gained a section on
+  black-box reporting and offers source access under agreement when a report needs it.
+- What survives for a user: the client is delivered to their browser and can be inspected
+  there, `/build.txt` publishes the digest of what is served, and identical digests across
+  users rule out a bundle targeted at one person.
+
+**Alternatives.** Open client + closed server, the Telegram arrangement (keeps the part
+that matters cryptographically verifiable, at the cost of splitting `src/shared`, which is
+one implementation used by both sides precisely so the two cannot drift). Source-available
+under a non-compete licence (verifiable, not reusable — most of the benefit, most of the
+protection). Delaying the decision until launch. The owner considered these and chose full
+closure; this ADR records the choice and its price rather than arguing with it further.

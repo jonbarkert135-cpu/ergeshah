@@ -23,6 +23,13 @@ Out of scope: findings that only restate a *documented* residual risk in
 `docs/THREAT_MODEL.md`, missing hardening that has no attack path, self-XSS,
 and issues in third-party infrastructure of a specific deployment.
 
+## Working without the source
+
+This software is proprietary, so a researcher has the deployed client, the network, and the
+API — not the code. Black-box findings are welcome on exactly the same terms as any other,
+and if a report needs source access to be conclusive, say so in the report and we will
+arrange it under an agreement rather than leave the issue unexamined.
+
 ## What we will not claim
 
 We do not claim anonymity, unbreakability, or complete metadata protection. Security

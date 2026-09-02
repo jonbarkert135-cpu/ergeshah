@@ -105,12 +105,15 @@ to be a residual risk.
 
 ## Residual risks, stated plainly
 
-1. **Server-served client code.** The operator can ship a malicious bundle to a specific
-   user. The build is now reproducible and a deployment can be compared against it
-   (`npm run audit:deployment`, `docs/AUDIT.md`), and `index.html` pins the bundle with
-   subresource integrity — so an *accidental* or *global* substitution is detectable by
-   anyone who checks. A targeted swap, served only to one user, remains possible: hashing
-   proves what the server sent to whoever asked, not what it sends to someone else.
+1. **Server-served client code, and a closed source.** The operator can ship a malicious
+   bundle to a specific user, and — since the source is proprietary — nobody outside the
+   project can build the client to compare against. What remains: the build is reproducible
+   and the operator can check a deployment against the source
+   (`npm run audit:deployment`); `index.html` pins the bundle with subresource integrity;
+   the served digest is published at `/build.txt`, so users can compare it with each other
+   and detect a bundle served to one person only. None of that is a substitute for reading
+   the source, and this document will not pretend otherwise. **Every security property
+   described here is a claim about code you cannot read.**
 2. **Metadata.** Who is online, when, how often, and roughly how large their messages
    are (the bucket, not the byte count).
 3. **Classical-only handshake.** Recorded traffic today may be decryptable by a future
@@ -120,8 +123,10 @@ to be a residual risk.
    device) turns a substituted key into a *detectable* attack, and a later substitution
    raises a warning in the conversation — but nothing forces anyone to look, and an
    unverified conversation gives the operator the same opportunity it always did.
-5. **No external audit.** The cryptography follows published specifications and is
-   property-tested, but it has not been reviewed by anyone outside this repository.
+5. **No external audit, and no open source to substitute for one.** The cryptography
+   follows published specifications and is property-tested, but it has been reviewed by
+   nobody outside this project — and with the source closed, the usual fallback (anyone
+   curious can read it) is gone. A paid review under NDA is the only remaining path.
 6. **Availability.** A single VPS is a single point of failure, deliberately.
 
 If any of these is unacceptable for your use case, the honest answer is that this

@@ -36,6 +36,11 @@ future private messages**, because the keys required to produce that plaintext n
 exist on the server. Everything else the server *can* see is enumerated in
 [`PRIVACY.md`](PRIVACY.md).
 
+That claim is about *this* code, and this code is closed (`LICENSE`). An outsider can
+confirm the shape of it — inspect the client their browser runs, watch the requests it
+makes, compare the published build digest with other users — but not read the source. See
+residual risk #1 in [`THREAT_MODEL.md`](THREAT_MODEL.md).
+
 ## Module layout
 
 ```

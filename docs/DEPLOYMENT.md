@@ -28,8 +28,9 @@ address.
 
 ## Verifying what you deployed
 
-The client build is reproducible, so anyone — including you, after an update — can check
-that the server serves exactly what this source tree builds:
+The client build is reproducible, so anyone holding this source — in practice, you — can
+check that the server serves exactly what it builds. With the source closed this is an
+operator's tool, not a user's:
 
 ```bash
 npm ci                                        # locked versions; a different esbuild = different bytes
@@ -38,8 +39,9 @@ npm run audit:deployment -- https://your.domain
 
 The deployment publishes the digests of the files it loaded at boot at `/build.txt`, and
 `index.html` pins the script and stylesheet with subresource integrity. Publish the digest
-of `app.js` wherever you announce the service; a user who compares it is doing the audit
-you cannot do for them.
+of `app.js` wherever you announce the service: users cannot rebuild it, but they can check
+that they were all served the same thing, which is what catches a bundle targeted at one
+person.
 
 ## PostgreSQL instead of SQLite
 
