@@ -7,6 +7,7 @@ import { pruneRateLimits } from "./lib/rate_limit.ts";
 import { pruneAuditLog } from "./lib/audit.ts";
 import { backfillSearchIndex } from "./lib/search.ts";
 import { pruneNotifications } from "./lib/notify.ts";
+import { log } from "./lib/log.ts";
 
 const config = loadConfig();
 const db = await createDb(config);
@@ -25,7 +26,7 @@ const housekeeping = setInterval(
         await pruneAuditLog(db, config.auditRetentionMs);
         await pruneNotifications(db, config.notificationRetentionMs);
       } catch (error) {
-        process.stderr.write(`housekeeping failed: ${(error as Error).message}\n`);
+        log({ level: "error", event: "housekeeping.failed", message: (error as Error).message });
       }
     })();
   },
@@ -34,9 +35,11 @@ const housekeeping = setInterval(
 housekeeping.unref();
 
 await app.listen({ host: config.host, port: config.port });
-process.stdout.write(
-  `Symvolon listening on ${config.host}:${config.port} (${config.dialect}, ${config.env})\n`,
-);
+log({
+  level: "info",
+  event: "listening",
+  message: `${config.host}:${config.port} (${config.dialect}, ${config.env})`,
+});
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {

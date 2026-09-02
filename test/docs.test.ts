@@ -111,6 +111,8 @@ describe("the documents point 31 requires are present and not empty", () => {
       ["docs/DESIGN.md", 40],
       ["docs/PERFORMANCE.md", 40],
       ["docs/AUDIT.md", 40],
+      ["docs/BACKUPS.md", 40],
+      ["docs/LOGGING.md", 60],
       ["docs/DECISIONS.md", 100],
     ] as const) {
       const lines = read(path).split("\n").length;

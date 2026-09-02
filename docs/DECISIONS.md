@@ -955,3 +955,50 @@ no benefit at 5 MiB).
 **Consequences.** The upload surface is one endpoint that accepts two fields and stores one
 opaque string. The buyer carries the residual risk that the bytes they bought are malicious,
 which is stated in `docs/THREAT_MODEL.md` rather than papered over.
+
+## ADR-0034 — Backups that expire, and logs that are boring on purpose
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Points 50 and 51. Backups must be encrypted, access-controlled, versioned, tested
+and documented — *and* must not become a permanent copy of every user's deleted data. Logging
+must help security without destroying privacy, and five questions (what, why, how long, who,
+when deleted) must be answered before production rather than after an incident. What existed:
+a `DEPLOYMENT.md` snippet suggesting `VACUUM INTO` and `age`, with no retention story, no
+verification and nothing runnable; and one hand-written `process.stderr.write` in the error
+handler that was careful, but was careful by memory rather than by construction.
+
+**Decision.**
+
+- *One script, `scripts/backup.mjs`, with AES-256-GCM from `node:crypto`.* No new dependency
+  and no external binary that has to be installed on the host at 3am. The authentication tag
+  turns a truncated or edited backup into a loud failure instead of a quiet restore. Every
+  `create` decrypts its own output, runs `PRAGMA integrity_check` and counts tables before it
+  reports success; `restore` verifies before it writes and refuses to overwrite. That is what
+  makes "tested" a property of the tool rather than a quarterly intention.
+- *The application cannot decrypt its own backups.* The key is a file read by the script, never
+  part of `config.ts` and never a command-line argument (`ps` and shell history are logs too).
+- *Retention is the policy, not the implementation detail:* 35 days, minimum 7 files, and **no
+  weekly/monthly/yearly archive tier**. An archive tier is a permanent copy of deleted
+  accounts, and this product promises deletion. An operator with a legal obligation to keep
+  more can, in their jurisdiction, with their own justification — not by default.
+- *One logging module, three line shapes, a fixed field list, and a scrubber.* `log()` has no
+  `extra` and no `context`; `scrub()` redacts anything shaped like a key or an address and
+  drops any message that so much as names a password, token, cookie or ciphertext. The lint
+  rule `unstructured-log` fails the build if anything else under `src/server/` writes to a
+  stream, so the next debugging session cannot leave a `stderr.write(request.body)` behind.
+- *Retention for logs lives with the process manager* (Docker `json-file`, 3 × 10 MB;
+  journald a week), because the application owns no log file and should not learn to rotate one.
+
+**Rejected:** `age`/`gpg` as a hard dependency (an operator who has not installed it discovers
+that during their first restore), streaming encryption with libsodium (async init in a CLI, for
+a 5 MB file), a redaction pipeline over rich structured logs (the cheaper control is not
+collecting the fields), a log shipper or error-reporting SaaS (a third party learning when a
+pseudonymous service has incidents, and a CSP exception to go with it), and keeping stack
+traces (a stack is a filesystem layout and a dependency inventory).
+
+**Consequences.** `npm run backup` is a one-liner in a cron job whose failure is visible, and a
+restore drill takes a minute. Data lost more than 35 days ago is genuinely unrecoverable —
+deliberate. Debugging is harder than with request logging: an operator gets a route pattern, an
+error name and a scrubbed message, and for anything more must reproduce it. That is the trade
+this project is here to make.

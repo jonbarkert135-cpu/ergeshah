@@ -55,6 +55,13 @@ const RULES = [
     message: "server output goes through the structured stderr line in app.ts; nothing else logs",
   },
   {
+    name: "unstructured-log",
+    pattern: /process\.(stderr|stdout)\.write\s*\(/,
+    files: /^src\/server\/(?!lib\/log\.ts$)/,
+    message:
+      "log through log() in src/server/lib/log.ts, which scrubs secrets and addresses (point 51)",
+  },
+  {
     name: "sql-interpolation",
     pattern: /`[^`]*\b(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b[^`]*\$\{/is,
     message: "parameterise queries; a template literal in SQL is an injection waiting for input",

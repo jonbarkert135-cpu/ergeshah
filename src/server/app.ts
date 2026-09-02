@@ -7,6 +7,7 @@ import { resolveSession, type SessionUser } from "./lib/sessions.ts";
 import { consume, type LimitName } from "./lib/rate_limit.ts";
 import { enforceCsrf, registerSecurity } from "./security.ts";
 import { recordAudit } from "./lib/audit.ts";
+import { log } from "./lib/log.ts";
 import { randomToken } from "./lib/ids.ts";
 import { registerAuthRoutes } from "./routes/auth.ts";
 import { registerKeyRoutes } from "./routes/keys.ts";
@@ -156,24 +157,22 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
       });
     }
     // Two audiences, one incident. The operator gets a structured line with a reference,
-    // the route *pattern*, the error name and its message — enough to find the bug, and
-    // free of the request body, the user, the query and the stack (a stack in a log is a
-    // filesystem path and a dependency inventory). The user gets the reference and
-    // nothing else, so a support conversation can start with "error 7f3a…" instead of a
-    // screenshot of internals.
+    // the route *pattern*, the error name and its scrubbed message — enough to find the
+    // bug, and free of the request body, the user, the query and the stack (a stack in a
+    // log is a filesystem path and a dependency inventory). The user gets the reference
+    // and nothing else, so a support conversation can start with "error 7f3a…" instead of
+    // a screenshot of internals. Every line goes through lib/log.ts (point 51).
     const ref = randomToken(6);
     const failure = error as Error;
-    process.stderr.write(
-      `${JSON.stringify({
-        at: new Date().toISOString(),
-        ref,
-        level: "error",
-        method: request.method,
-        route: request.routeOptions?.url ?? "unknown",
-        name: failure.name,
-        message: failure.message,
-      })}\n`,
-    );
+    log({
+      level: "error",
+      event: "request.failed",
+      ref,
+      method: request.method,
+      route: request.routeOptions?.url ?? "unknown",
+      name: failure.name,
+      message: failure.message,
+    });
     return reply.status(500).send({ error: "internal_error", message: "internal error", ref });
   });
 

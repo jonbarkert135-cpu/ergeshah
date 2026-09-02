@@ -102,19 +102,26 @@ clearnet site share one database, so an operator can still correlate activity ac
 
 ## Backups
 
+`scripts/backup.mjs` takes an encrypted, verified, versioned snapshot, and prunes old ones on
+a policy. Read **`docs/BACKUPS.md`** — it has the commands, the cron line and the retention
+policy (35 days, minimum 7 files, no permanent archive tier, so a backup set does not become
+a forever-copy of deleted accounts).
+
 ```bash
-# SQLite: consistent copy without stopping the service
-docker compose exec app node -e "
-  const {DatabaseSync}=require('node:sqlite');
-  new DatabaseSync('data/symvolon.sqlite').exec(\"VACUUM INTO 'data/backup.sqlite'\");
-"
-# then encrypt before it leaves the host
-age -r age1yourkey -o backup-$(date +%F).sqlite.age backup.sqlite
+npm run backup:keygen > /etc/symvolon/backup.key   # once, offline
+npm run backup -- --key /etc/symvolon/backup.key --out /var/backups/symvolon
+npm run backup:prune -- --out /var/backups/symvolon
 ```
 
-The database contains no plaintext messages, but it does contain password hashes,
-marketplace records and public keys. Encrypt every backup, and store the key somewhere
-the backup is not.
+The database contains no plaintext messages, but it does contain password hashes, sealed
+vaults, marketplace records and public keys. The backup key is not part of the application's
+configuration on purpose: a compromised running service cannot decrypt the backup history.
+
+## Logs
+
+What is logged, why, for how long, who can read it and when it is deleted: **`docs/LOGGING.md`**.
+Short version — a JSON line per 500, one at boot, no access log anywhere, and nothing that
+identifies a user or a message.
 
 ## Operating notes
 

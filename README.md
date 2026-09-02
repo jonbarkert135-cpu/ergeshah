@@ -117,6 +117,8 @@ never simplified away. In this codebase they *are* the product.
 | [`docs/TESTING.md`](docs/TESTING.md) | how the suites are organised and what is not covered |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | the design system: tokens, components, dark and light |
 | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) | what a first visit costs, and every lever pulled to get there |
+| [`docs/BACKUPS.md`](docs/BACKUPS.md) | encrypted, versioned, tested backups — and the retention policy that stops them becoming forever |
+| [`docs/LOGGING.md`](docs/LOGGING.md) | what we log, why, for how long, who can read it, when it is deleted |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | the working loop, and what every change is held to |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | ADRs: tech choices, dependency + license justification |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | what is deliberately not built yet, and in which order |

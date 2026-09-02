@@ -26,7 +26,12 @@
     "audit:migrations": "node scripts/audit.mjs migrations",
     "audit:supply": "node scripts/audit.mjs supply",
     "audit": "npm run audit:deps && npm run audit:dependencies && npm run audit:bundle && npm run audit:secrets && npm run audit:history && npm run audit:migrations && npm run audit:supply",
-    "audit:deployment": "node scripts/audit.mjs deployment"
+    "audit:deployment": "node scripts/audit.mjs deployment",
+    "backup": "node scripts/backup.mjs create",
+    "backup:verify": "node scripts/backup.mjs verify",
+    "backup:restore": "node scripts/backup.mjs restore",
+    "backup:prune": "node scripts/backup.mjs prune",
+    "backup:keygen": "node scripts/backup.mjs keygen"
   },
   "dependencies": {
     "fastify": "^5.2.0",

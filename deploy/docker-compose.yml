@@ -19,6 +19,11 @@ services:
     # The application never needs to reach the internet. Denying it egress turns a whole
     # class of SSRF and exfiltration bugs into a connection error.
     security_opt: ["no-new-privileges:true"]
+    # Logs are size-bounded here, and there is nothing in them about a request (see
+    # docs/LOGGING.md). On a journald host use MaxRetentionSec=1week instead.
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: [ALL]
@@ -34,6 +39,9 @@ services:
       - caddy-config:/config
     networks: [edge]
     security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   # Uncomment for PostgreSQL, and set DB_DIALECT=postgres + DATABASE_URL in .env.
   # db:
