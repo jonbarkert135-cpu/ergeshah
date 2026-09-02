@@ -60,7 +60,10 @@ Later checks are added as npm scripts, not as workflow steps, so the copy under
 `.github/workflows/` should not need updating again.
 
 `npm test` runs the unit + API test suite (crypto vectors, ratchet properties, auth,
-marketplace, moderation). `npm run check` runs TypeScript in strict mode.
+marketplace, moderation). `npm run check` runs TypeScript in strict mode. `npm run audit`
+checks dependency advisories, greps the production bundle for anything that would contact
+a third party, and scans the repository for committed key material — see
+[`docs/AUDIT.md`](docs/AUDIT.md), which also lists what those checks do *not* prove.
 
 ## Production
 

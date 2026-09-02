@@ -51,6 +51,9 @@ wrapped master key (PR #7), and AUTH-7 PGP challenge–response as a second fact
 
 ## Operations
 
+*Shipped: the zero-cost audit pipeline — `audit:bundle`, `audit:secrets` and
+`docs/AUDIT.md` (PR #10).*
+
 - **OPS-1 — Reproducible client builds** published with hashes, so a user can verify the
   JavaScript they were served. This is the mitigation for the largest residual risk in
   the threat model.

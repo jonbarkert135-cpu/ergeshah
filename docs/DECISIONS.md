@@ -238,3 +238,30 @@ production bundle is checked for the string.
 ways a hostile key or signature can be malformed — is handled by an implementation that is
 audited and maintained, and our own code stays at about a hundred lines of policy: reject
 private keys, require a signing-capable key, verify or return false.
+
+## ADR-0016 — Audits as CI checks, written in the repository, not bought
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Two of this project's promises are invisible to the test suite. "The client
+contacts no third party" is a property of a *build artifact*, and "no credentials are
+committed" is a property of *history*; both are broken by a single hurried commit, and
+neither fails a unit test. The usual answers are a paid scanner or a policy document. A
+policy document does nothing, and the project's budget is a VPS.
+
+**Decision.** Two greps with a threat model attached, in `scripts/audit.mjs`: `audit:bundle`
+builds the production client and rejects remote URLs, source-map references, `sendBeacon`
+and the server-only `openpgp` import; `audit:secrets` scans every tracked file for key
+material, tokens and credential literals. Both run in CI, both add no dependency, and both
+have tests that fail if the rules stop matching. `docs/AUDIT.md` documents them, adds the
+manual checks a reader can perform for free, and lists what none of it proves.
+
+The workflow calls them via `--if-present`, which is why they could be added without the
+human step of re-copying `.github/workflows/ci.yml` (see `AGENTS.md`).
+
+**Consequences.** False positives are possible; the escape hatch is an `audit:allow`
+comment on the line, which is visible in review, rather than a widened rule. Fixture
+passwords under `test/` are exempt from the credential heuristic, key material is not.
+The checks stop honest mistakes, not a hostile committer — that is stated in the document
+instead of being implied away, and the real mitigation for the served-bundle risk remains
+reproducible builds (roadmap OPS-1).
