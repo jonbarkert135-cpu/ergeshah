@@ -213,3 +213,28 @@ format carrying two envelopes, and one honest trade-off — the recovery copy ma
 phrase the most valuable secret in the system, so it is offered as a choice with the
 consequence spelled out rather than switched on silently. Declining it means a forgotten
 password loses the history for good.
+
+## ADR-0015 — `openpgp` for verifying signatures, server-side only
+
+**Status:** accepted (2026-09-02)
+
+**Context.** PGP authentication needs one operation: check a detached signature over a
+challenge against a public key. Doing that without a library means parsing the OpenPGP
+packet format — armour, key packets, signature packets, hashed subpackets, algorithm
+identifiers — a format with decades of edge cases and a long CVE history, in code that
+decides whether someone gets in. That is precisely the code this project's rules say not to
+write by hand.
+
+**Decision.** Add `openpgp` (6.x) as a production dependency, imported only from
+`src/server/lib/pgp.ts`. It has no dependencies of its own, is maintained by ProtonMail,
+has been audited by Cure53, and is the reference JavaScript implementation. It is LGPL-3.0+,
+which combines cleanly into this AGPL-3.0 project; we use it unmodified, so the copyleft
+obligation on the library itself is satisfied by keeping it as an untouched dependency.
+Nothing from it reaches the browser: the client only moves armoured text around, and the
+production bundle is checked for the string.
+
+**Consequences.** Production dependencies go from three to four, and roughly 17 MB of
+`node_modules` on the server. In exchange, the entire OpenPGP surface — including all the
+ways a hostile key or signature can be malformed — is handled by an implementation that is
+audited and maintained, and our own code stays at about a hundred lines of policy: reject
+private keys, require a signing-capable key, verify or return false.

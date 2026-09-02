@@ -109,5 +109,5 @@ from then on. History is not transferred: the server has no plaintext to replay.
 Recorded as decisions with alternatives and trade-offs in [`DECISIONS.md`](DECISIONS.md).
 The short version: Node 22 (native TypeScript execution, bundled SQLite), Fastify (small,
 no implicit middleware), libsodium (audited primitives, identical in browser and server),
-esbuild (one-step self-hosted client bundle), no framework on the client, no ORM on the
+`openpgp` for verifying PGP signatures on the server only (ADR-0015), esbuild (one-step self-hosted client bundle), no framework on the client, no ORM on the
 server, and no service that requires an API key for any core feature.

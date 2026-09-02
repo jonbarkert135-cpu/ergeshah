@@ -119,6 +119,18 @@ The phrase itself never reaches the server — not in a request body, not in a l
 backup. Nothing in the database can be turned back into it, which is also why nobody here
 can restore an account whose phrase and password are both gone.
 
+## PGP material
+
+`users.pgp_public_key` holds the armoured public key exactly as pasted, and
+`users.pgp_fingerprint` its fingerprint. Both are public by nature — a public key is meant
+to be published. Nothing about the private half is stored, requested or logged; a private
+key block sent to `/api/auth/pgp/key` is rejected before anything is written.
+
+A key usually carries user IDs — often a name and an email address. That is data the user
+chose to attach and can strip with `gpg --export-options export-minimal`; the interface
+shows the identities a key claims and marks them unverified. This is the one place where a
+user can voluntarily put an email address into the database, and nothing here requires it.
+
 ## Linked devices
 
 `device_links` holds, per pending authorisation: SHA-256 of the secret, the account id, an

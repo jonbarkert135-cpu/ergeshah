@@ -123,3 +123,14 @@ footer.legal { color: var(--muted); font-size: 12px; padding: 20px; text-align: 
 /* Three word checks, side by side, so the confirmation reads as one step. */
 .confirm { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .confirm label { margin-top: 0; }
+
+/* Armour pasted into a form is machine text, so it is set as machine text. */
+textarea.mono { font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+
+/* Bytes meant to be copied exactly: a challenge, a command, a fingerprint. */
+pre.block {
+  margin: 4px 0 14px; padding: 11px 13px; overflow-x: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius);
+  font-family: var(--mono); font-size: 12px; color: var(--text);
+  white-space: pre-wrap; word-break: break-all;
+}

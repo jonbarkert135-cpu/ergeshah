@@ -165,7 +165,81 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
       username: string;
       role: string;
       sealedVault: VaultBackup | null;
+      pgpRequired?: boolean;
+      challengeId?: string;
+      challenge?: string;
+      fingerprint?: string;
     }>("/api/auth/login", { method: "POST", body: { username, authSecret } });
+
+    // The password was right, but this account also asks for a PGP signature, so there is
+    // no session yet — only a challenge to take to `gpg` and bring back.
+    if (account.pgpRequired) {
+      drawPgpStep(keys, account.challengeId!, account.challenge!, account.fingerprint ?? "");
+      return;
+    }
+
+    await finishLogin(keys, account);
+  }
+
+  /** Step two of login for accounts with a PGP factor: sign the challenge, then continue. */
+  function drawPgpStep(
+    keys: ReturnType<typeof deriveKeys>,
+    challengeId: string,
+    challenge: string,
+    fingerprint: string,
+  ): void {
+    const signature = el("textarea", {
+      rows: "8",
+      class: "mono",
+      placeholder: "-----BEGIN PGP SIGNATURE-----",
+      spellcheck: "false",
+    });
+    const submit = el("button", { class: "primary" }, "Sign in");
+    const message = el("div", {});
+
+    submit.addEventListener("click", () => {
+      submit.setAttribute("disabled", "");
+      clear(message);
+      void api<{ id: string; username: string; role: string; sealedVault: VaultBackup | null }>(
+        "/api/auth/pgp/complete",
+        { method: "POST", body: { challengeId, signature: (signature as HTMLTextAreaElement).value } },
+      )
+        .then((account) => finishLogin(keys, account))
+        .catch((error: Error) => {
+          message.append(notice(error.message, "error"));
+          submit.removeAttribute("disabled");
+        });
+    });
+
+    clear(container).append(
+      el(
+        "div",
+        { class: "card" },
+        el("h1", {}, "Sign the challenge"),
+        el("p", { class: "lede" },
+          "This account is protected by a PGP key. Sign these bytes with it and paste the signature back."),
+        fingerprint ? el("p", { class: "mono muted" }, fingerprint) : el("span", {}),
+        el("pre", { class: "mono block" }, challenge),
+        el("p", { class: "muted" }, "On your own machine:"),
+        el("pre", { class: "mono block" },
+          `printf %s '${challenge}' | gpg --detach-sign --armor`),
+        field("Signature", signature),
+        el("div", { class: "row" }, submit,
+          el("button", { class: "ghost" }, "Back")),
+        message,
+      ),
+    );
+    container.querySelector("button.ghost")?.addEventListener("click", () => {
+      mode = "login";
+      draw();
+    });
+  }
+
+  /** Everything after the server accepts us: open the vault, or start a fresh device. */
+  async function finishLogin(
+    keys: ReturnType<typeof deriveKeys>,
+    account: { id: string; username: string; role: string; sealedVault: VaultBackup | null },
+  ): Promise<void> {
     const backup = localSealedVault() ?? account.sealedVault;
     if (backup) {
       try {

@@ -128,7 +128,9 @@ Scenarios rather than assurances, so each line can be checked against the code.
 | A database dump | See usernames, coarse days, public keys, wrapped blobs, ciphertext | Open a vault, read a message, derive a phrase, or replay a session — tokens are stored hashed |
 | A stolen session cookie | Act as the user until the session expires or is revoked, including reading envelopes the server still holds | Open the vault (the master key is not on the server), change the password (needs the current one), or complete a recovery |
 | A PGP public key | Nothing; it is public | Impersonate the user — only the private half signs |
-| A recovery phrase | Take the account: rotate the password, sign in, open the backup, read history | Nothing more. This is the strongest secret in the system, which is why the interface says so and why the recovery copy of the master key is a choice |
+| Username + password, on an account with PGP | Ask for a challenge, and stop there | Sign it, so no session is ever created |
+| A PGP private key alone | Sign challenges | Get in without the password as well |
+| A recovery phrase | Take the account (and clear the PGP factor): rotate the password, sign in, open the backup, read history | Nothing more. This is the strongest secret in the system, which is why the interface says so and why the recovery copy of the master key is a choice |
 | A compromised VPS | Everything the server can do: serve modified client code, watch traffic timing and sizes, read the database | Read past messages (forward secrecy, no plaintext at rest), derive keys, or recover a phrase |
 | A compromised browser | Everything that device can do while it is unlocked | Read another device's history, or produce a recovery signature without the phrase |
 
