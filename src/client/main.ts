@@ -90,7 +90,7 @@ function header(signedIn: boolean): HTMLElement {
   return el(
     "header",
     { class: "top" },
-    el("span", { class: "brand" }, "ergeshah"),
+    el("span", { class: "brand" }, "Symvolon"),
     nav,
     el("span", { class: "spacer" }),
     signedIn ? el("span", { class: "who" }, `@${state.account?.username}`) : null,

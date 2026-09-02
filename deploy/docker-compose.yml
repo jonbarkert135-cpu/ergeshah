@@ -40,13 +40,13 @@ services:
   #   image: postgres:17-alpine
   #   restart: unless-stopped
   #   environment:
-  #     POSTGRES_USER: ergeshah
+  #     POSTGRES_USER: symvolon
   #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-  #     POSTGRES_DB: ergeshah
+  #     POSTGRES_DB: symvolon
   #   volumes: [db-data:/var/lib/postgresql/data]
   #   networks: [internal]
   #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U ergeshah"]
+  #     test: ["CMD-SHELL", "pg_isready -U symvolon"]
   #     interval: 10s
 
   # Uncomment to publish the same application as a Tor onion service. See

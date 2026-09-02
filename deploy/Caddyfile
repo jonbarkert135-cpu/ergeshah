@@ -30,7 +30,7 @@ example.com {
 }
 
 # Tor onion service (optional): no TLS, no ACME, no logs.
-# ergeshahxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion:80 {
+# symvolonxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion:80 {
 # 	log { output discard }
 # 	reverse_proxy app:8080
 # }

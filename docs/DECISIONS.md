@@ -167,3 +167,23 @@ a 256-bit input, and stated here so the trade-off is not rediscovered as a findi
 client KDF is ever weakened, this decision must be revisited first. Existing hashes are
 not portable across the change; there was no deployment, so no migration path exists.
 
+## ADR-0013 — The project is called Symvolon; the protocol labels keep their old strings
+
+**Status:** accepted (2026-09-02)
+
+**Context.** The repository was bootstrapped under a working title. A product needs a name
+that means something and that nobody else is using in this space. *Symbolon* (σύμβολον) is
+the ancient token broken in two, each half held by one party, matched later as proof that
+both belong to the same agreement — which is precisely what X3DH does with key halves, and
+precisely what two strangers in a marketplace need. Checked before adopting it: free on
+npm and GitHub, no software product using it, no live site on the obvious domains.
+
+**Decision.** Product, documentation, UI and package are named Symvolon. The HKDF and AEAD
+context strings (`ergeshah-x3dh-v1`, `ergeshah-root-he-v1`, and the rest) are **not**
+renamed. They are opaque domain separators: their only job is to be distinct from each
+other and stable over time. Renaming them would invalidate every derived key and every
+sealed vault, and would buy exactly nothing — the laziest correct change is no change.
+
+**Consequences.** Anyone reading `src/shared/crypto` will find the old name in the labels;
+a comment there and this ADR explain why. If the protocol is ever versioned for real
+(v2 labels), that is the moment to switch the prefix, together with a migration.

@@ -111,7 +111,7 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
 export function renderSell(root: HTMLElement): void {
   clear(root);
   const status = el("div", {});
-  root.append(el("h1", {}, "Sell on ergeshah"), status);
+  root.append(el("h1", {}, "Sell on Symvolon"), status);
   void load();
 
   async function load() {

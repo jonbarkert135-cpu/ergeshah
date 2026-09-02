@@ -21,7 +21,7 @@ export async function registerStaticRoutes(app: FastifyInstance): Promise<void> 
   const shellPath = join(PUBLIC_DIR, "index.html");
   const shell = existsSync(shellPath)
     ? readFileSync(shellPath, "utf8")
-    : "<!doctype html><title>ergeshah</title><p>Client not built. Run <code>npm run build</code>.</p>";
+    : "<!doctype html><title>Symvolon</title><p>Client not built. Run <code>npm run build</code>.</p>";
   app.decorate("appShell", shell);
 
   app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(shell));

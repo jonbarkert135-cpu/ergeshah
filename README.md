@@ -1,7 +1,14 @@
-# ergeshah
+<img src="brand/symvolon-mark.svg" alt="" width="72" height="72">
+
+# Symvolon
 
 A privacy-first web platform that combines an **end-to-end encrypted messenger** with a
 **marketplace for digital goods and online services**.
+
+*σύμβολον* — in the ancient world, a token deliberately broken in two. Each party kept a
+half; fitting the halves back together was the proof that the two belonged to the same
+agreement. That is what the handshake in this codebase does, and it is what a marketplace
+needs before strangers trade. The mark is that token, cut once, its halves out of true.
 
 Design philosophy, in priority order:
 
@@ -37,7 +44,7 @@ Design philosophy, in priority order:
 ```bash
 npm install
 cp .env.example .env      # dev defaults are fine; never reuse them in production
-npm run migrate           # creates ./data/ergeshah.sqlite
+npm run migrate           # creates ./data/symvolon.sqlite
 npm run dev               # http://127.0.0.1:8080
 ```
 

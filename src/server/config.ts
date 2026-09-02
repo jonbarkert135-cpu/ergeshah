@@ -39,7 +39,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     host: process.env.HOST ?? "127.0.0.1",
     port: Number(process.env.PORT ?? 8080),
     dialect: (process.env.DB_DIALECT as Dialect) ?? (process.env.DATABASE_URL ? "postgres" : "sqlite"),
-    sqlitePath: process.env.SQLITE_PATH ?? "data/ergeshah.sqlite",
+    sqlitePath: process.env.SQLITE_PATH ?? "data/symvolon.sqlite",
     postgresUrl: process.env.DATABASE_URL ?? null,
     bucketPepper: requiredSecret("RATE_LIMIT_PEPPER", env),
     trustProxy: process.env.TRUST_PROXY === "true",
