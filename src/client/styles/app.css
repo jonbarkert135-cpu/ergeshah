@@ -38,9 +38,10 @@
   --paper-300: #dedbd3;
   --paper-400: #c3bfb5;
   --grey-500: #9aa1ab;
-  --grey-600: #6f7681;
+  --grey-550: #848b96;
   --grey-700: #565c66;
-  --state-danger: #d1584c;
+  --grey-800: #4b515a;
+  --state-danger-deep: #b23f34;
   --state-danger-soft: #e0837a;
   --state-warn: #b98a3c;
   --state-ok: #4f8a6b;
@@ -111,7 +112,8 @@
   --border-strong: var(--ink-200);
   --text: var(--paper-100);
   --text-muted: var(--grey-500);
-  --text-faint: var(--grey-600);
+  /* The faintest text still has to read: 4.5:1 on every surface (test/design.test.ts). */
+  --text-faint: var(--grey-550);
   --accent: var(--paper-100);
   --accent-hover: var(--paper-200);
   --accent-text: var(--ink-800);
@@ -140,12 +142,12 @@
   --border-strong: var(--paper-400);
   --text: var(--ink-800);
   --text-muted: var(--grey-700);
-  --text-faint: var(--grey-600);
+  --text-faint: var(--grey-800);
   --accent: var(--ink-800);
   --accent-hover: var(--ink-700);
   --accent-text: var(--paper-100);
   --focus: #3f5a80;
-  --danger: var(--state-danger);
+  --danger: var(--state-danger-deep);
   --danger-surface: rgb(209 88 76 / 10%);
   --warn: #8a6420;
   --ok: var(--state-ok);
@@ -169,12 +171,12 @@
     --border-strong: var(--paper-400);
     --text: var(--ink-800);
     --text-muted: var(--grey-700);
-    --text-faint: var(--grey-600);
+    --text-faint: var(--grey-800);
     --accent: var(--ink-800);
     --accent-hover: var(--ink-700);
     --accent-text: var(--paper-100);
     --focus: #3f5a80;
-    --danger: var(--state-danger);
+    --danger: var(--state-danger-deep);
     --danger-surface: rgb(209 88 76 / 10%);
     --warn: #8a6420;
     --ok: var(--state-ok);
@@ -226,6 +228,41 @@ body {
 
 :focus:not(:focus-visible) {
   outline: none;
+}
+
+/* A focused heading is a landing point, not a control: no ring on it. */
+h1:focus {
+  outline: none;
+}
+
+/* Skip link: first in the tab order, visible only while focused. */
+.skip {
+  position: absolute;
+  left: var(--space-3);
+  top: var(--space-2);
+  z-index: 30;
+  padding: var(--control-pad-y) var(--control-pad-x);
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip:focus {
+  transform: none;
+}
+
+/* Present to assistive technology, absent from the layout. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 a {
@@ -485,16 +522,33 @@ button.primary:hover:not(:disabled) {
   --button-border: var(--accent-hover);
 }
 
-button.ghost {
+button.ghost,
+nav a.ghost {
   --button-bg: transparent;
   --button-border: transparent;
   color: var(--text-muted);
 }
 
-button.ghost:hover:not(:disabled) {
+button.ghost:hover:not(:disabled),
+nav a.ghost:hover {
   --button-bg: var(--surface-raised);
   --button-border: transparent;
   color: var(--text);
+}
+
+/* Navigation links are links (history, middle-click, link lists) dressed as ghost buttons. */
+nav a.ghost {
+  font: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  background: var(--button-bg);
+  border: var(--border-width) solid var(--button-border);
+  border-radius: var(--radius-sm);
+  padding: var(--control-pad-y) var(--control-pad-x);
+  min-height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
 }
 
 button.danger {
@@ -519,7 +573,8 @@ button.icon {
   min-height: var(--control-height);
 }
 
-button[aria-current="page"] {
+button[aria-current="page"],
+nav a[aria-current="page"] {
   --button-bg: var(--surface-raised);
   color: var(--text);
   font-weight: 560;
@@ -786,6 +841,21 @@ form.card {
 .skeleton.line {
   height: 12px;
   margin-bottom: var(--space-2);
+  width: 90%;
+}
+
+/* Successive lines shorten, like a paragraph does. In CSS, because inline widths are
+   blocked by the style-src policy. */
+.skeleton.line:nth-child(2) {
+  width: 78%;
+}
+
+.skeleton.line:nth-child(3) {
+  width: 66%;
+}
+
+.skeleton.line:nth-child(n + 4) {
+  width: 54%;
 }
 
 .skeleton.card {
@@ -914,6 +984,8 @@ dialog .actions {
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-2) 0 var(--space-4);
+  overflow-y: auto;
+  max-height: 60vh;
 }
 
 .msg {
@@ -1097,6 +1169,106 @@ pre.block {
 
   main {
     padding: var(--space-5) var(--space-3) var(--space-7);
+  }
+
+  /* 16px is the size below which iOS zooms the page into a focused field. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  /* Tables built by table(): the header row goes, each cell states its column. */
+  table.stack thead {
+    display: none;
+  }
+
+  table.stack tr {
+    display: block;
+    padding: var(--space-2) 0;
+    border-bottom: var(--border-width) solid var(--border);
+  }
+
+  table.stack td {
+    display: flex;
+    gap: var(--space-3);
+    padding: var(--space-1) var(--space-3);
+    border-bottom: none;
+  }
+
+  table.stack td::before {
+    content: attr(data-label);
+    flex: 0 0 96px;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    padding-top: 2px;
+  }
+
+  /* Six destinations do not fit beside the brand on a 360px header, and a strip that
+     scrolls with its scrollbar hidden looks like three. On a phone the navigation is a
+     bar along the bottom, under the thumb, with every destination visible. */
+  header.top nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    justify-content: space-around;
+    gap: 0;
+    padding: var(--space-1) var(--space-2);
+    padding-bottom: max(var(--space-1), env(safe-area-inset-bottom));
+    background: var(--bg);
+    border-top: var(--border-width) solid var(--border);
+  }
+
+  header.top nav:empty {
+    display: none;
+  }
+
+  header.top nav a.ghost {
+    font-size: var(--text-xs);
+    padding: var(--control-pad-y) var(--space-2);
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  main {
+    padding-bottom: calc(var(--space-8) + var(--control-height));
+  }
+
+  /* Messaging on a phone: the conversation is the screen. The list is a strip above, the
+     history takes what is left, the composer stays under the thumb. */
+  .chat {
+    min-height: auto;
+  }
+
+  .chat .list > * {
+    flex: 0 0 auto;
+  }
+
+  .messages {
+    max-height: 48dvh;
+  }
+
+  .composer {
+    position: sticky;
+    bottom: calc(var(--control-height) + var(--space-3));
+    padding: var(--space-2) 0;
+    background: var(--bg);
+  }
+
+  .msg {
+    max-width: 88%;
+  }
+}
+
+/* A finger is not a cursor: on touch devices every control reaches the 44px target. */
+@media (pointer: coarse) {
+  :root {
+    --control-height: 44px;
+    --control-pad-y: 10px;
+    --control-pad-x: 16px;
   }
 }
 

@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, emptyState, errorState, field, input, money, notice, skeletonCards, toast, withBusy } from "../ui.ts";
+import { clear, el, emptyState, errorState, field, formDialog, input, money, notice, skeletonCards, toast, withBusy } from "../ui.ts";
 import { state } from "../state.ts";
 import { sendShippingDetails, startConversation } from "../messaging.ts";
 
@@ -14,15 +14,28 @@ interface Listing {
   seller: { username: string; displayName: string };
   listedOn: string;
   reviewCount: number;
+  distinctReviewers: number;
   averageRating: number | null;
 }
 
 export function renderMarket(root: HTMLElement, navigate: (route: string) => void): void {
   clear(root);
   const results = el("div", { class: "grid" });
-  const search = input("q", { placeholder: "Search listings…" });
+  const search = input("q", { type: "search", placeholder: "Search listings…", "aria-label": "Search listings" });
   const status = el("div", {});
 
+  // A form, so Enter and a phone keyboard's search key submit without a key handler.
+  const toolbar = el(
+    "form",
+    { class: "row toolbar", role: "search" },
+    el("div", { class: "grow" }, search),
+    el("button", { type: "submit" }, "Search"),
+    el("a", { class: "ghost", href: "#/sell" }, "Sell here"),
+  );
+  toolbar.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void load();
+  });
   root.append(
     el("h1", {}, "Marketplace"),
     el(
@@ -30,30 +43,39 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
       { class: "lede" },
       "Digital goods and online services. Orders carry no address and no payment identity — terms are agreed in the encrypted channel attached to each order.",
     ),
-    el(
-      "div",
-      { class: "row toolbar" },
-      el("div", { class: "grow" }, search),
-      el("button", { onclick: () => void load() }, "Search"),
-      el("button", { class: "ghost", onclick: () => navigate("#/sell") }, "Sell here"),
-    ),
+    toolbar,
     status,
     results,
   );
-  search.addEventListener("keydown", (event) => {
-    if ((event as KeyboardEvent).key === "Enter") void load();
+  // The server pages by cursor, so the client keeps one: "more" asks for what comes after
+  // the last row it has, never for page N (point 47).
+  const more = el("button", { type: "button", class: "ghost" }, "Show more");
+  const morerow = el("div", { class: "row center" }, more);
+  morerow.hidden = true;
+  root.append(morerow);
+  let cursor: string | null = null;
+  more.addEventListener("click", () => {
+    void withBusy(more, () => load(cursor));
   });
   void load();
 
-  async function load() {
+  async function load(after: string | null = null) {
     const term = search.value.trim();
     clear(status);
-    clear(results).append(skeletonCards(6));
+    morerow.hidden = true;
+    if (!after) clear(results).append(skeletonCards(6));
     try {
-      const query = term ? `?q=${encodeURIComponent(term)}` : "";
-      const { listings } = await api<{ listings: Listing[] }>(`/api/market/listings${query}`);
-      clear(results);
-      if (listings.length === 0) {
+      const query = new URLSearchParams();
+      if (term) query.set("q", term);
+      if (after) query.set("cursor", after);
+      const suffix = query.size > 0 ? `?${query}` : "";
+      const { listings, nextCursor } = await api<{ listings: Listing[]; nextCursor: string | null }>(
+        `/api/market/listings${suffix}`,
+      );
+      cursor = nextCursor;
+      morerow.hidden = nextCursor === null;
+      if (!after) clear(results);
+      if (listings.length === 0 && !after) {
         status.append(
           term
             ? emptyState(
@@ -73,42 +95,84 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
     } catch {
       // The reader gets a cause they can act on; the reference for the real one is in the
       // response the API layer already surfaced (docs/API.md).
-      clear(results).append(
+      if (after) clear(status).append(errorState("More listings did not load.", () => void load(after)));
+      else clear(results).append(
         errorState("The listings did not load. Your connection, or ours.", () => void load()),
       );
     }
   }
 
   function card(listing: Listing): HTMLElement {
-    const buy = el("button", { class: "primary" }, "Order");
-    const message = el("button", { class: "ghost" }, "Message seller");
+    const buy = el("button", { type: "button", class: "primary" }, "Order");
+    const message = el("button", { type: "button", class: "ghost" }, "Message seller");
+    const report = el("button", { type: "button", class: "ghost small", "aria-label": `Report ${listing.title}` }, "Report");
     const local = el("div", {});
     buy.addEventListener("click", () => {
+      void order();
+    });
+    async function order() {
       // A physical order needs an address. It is collected here and sent through the order's
       // encrypted channel — the API call below carries the listing id and nothing else.
-      const details =
-        listing.kind === "physical_good"
-          ? window.prompt("Delivery address (encrypted for the seller; the server never sees it)")
-          : null;
-      if (listing.kind === "physical_good" && !details?.trim()) return;
-      void withBusy(buy, () =>
-        api<{ id: string; channel: string }>("/api/market/orders", {
-          method: "POST",
-          body: { listingId: listing.id },
-        }),
-      )
-        .then(async (order) => {
-          await startConversation(listing.seller.username);
-          if (details?.trim()) {
-            await sendShippingDetails(listing.seller.username, order.channel, order.id, details.trim());
-          }
-          toast(`Order ${order.id.slice(0, 8)} placed`);
-          clear(local).append(notice(`Order ${order.id.slice(0, 8)} placed — see Orders.`, "ok"));
-        })
-        .catch((error: Error) => clear(local).append(notice(error.message, "error")));
-    });
+      let details: string | null = null;
+      if (listing.kind === "physical_good") {
+        const answer = await formDialog({
+          title: "Where should it be sent?",
+          body: "Encrypted for the seller in this browser. The server never sees it, and there is no column for it.",
+          fields: [{ name: "address", label: "Delivery address", kind: "textarea", required: true, maxlength: 2000 }],
+          confirmLabel: "Place order",
+        });
+        if (!answer?.address) return;
+        details = answer.address;
+      }
+      try {
+        const placed = await withBusy(buy, () =>
+          api<{ id: string; channel: string }>("/api/market/orders", {
+            method: "POST",
+            body: { listingId: listing.id },
+          }),
+        );
+        await startConversation(listing.seller.username);
+        if (details) await sendShippingDetails(listing.seller.username, placed.channel, placed.id, details);
+        toast(`Order ${placed.id.slice(0, 8)} placed`);
+        clear(local).append(notice(`Order ${placed.id.slice(0, 8)} placed — see Orders.`, "ok"));
+      } catch (error) {
+        clear(local).append(notice((error as Error).message, "error"));
+      }
+    }
     message.addEventListener("click", () => {
       void startConversation(listing.seller.username).then(() => navigate("#/chat"));
+    });
+    report.addEventListener("click", () => {
+      void formDialog({
+        title: "Report this listing",
+        body: "A moderator reads reports; sellers do not see who reported them.",
+        fields: [
+          {
+            name: "reason",
+            label: "Reason",
+            kind: "select",
+            options: [
+              ["prohibited_goods", "Prohibited goods"],
+              ["fraud", "Fraud or scam"],
+              ["impersonation", "Impersonation"],
+              ["spam", "Spam"],
+              ["harassment", "Harassment"],
+              ["other", "Something else"],
+            ],
+          },
+          { name: "details", label: "Details (optional)", kind: "textarea", maxlength: 2000 },
+        ],
+        confirmLabel: "Send report",
+        danger: true,
+      }).then((answer) => {
+        if (!answer) return;
+        void api("/api/moderation/reports", {
+          method: "POST",
+          body: { targetType: "listing", targetId: listing.id, reason: answer.reason, details: answer.details },
+        })
+          .then(() => toast("Reported. Thank you."))
+          .catch((error: Error) => clear(local).append(notice(error.message, "error")));
+      });
     });
 
     return el(
@@ -132,10 +196,17 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
           {},
           listing.averageRating === null
             ? "no reviews yet"
-            : `★ ${listing.averageRating} (${listing.reviewCount})`,
+            // Buyers, not reviews: "5.0 from 1 buyer" says what it is (ADR-0029).
+            : `★ ${listing.averageRating} from ${listing.distinctReviewers} ${listing.distinctReviewers === 1 ? "buyer" : "buyers"}`,
         ),
       ),
-      el("div", { class: "row" }, state.account ? buy : el("span", { class: "muted" }, "sign in to order"), message),
+      el(
+        "div",
+        { class: "row" },
+        state.account ? buy : el("span", { class: "muted" }, "sign in to order"),
+        message,
+        state.account ? report : null,
+      ),
       local,
     );
   }

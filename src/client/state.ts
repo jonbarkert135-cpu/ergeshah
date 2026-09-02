@@ -55,6 +55,8 @@ export interface DeliveryKey {
   key: string;
   nonce: string;
   name: string;
+  /** How to present the plaintext: save a file, or show text. Absent on older keys: a file. */
+  kind?: "file" | "text";
   at: number;
 }
 

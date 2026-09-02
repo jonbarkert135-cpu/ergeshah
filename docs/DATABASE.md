@@ -103,6 +103,17 @@ child table (reproduced, not theorised; ADR-0028). Enum values are validated at 
 boundary by `asEnum`, the only path a request has to a status column; tables created after
 007 carry `CHECK` from birth.
 
+## Search index (008)
+
+`listing_terms` is an inverted index: one row per (word, listing), primary key
+`(term, listing_id)`. Words come from `tokenize()` in `src/server/lib/search.ts` — NFKD,
+accents dropped, lowercased, letters and digits only, 2–32 characters, at most 200 distinct
+words per listing. It is written in the same transaction as the listing it describes, dropped
+with it by `ON DELETE CASCADE`, and rebuilt for anything that predates it by
+`backfillSearchIndex()` at boot. `listings_page_idx (status, created_day, id)` carries both
+the filter and the sort order for keyset pagination, so a page is a seek rather than an
+`OFFSET` scan.
+
 ## Retention, and what deletes what
 
 - Envelopes: on acknowledgement, or at `ENVELOPE_TTL_MS` (30 days).

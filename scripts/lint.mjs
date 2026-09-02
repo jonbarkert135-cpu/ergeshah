@@ -72,6 +72,19 @@ const RULES = [
       "style-src 'self' has no 'unsafe-inline', so the browser drops inline styles: use a class",
   },
   {
+    name: "browser-prompt",
+    pattern: /\bwindow\.(?:prompt|confirm|alert)\s*\(/,
+    files: /^src\/client\//,
+    message:
+      "prompt/confirm/alert have no label, no hint and no styling: use formDialog() or confirmDialog() from ui.ts",
+  },
+  {
+    name: "raw-table",
+    pattern: /\bel\(\s*"(?:table|tr|th|td)"/,
+    files: /^src\/client\/views\//,
+    message: "build tables with table() from ui.ts, which adds thead/scope and stacks on phones",
+  },
+  {
     name: "focused-test",
     pattern: /\b(?:describe|it|test)\.only\s*\(/,
     files: /^test\//,

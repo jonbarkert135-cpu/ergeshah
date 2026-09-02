@@ -41,9 +41,12 @@ code for safety numbers is generated in the browser as an SVG data URL.
 
 **Database queries.** Twenty indexes cover every column a hot query filters or sorts on, and
 `test/migrations.test.ts` asserts the five that matter most still exist — a missing index is
-a denial-of-service surface, not just a slow page. Every list query has a `LIMIT`. The one
-scan in the system (listing search, `LIKE '%term%'`) has its own rate-limit bucket for that
-reason.
+a denial-of-service surface, not just a slow page. Every list query has a `LIMIT`. Listing
+search used to be the one scan in the system (`LIKE '%term%'`, unindexable by construction);
+since point 47 it reads the `listing_terms` inverted index, one range scan per word, and
+pages by cursor — `test/search.test.ts` reads the query plan and fails if the listings table
+is ever scanned again. The `search` bucket stays, because search is still the most expensive
+read here.
 
 **API latency.** The session is resolved once per request in a `preHandler` and reused by
 `authenticate`, instead of a lookup per call site. Screens that need two independent reads

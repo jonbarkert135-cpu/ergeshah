@@ -265,7 +265,7 @@ function acceptInvite(invite: SessionInvite) {
  * before being written to the vault — a peer can send whatever it likes here.
  */
 function storeDeliveryKey(delivery: DeliveryKey & { orderId: string }): void {
-  const { orderId, key, nonce, name } = delivery;
+  const { orderId, key, nonce, name, kind } = delivery;
   if (typeof orderId !== "string" || typeof key !== "string" || typeof nonce !== "string") return;
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(orderId)) return;
   const deliveries = (state.vault!.deliveries ??= {});
@@ -273,6 +273,7 @@ function storeDeliveryKey(delivery: DeliveryKey & { orderId: string }): void {
     key,
     nonce,
     name: typeof name === "string" ? name.slice(0, 120) : "delivery",
+    kind: kind === "text" ? "text" : "file",
     at: Date.now(),
   };
 }

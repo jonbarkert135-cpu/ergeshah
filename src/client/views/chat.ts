@@ -1,4 +1,4 @@
-import { clear, el, emptyState, notice } from "../ui.ts";
+import { clear, el, emptyState, formDialog, notice } from "../ui.ts";
 import { conversations, receiveMessages, sendMessage, startConversation } from "../messaging.ts";
 import { state } from "../state.ts";
 import type { Conversation } from "../state.ts";
@@ -9,8 +9,8 @@ let selectedChannel: string | null = null;
 
 export function renderChat(root: HTMLElement): void {
   clear(root);
-  const list = el("div", { class: "list" });
-  const panel = el("div", {});
+  const list = el("nav", { class: "list", "aria-label": "Conversations" });
+  const panel = el("section", { "aria-label": "Conversation" });
   root.append(
     el("h1", {}, "Messages"),
     el(
@@ -28,7 +28,7 @@ export function renderChat(root: HTMLElement): void {
     list.append(
       el(
         "button",
-        { class: "primary", onclick: () => void newConversation() },
+        { type: "button", class: "primary", onclick: () => void newConversation() },
         "New conversation",
       ),
     );
@@ -76,22 +76,33 @@ export function renderChat(root: HTMLElement): void {
         ),
       );
     }
-    const messages = el("div", { class: "messages" });
+    // role="log": new messages are announced as they arrive, without moving focus.
+    const messages = el("div", { class: "messages", role: "log", "aria-live": "polite", "aria-label": "Messages" });
     for (const message of conversation.messages) {
       messages.append(
         el(
           "div",
           { class: message.mine ? "msg mine" : "msg" },
+          el("span", { class: "sr-only" }, message.mine ? "You: " : `${message.from}: `),
           message.text,
           el("span", { class: "meta" }, new Date(message.at).toLocaleString()),
         ),
       );
     }
-    const box = el("input", { placeholder: `Message ${conversation.peer}…`, maxlength: "4000" });
-    const send = el("button", { class: "primary" }, "Send");
-    const status = el("div", {});
+    const box = el("input", {
+      name: "message",
+      placeholder: `Message ${conversation.peer}…`,
+      "aria-label": `Message ${conversation.peer}`,
+      maxlength: "4000",
+      autocomplete: "off",
+    });
+    const send = el("button", { type: "submit", class: "primary" }, "Send");
+    const status = el("div", { role: "status" });
 
-    const submit = () => {
+    // A form: Enter submits, and so does the phone keyboard's action key.
+    const composer = el("form", { class: "composer" }, box, send);
+    composer.addEventListener("submit", (event) => {
+      event.preventDefault();
       const text = box.value.trim();
       if (!text) return;
       box.value = "";
@@ -100,16 +111,13 @@ export function renderChat(root: HTMLElement): void {
         .then(() => {
           status.replaceChildren();
           drawPanel();
+          box.focus();
         })
         .catch((error: Error) => status.replaceChildren(notice(error.message, "error")))
         .finally(() => {
           send.disabled = false;
         });
-    };
-    box.addEventListener("keydown", (event) => {
-      if ((event as KeyboardEvent).key === "Enter") submit();
     });
-    send.addEventListener("click", submit);
 
     const verification = verificationState(conversation);
     panel.append(
@@ -132,10 +140,12 @@ export function renderChat(root: HTMLElement): void {
           : null,
       ),
       messages,
-      el("div", { class: "composer" }, box, send),
+      composer,
       status,
     );
     messages.scrollTop = messages.scrollHeight;
+    // Re-drawn after a send: the writer's cursor belongs back in the box.
+    if (document.activeElement === document.body) box.focus();
   }
 
   /**
@@ -194,7 +204,12 @@ export function renderChat(root: HTMLElement): void {
   }
 
   async function newConversation() {
-    const peer = window.prompt("Username to message")?.trim().toLowerCase();
+    const answer = await formDialog({
+      title: "New conversation",
+      fields: [{ name: "peer", label: "Username", required: true, maxlength: 32, autocomplete: "off", hint: "The first message establishes the encrypted session." }],
+      confirmLabel: "Start",
+    });
+    const peer = answer?.peer?.toLowerCase();
     if (!peer) return;
     if (peer === state.account?.username) return;
     const conversation = await startConversation(peer);

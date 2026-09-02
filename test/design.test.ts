@@ -112,3 +112,83 @@ describe("views build markup, not styles", () => {
     expect(css.split("\n").length).toBeGreaterThan(300);
   });
 });
+
+/**
+ * Points 40–41. Accessibility and the small screen are checked the same way as the rest of
+ * the design system: what can be computed is computed, and the rest is a real browser pass
+ * recorded in docs/DESIGN.md.
+ */
+describe("accessibility that a test can prove", () => {
+  /** Semantic tokens of one theme, resolved down to hex through `var()` chains. */
+  function palette(themeBlock: string): Record<string, string> {
+    const base = Object.fromEntries(
+      [...css.slice(0, css.indexOf(":root,\n[data-theme")).matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);/gm)].map((m) => [m[1]!, m[2]!.trim()]),
+    );
+    const theme = Object.fromEntries(
+      [...block(themeBlock).matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);/gm)].map((m) => [m[1]!, m[2]!.trim()]),
+    );
+    const all: Record<string, string> = { ...base, ...theme };
+    const resolve = (value: string, depth = 0): string => {
+      const ref = value.match(/^var\((--[a-z0-9-]+)\)$/);
+      return ref && depth < 8 ? resolve(all[ref[1]!] ?? "", depth + 1) : value;
+    };
+    return Object.fromEntries(Object.entries(all).map(([key, value]) => [key, resolve(value)]));
+  }
+
+  function luminance(hex: string): number {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+  }
+  const contrast = (a: string, b: string) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi! + 0.05) / (lo! + 0.05);
+  };
+
+  it("keeps every text token at WCAG AA contrast (4.5:1) on every surface, in both themes", () => {
+    const failures: string[] = [];
+    for (const [name, selector] of [["dark", ':root,\n[data-theme="dark"]'], ["light", '[data-theme="light"]']] as const) {
+      const tokens = palette(selector);
+      const surfaces = ["--bg", "--bg-sunken", "--surface", "--surface-raised", "--input-bg"];
+      const texts = ["--text", "--text-muted", "--text-faint", "--danger"];
+      for (const text of texts) {
+        for (const surface of surfaces) {
+          const ratio = contrast(tokens[text]!, tokens[surface]!);
+          if (ratio < 4.5) failures.push(`${name}: ${text} on ${surface} = ${ratio.toFixed(2)}`);
+        }
+      }
+      // The one inverted pair: primary button text on the accent.
+      const button = contrast(tokens["--accent-text"]!, tokens["--accent"]!);
+      if (button < 4.5) failures.push(`${name}: --accent-text on --accent = ${button.toFixed(2)}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("has a skip link, focus styles, a screen-reader-only class and touch-sized controls", () => {
+    expect(css).toContain(".skip:focus");
+    expect(css).toContain(":focus-visible {");
+    expect(css).toContain(".sr-only {");
+    expect(css).toMatch(/@media \(pointer: coarse\)[\s\S]*--control-height: 44px/);
+  });
+
+  it("does not read the whole application aloud on every render", () => {
+    const html = readFileSync(new URL("../src/client/index.html", import.meta.url), "utf8");
+    expect(html).not.toMatch(/id="app"[^>]*aria-live/);
+    expect(html).toContain('name="viewport" content="width=device-width, initial-scale=1"');
+  });
+});
+
+describe("the small screen", () => {
+  it("stacks tables, keeps inputs at 16px and gives the conversation the screen below 640px", () => {
+    const phone = css.slice(css.indexOf("@media (max-width: 640px)"));
+    expect(phone).toMatch(/table\.stack thead\s*\{\s*display: none/);
+    expect(phone).toMatch(/table\.stack td::before\s*\{\s*content: attr\(data-label\)/);
+    expect(phone).toMatch(/input,\s*textarea,\s*select\s*\{\s*font-size: 16px/);
+    expect(phone).toMatch(/\.composer\s*\{\s*position: sticky/);
+  });
+
+  it("collapses the two-pane chat below 860px", () => {
+    const tablet = css.slice(css.indexOf("@media (max-width: 860px)"), css.indexOf("@media (max-width: 640px)"));
+    expect(tablet).toMatch(/\.chat\s*\{\s*grid-template-columns: 1fr/);
+  });
+});

@@ -792,3 +792,46 @@ does not exist here, by design).
 **Consequences.** Every listing kind now has a path to `completed`. Reputation is now an
 average over people rather than over receipts, which is the metric a reader thinks they are
 looking at anyway. The residual — many accounts — is stated as risk #7 in the threat model.
+
+## ADR-0030 — Search is an index, and a page is a cursor
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Point 47 wants search to be fast, safe, indexed, resistant to injection and
+paginated, and forbids unrestricted expensive database scans. What existed was
+`LOWER(title) LIKE '%term%' OR LOWER(description) LIKE '%term%'` with `LIMIT 50` and no
+pagination at all: a leading wildcard cannot use an index, so every anonymous request read
+every active listing and its 8 kB description. That is a denial-of-service lever with a
+one-request price tag, and browsing past the first fifty listings was impossible.
+
+**Decision.** An inverted index (`listing_terms`, migration 008) instead of a full-text
+engine, and keyset pagination instead of `OFFSET`.
+
+- *Portable, no extension.* SQLite FTS5 and PostgreSQL `tsvector` are both better full-text
+  engines and neither is portable; this project supports both dialects with the same SQL and
+  no ORM. A term table is one `CREATE TABLE` that both accept, and a lookup is an index range
+  scan on either.
+- *Words, ANDed, prefix-matched.* `tokenize()` normalises to letters and digits, so a term
+  can never carry a `%`, a `_`, a quote or a control character even before it is bound as a
+  parameter. A query with no usable term is refused (`query_too_vague`) rather than answered
+  with the whole catalogue, which would be the scan this point removes. The term drives the
+  query (`id IN (SELECT … FROM listing_terms …)`), so the database reads matching listings
+  rather than filtering all of them.
+- *Cursors, not offsets.* A cursor is the last row's sort key (`<day>.<id>`), validated
+  against a regex. `OFFSET 10000` costs ten thousand rows of work and shifts under
+  concurrent inserts; a cursor costs one seek and is stable. There is no total count for the
+  same reason: `COUNT(*)` over a filtered catalogue is the scan under another name.
+- *Bounded by construction.* At most 6 terms per query, at most 50 rows per page, at most 200
+  indexed words per listing.
+
+**Rejected:** FTS5 (dialect lock-in), trigram indexes (PostgreSQL-only, and a `pg_trgm`
+extension an operator may not be allowed to install), ranking by relevance (a marketplace
+this size has no relevance signal worth the code; newest-first is honest), and infinite
+scroll in the client (a "Show more" button is one line, works without JavaScript state
+machines, and does not hijack the scrollbar).
+
+**Consequences.** Search cost is now proportional to matches, not to the catalogue. The
+price is a second write per listing change and the tokeniser's opinions: no substring search
+inside a word ("synth" finds "synthesizer", "thesi" does not), and no stemming, so "guitars"
+and "guitar" are different terms. If that becomes the complaint, the lazy fix is indexing a
+few suffixes per word, not a search engine.

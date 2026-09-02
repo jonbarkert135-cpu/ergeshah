@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, confirmDialog, el, field, notice, skeleton, toast } from "../ui.ts";
+import { clear, confirmDialog, el, field, notice, skeleton, table, toast } from "../ui.ts";
 import {
   changePassword,
   deleteAccount,
@@ -75,30 +75,17 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
     }
 
     body.append(el("h2", {}, "Sessions"));
-    const table = el(
-      "table",
-      {},
-      el("tr", {}, el("th", {}, "Label"), el("th", {}, "Last seen"), el("th", {}, "Expires"), el("th", {}, "")),
-    );
-    for (const session of sessions.sessions) {
-      const revoke = el("button", { class: "ghost" }, session.current ? "current" : "Revoke");
+    const rows = sessions.sessions.map((session) => {
+      const revoke = el("button", { type: "button", class: "ghost" }, session.current ? "current" : "Revoke");
       if (session.current) revoke.setAttribute("disabled", "");
       else
         revoke.addEventListener("click", () => {
           void api(`/api/auth/sessions/${session.id}`, { method: "DELETE" }).then(() => void load());
         });
-      table.append(
-        el(
-          "tr",
-          {},
-          el("td", {}, session.label ?? "—"),
-          el("td", { class: "mono" }, session.lastSeenOn),
-          el("td", { class: "mono" }, session.expiresOn),
-          el("td", {}, revoke),
-        ),
-      );
-    }
-    body.append(table);
+      return [session.label ?? "—", el("span", { class: "mono" }, session.lastSeenOn), el("span", { class: "mono" }, session.expiresOn), revoke];
+    });
+    const table_ = table(["Label", "Last seen", "Expires", "Actions"], rows, { caption: "Signed-in sessions" });
+    body.append(table_);
 
     body.append(
       el(

@@ -100,11 +100,11 @@ describe("limits are counted against the account, not only the address", () => {
 
       let throttled = false;
       for (let i = 0; i < 8; i += 1) {
-        if ((await greedy.get("/api/market/listings?q=x")).status === 429) throttled = true;
+        if ((await greedy.get("/api/market/listings?q=xylophone")).status === 429) throttled = true;
       }
       expect(throttled).toBe(true);
 
-      const forTheBystander = await bystander.get("/api/market/listings?q=x");
+      const forTheBystander = await bystander.get("/api/market/listings?q=xylophone");
       expect(forTheBystander.status).toBe(200);
     } finally {
       await tight.close();
@@ -134,7 +134,7 @@ describe("expensive things have a bucket, and oversized things are refused", () 
       (entry) => entry.url === "/api/market/listings" && entry.method === "GET",
     );
     expect(route).toBeDefined();
-    const first = await new TestClient(server).get("/api/market/listings?q=a");
+    const first = await new TestClient(server).get("/api/market/listings?q=anything");
     expect(first.status).toBe(200);
   });
 

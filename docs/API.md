@@ -82,7 +82,7 @@ exist. Drifted API documentation is worse than none, because people trust it.
 
 | Method & path | Auth | Limit | Purpose |
 | --- | --- | --- | --- |
-| `GET /api/market/listings` | — | `search` | Browse and search. The one query that scans, hence its own bucket |
+| `GET /api/market/listings` | — | `search` | Browse and search. `?q=` (words, 2+ characters each, ANDed, prefix-matched against the `listing_terms` index), `?category=`, `?kind=`, `?limit=` (1–50, default 20), `?cursor=` from the previous page's `nextCursor`. Returns `{ listings, nextCursor }`; `nextCursor` is `null` on the last page. No offsets and no total count — see ADR-0030 |
 | `GET /api/market/listings/:id` | — | `read` | One listing |
 | `GET /api/market/sellers/:username` | — | `read` | A seller's public profile and reviews |
 | `POST /api/market/seller-applications` | session | `seller_application` | Apply to sell |

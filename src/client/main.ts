@@ -5,7 +5,7 @@
  * resources of any kind. Everything it loads comes from this origin, which is what makes
  * the `default-src 'self'` Content-Security-Policy possible.
  */
-import { clear, el, skeleton } from "./ui.ts";
+import { announce, clear, el, skeleton } from "./ui.ts";
 import { lock, ready, state } from "./state.ts";
 import { applyTheme, currentTheme, nextTheme, setTheme, themeLabel } from "./theme.ts";
 import { sodiumReady } from "../shared/crypto/sodium.ts";
@@ -35,7 +35,9 @@ async function main(): Promise<void> {
   // the background while the shell is already on screen (ADR-0027). Every flow that
   // touches a key awaits `sodiumReady()` first, and the promise is memoised.
   const crypto = sodiumReady();
-  window.addEventListener("hashchange", () => render());
+  // A hash change is a page change. Focus goes to the new heading so a keyboard or screen
+  // reader user lands on the content, not on a detached button from the previous view.
+  window.addEventListener("hashchange", () => render(true));
   renderShell();
   await ready(crypto);
   render();
@@ -59,19 +61,23 @@ function renderShell(): void {
   );
 }
 
-function render(): void {
+function render(navigated = false): void {
   clear(root);
-  if (!state.account || !state.vault) {
-    root.append(header(false), main_(renderAuthView), footer());
-    return;
-  }
-  root.append(header(true), main_(renderRoute), footer());
+  const signedIn = Boolean(state.account && state.vault);
+  const content = main_(signedIn ? renderRoute : renderAuthView);
+  root.append(skipLink(), header(signedIn), content, footer());
+  if (navigated) announce(content);
+}
+
+/** First in the tab order, visible only when focused: past the header in one keystroke. */
+function skipLink(): HTMLElement {
+  return el("a", { class: "skip", href: "#main" }, "Skip to content");
 }
 
 function renderAuthView(container: HTMLElement): void {
   renderAuth(container, () => {
     if (!location.hash || location.hash === "#/") location.hash = "#/market";
-    render();
+    render(true);
   });
 }
 
@@ -176,17 +182,16 @@ function themeButton(): HTMLElement {
 }
 
 function header(signedIn: boolean): HTMLElement {
-  const nav = el("nav", {});
+  // Navigation is links, not buttons: a link is what "go to a page" is, it works with the
+  // middle mouse button, the keyboard's link list and the browser's history, for free.
+  const nav = el("nav", { "aria-label": "Primary" });
   if (signedIn) {
     const staff = state.account?.role === "moderator" || state.account?.role === "admin";
     for (const route of ROUTES) {
       if (route.staffOnly && !staff) continue;
-      const button = el("button", { class: "ghost" }, route.label);
-      if ((location.hash || "#/market").startsWith(route.hash)) button.setAttribute("aria-current", "page");
-      button.addEventListener("click", () => {
-        location.hash = route.hash;
-      });
-      nav.append(button);
+      const link = el("a", { class: "ghost", href: route.hash }, route.label);
+      if ((location.hash || "#/market").startsWith(route.hash)) link.setAttribute("aria-current", "page");
+      nav.append(link);
     }
   }
   return el(
@@ -201,7 +206,7 @@ function header(signedIn: boolean): HTMLElement {
 }
 
 function main_(draw: (container: HTMLElement) => void): HTMLElement {
-  const container = el("main", {});
+  const container = el("main", { id: "main", tabindex: "-1" });
   draw(container);
   return container;
 }

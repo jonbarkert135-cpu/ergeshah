@@ -22,6 +22,7 @@ import {
 } from "../lib/validate.ts";
 import { recordAudit } from "../lib/audit.ts";
 import { listingRating, sellerReputation } from "../lib/reputation.ts";
+import { cursorFor, indexListing, parseCursor, queryTerms, termConditions } from "../lib/search.ts";
 
 type OrderStatus =
   | "placed"
@@ -135,23 +136,28 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       priceMinor: asInteger(body.priceMinor, "priceMinor", 0, 10 ** 12),
       currency: asEnum(body.currency, "currency", CURRENCIES),
     };
-    await db.run(
-      `INSERT INTO listings (id, seller_user_id, title, description, category, kind, price_minor,
-                             currency, status, created_day, updated_day)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-      [
-        listing.id,
-        seller.user_id,
-        listing.title,
-        listing.description,
-        listing.category,
-        listing.kind,
-        listing.priceMinor,
-        listing.currency,
-        today(),
-        today(),
-      ],
-    );
+    await db.transaction(async (tx) => {
+      await tx.run(
+        `INSERT INTO listings (id, seller_user_id, title, description, category, kind, price_minor,
+                               currency, status, created_day, updated_day)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        [
+          listing.id,
+          seller.user_id,
+          listing.title,
+          listing.description,
+          listing.category,
+          listing.kind,
+          listing.priceMinor,
+          listing.currency,
+          today(),
+          today(),
+        ],
+      );
+      // The search index is written in the same transaction as the listing: it can never
+      // describe a row that was rolled back, and a listing is never unfindable (point 47).
+      await indexListing(tx, listing.id, listing);
+    });
     return { id: listing.id, status: "active" };
   });
 
@@ -184,31 +190,52 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     }
     if (updates.length === 0) throw badRequest("nothing to update");
     updates.push(["updated_day", today()]);
-    await db.run(
-      // Column names come from the literal strings pushed above, never from the request;
-      // every *value* is still a bound parameter. audit:allow
-      `UPDATE listings SET ${updates.map(([column]) => `${column} = ?`).join(", ")} WHERE id = ?`,
-      [...updates.map(([, value]) => value), id],
+    const reindex = ["title", "description", "category"].some((column) =>
+      updates.some(([name]) => name === column),
     );
+    await db.transaction(async (tx) => {
+      await tx.run(
+        // Column names come from the literal strings pushed above, never from the request;
+        // every *value* is still a bound parameter. audit:allow
+        `UPDATE listings SET ${updates.map(([column]) => `${column} = ?`).join(", ")} WHERE id = ?`,
+        [...updates.map(([, value]) => value), id],
+      );
+      // An edited title has to change what the listing is found by, or search answers
+      // yesterday's catalogue.
+      if (reindex) {
+        const fresh = await tx.get<{ title: string; description: string; category: string }>(
+          "SELECT title, description, category FROM listings WHERE id = ?",
+          [id],
+        );
+        if (fresh) await indexListing(tx, id, fresh);
+      }
+    });
     return { ok: true };
   });
 
   app.get("/api/market/listings", async (request) => {
-    // The only query in this system that scans: `LIKE '%term%'` cannot use an index, so
-    // browsing gets its own bucket rather than sharing the generous `read` one.
+    // Search reads an inverted index (`listing_terms`), one range scan per word, and pages
+    // by cursor. Nothing here can ask the database for an unbounded scan: the terms are
+    // capped, the page is capped, and there is no total count and no OFFSET (point 47).
     await app.limit(request, "search");
     const query = request.query as Record<string, string | undefined>;
-    const search = asOptionalString(query.q, "q", 80).toLowerCase();
+    const search = asOptionalString(query.q, "q", 80);
     const category = asOptionalString(query.category, "category", 40);
     const kind = query.kind ? asEnum(query.kind, "kind", LISTING_KINDS) : null;
-    const limit = query.limit ? asInteger(query.limit, "limit", 1, 100) : 50;
+    const limit = query.limit ? asInteger(query.limit, "limit", 1, 50) : 20;
+    const cursor = parseCursor(query.cursor);
 
     const conditions = ["l.status = 'active'", "s.status = 'active'"];
     const params: unknown[] = [];
-    if (search) {
-      conditions.push("(LOWER(l.title) LIKE ? OR LOWER(l.description) LIKE ?)");
-      params.push(`%${search}%`, `%${search}%`);
+    const terms = queryTerms(search);
+    // A query of nothing but punctuation or single letters yields no term. Answering it with
+    // the whole catalogue would be the scan this point exists to remove, so it is refused.
+    if (search && terms.length === 0) {
+      throw badRequest("search for a word of at least two letters or digits", "query_too_vague");
     }
+    const matched = termConditions(terms);
+    conditions.push(...matched.sql);
+    params.push(...matched.params);
     if (category) {
       conditions.push("l.category = ?");
       params.push(category);
@@ -217,7 +244,12 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       conditions.push("l.kind = ?");
       params.push(kind);
     }
-    params.push(limit);
+    if (cursor) {
+      conditions.push("(l.created_day < ? OR (l.created_day = ? AND l.id < ?))");
+      params.push(cursor.day, cursor.day, cursor.id);
+    }
+    // One row more than the page, to answer "is there a next page" without counting.
+    params.push(limit + 1);
 
     const rows = await db.all<ListingRow>(
       `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_minor, l.currency,
@@ -226,11 +258,16 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
          JOIN sellers s ON s.user_id = l.seller_user_id
          JOIN users u ON u.id = l.seller_user_id
         WHERE ${conditions.join(" AND ")}
-        ORDER BY l.created_day DESC, l.id
+        ORDER BY l.created_day DESC, l.id DESC
         LIMIT ?`,
       params,
     );
-    return { listings: await Promise.all(rows.map((row) => presentListing(app, row))) };
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      listings: await Promise.all(page.map((row) => presentListing(app, row))),
+      nextCursor: rows.length > limit && last ? cursorFor(last) : null,
+    };
   });
 
   app.get("/api/market/listings/:id", async (request) => {

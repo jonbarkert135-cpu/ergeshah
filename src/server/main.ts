@@ -5,10 +5,12 @@ import { buildApp } from "./app.ts";
 import { pruneSessions } from "./lib/sessions.ts";
 import { pruneRateLimits } from "./lib/rate_limit.ts";
 import { pruneAuditLog } from "./lib/audit.ts";
+import { backfillSearchIndex } from "./lib/search.ts";
 
 const config = loadConfig();
 const db = await createDb(config);
 await migrate(db);
+await backfillSearchIndex(db);
 const app = await buildApp(config, db);
 
 /** Housekeeping: expired sessions, envelopes, rate-limit buckets and audit entries. */

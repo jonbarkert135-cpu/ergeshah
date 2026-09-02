@@ -68,7 +68,9 @@ export function notice(message: string, kind: "info" | "error" | "ok" = "info"):
 export function skeleton(kind: "line" | "card" = "line", count = 1): HTMLElement {
   const wrap = el("div", { "aria-busy": "true", "aria-label": "Loading" });
   for (let i = 0; i < count; i += 1) {
-    wrap.append(el("div", { class: `skeleton ${kind}`, style: kind === "line" ? `width: ${90 - i * 12}%` : "" }));
+    // Widths come from CSS (`.skeleton.line:nth-child(n)`): an inline style is dropped by
+    // the Content-Security-Policy, silently — the real browser said so, the tests did not.
+    wrap.append(el("div", { class: `skeleton ${kind}` }));
   }
   return wrap;
 }
@@ -127,17 +129,17 @@ export function confirmDialog(options: {
   danger?: boolean;
 }): Promise<boolean> {
   return new Promise((resolve) => {
-    const cancel = el("button", { class: "ghost" }, "Cancel");
+    const cancel = el("button", { type: "button", class: "ghost" }, "Cancel");
     const confirm = el(
       "button",
-      { class: options.danger ? "danger" : "primary" },
+      { type: "button", class: options.danger ? "danger" : "primary" },
       options.confirmLabel ?? "Confirm",
     );
     const dialog = el(
       "dialog",
-      {},
-      el("h2", {}, options.title),
-      el("p", { class: "muted" }, options.body),
+      { "aria-labelledby": "dialog-title", "aria-describedby": "dialog-body" },
+      el("h2", { id: "dialog-title" }, options.title),
+      el("p", { class: "muted", id: "dialog-body" }, options.body),
       el("div", { class: "actions" }, cancel, confirm),
     ) as HTMLDialogElement;
 
@@ -178,14 +180,133 @@ export function money(minor: number, currency: string): string {
   return `${major} ${currency}`;
 }
 
+let fieldCounter = 0;
+
+/**
+ * A labelled control. The label is *associated* (`for`/`id`), not merely adjacent: that is
+ * what lets a screen reader name the field, and what makes the label a click target for
+ * the control. The hint is wired with `aria-describedby` for the same reason.
+ */
 export function field(label: string, input: HTMLElement, hint?: string): HTMLElement {
+  const id = input.id || `f${(fieldCounter += 1)}`;
+  input.id = id;
+  const help = hint ? el("div", { class: "hint", id: `${id}-hint` }) : null;
+  if (help) {
+    help.textContent = hint!;
+    input.setAttribute("aria-describedby", help.id);
+  }
+  return el("div", { class: "field" }, el("label", { for: id }, label), input, help);
+}
+
+export interface DialogField {
+  name: string;
+  label: string;
+  kind?: "text" | "textarea" | "select" | "number";
+  options?: Array<[value: string, label: string]>;
+  hint?: string;
+  required?: boolean;
+  min?: number;
+  max?: number;
+  maxlength?: number;
+  autocomplete?: string;
+}
+
+/**
+ * A question with fields — what `window.prompt` was for, without its problems: prompt has no
+ * label, no hint, no validation, takes one line, and is styled by the browser rather than by
+ * the system. Native `<dialog>` with `<form method="dialog">`: Escape cancels, Enter submits,
+ * focus is trapped and returned by the platform. Resolves to the values, or `null`.
+ */
+export function formDialog(options: {
+  title: string;
+  body?: string;
+  fields: DialogField[];
+  confirmLabel?: string;
+  danger?: boolean;
+}): Promise<Record<string, string> | null> {
+  return new Promise((resolve) => {
+    const controls = options.fields.map((spec) => {
+      const control =
+        spec.kind === "textarea"
+          ? el("textarea", { name: spec.name, rows: "4" })
+          : spec.kind === "select"
+            ? el("select", { name: spec.name }, ...(spec.options ?? []).map(([value, label]) => el("option", { value }, label)))
+            : el("input", { name: spec.name, type: spec.kind === "number" ? "number" : "text", autocomplete: spec.autocomplete ?? "off" });
+      if (spec.required) control.setAttribute("required", "");
+      if (spec.maxlength) control.setAttribute("maxlength", String(spec.maxlength));
+      if (spec.min !== undefined) control.setAttribute("min", String(spec.min));
+      if (spec.max !== undefined) control.setAttribute("max", String(spec.max));
+      return [spec, control] as const;
+    });
+    const cancel = el("button", { class: "ghost", type: "button" }, "Cancel");
+    const confirm = el("button", { class: options.danger ? "danger" : "primary", type: "submit" }, options.confirmLabel ?? "Continue");
+    const form = el(
+      "form",
+      { method: "dialog" },
+      el("h2", { id: "dialog-title" }, options.title),
+      options.body ? el("p", { class: "muted" }, options.body) : null,
+      ...controls.map(([spec, control]) => field(spec.label, control, spec.hint)),
+      el("div", { class: "actions" }, cancel, confirm),
+    );
+    const dialog = el("dialog", { "aria-labelledby": "dialog-title" }, form) as HTMLDialogElement;
+    const close = (answer: Record<string, string> | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(answer);
+    };
+    cancel.addEventListener("click", () => close(null));
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const values: Record<string, string> = {};
+      for (const [spec, control] of controls) values[spec.name] = (control as HTMLInputElement).value.trim();
+      close(values);
+    });
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      close(null);
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    (controls[0]?.[1] as HTMLElement | undefined)?.focus();
+  });
+}
+
+/**
+ * A data table with the structure assistive technology needs (`<thead>`, `scope`) and the
+ * one thing a phone needs: each cell knows its column, so below 640px the rows stack into
+ * labelled blocks instead of forcing a sideways scroll through six columns.
+ */
+export function table(headers: string[], rows: Child[][], options: { caption?: string } = {}): HTMLElement {
+  const head = el("thead", {}, el("tr", {}, ...headers.map((text) => el("th", { scope: "col" }, text))));
+  const body = el("tbody", {});
+  for (const cells of rows) {
+    body.append(
+      el(
+        "tr",
+        {},
+        ...cells.map((cell, index) =>
+          el("td", headers[index] ? { "data-label": headers[index]! } : {}, cell),
+        ),
+      ),
+    );
+  }
   return el(
     "div",
-    { class: "field" },
-    el("label", {}, label),
-    input,
-    hint ? el("div", { class: "hint" }, hint) : null,
+    { class: "table-wrap" },
+    el("table", { class: "stack" }, options.caption ? el("caption", { class: "sr-only" }, options.caption) : null, head, body),
   );
+}
+
+/**
+ * After a view renders, move focus to its heading. A hash router swaps the page under a
+ * screen reader without telling it; focusing the new `<h1>` announces where the reader is
+ * and puts the keyboard at the top of the content rather than wherever it was.
+ */
+export function announce(container: HTMLElement): void {
+  const heading = container.querySelector("h1");
+  if (!heading) return;
+  heading.setAttribute("tabindex", "-1");
+  heading.focus({ preventScroll: false });
 }
 
 export function input(
