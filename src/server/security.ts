@@ -29,6 +29,11 @@ const CSP_DIRECTIVES = [
   "base-uri 'none'",
   "worker-src 'self'",
   "manifest-src 'self'",
+  // The client builds every node with createElement/textContent and never assigns to an
+  // HTML sink, so the strongest DOM-XSS policy a browser offers costs us nothing: no
+  // script may pass a string to innerHTML, document.write or eval-like sinks at all.
+  "require-trusted-types-for 'script'",
+  "trusted-types 'none'",
 ];
 
 /**

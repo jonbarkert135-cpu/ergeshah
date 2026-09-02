@@ -4,13 +4,14 @@ import { migrate } from "./db/migrate.ts";
 import { buildApp } from "./app.ts";
 import { pruneSessions } from "./lib/sessions.ts";
 import { pruneRateLimits } from "./lib/rate_limit.ts";
+import { pruneAuditLog } from "./lib/audit.ts";
 
 const config = loadConfig();
 const db = await createDb(config);
 await migrate(db);
 const app = await buildApp(config, db);
 
-/** Housekeeping: expired sessions, expired envelopes and yesterday's rate-limit buckets. */
+/** Housekeeping: expired sessions, envelopes, rate-limit buckets and audit entries. */
 const housekeeping = setInterval(
   () => {
     void (async () => {
@@ -18,6 +19,7 @@ const housekeeping = setInterval(
         await pruneSessions(db);
         await pruneRateLimits(db);
         await db.run("DELETE FROM envelopes WHERE expires_at < ?", [Date.now()]);
+        await pruneAuditLog(db, config.auditRetentionMs);
       } catch (error) {
         process.stderr.write(`housekeeping failed: ${(error as Error).message}\n`);
       }

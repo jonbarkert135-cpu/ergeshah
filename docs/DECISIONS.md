@@ -503,3 +503,47 @@ served digests are published at `/build.txt` with subresource integrity, and
 `npm run audit:deployment` compares a live deployment with a local build. Emulating
 Telegram remains a fine ambition; it is a decision to take once, at launch, with the whole
 system in view.
+
+## ADR-0024 — Authorization is proved by the route table, not by review
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Points 21–25 of the project brief ask for an administrative audit trail that
+does not become a personal-data pile, an authorization check on every endpoint, real
+security headers, a hardened frontend and a security review of every route. Most of it was
+already true — parameterised queries everywhere, no filesystem path derived from a request,
+no outbound requests to be tricked into an SSRF, CSRF in three layers, a `default-src
+'self'` policy — so the useful work is not restating that in prose. It is in the two places
+where a good state is maintained by memory: a new route that forgets `authenticate`, and a
+protection that a refactor removes quietly.
+
+**Decision.** Make both machine-checked, and close the gaps found while looking.
+
+- `app.routeInventory` collects every route as it is registered, and
+  `test/authorization.test.ts` walks it: each endpoint not on an explicit public allowlist
+  must refuse an anonymous caller, each public entry must really be public, every
+  `/api/moderation/*` route must refuse an ordinary session, and a third account with a
+  valid session must not touch someone else's order. Adding an unprotected route now fails
+  the suite with its own name in the output.
+- The audit log gained a `result` column (`ok` / `denied` / `failed`), records refused
+  privileged requests by route *pattern*, bounds `note` at 64 characters, and is deleted
+  after a retention window (`AUDIT_RETENTION_MS`, one year) by the existing housekeeping
+  sweep. An audit trail that keeps everything forever is a surveillance log with a nicer
+  name; one that cannot answer "did it work" is not a trail.
+- The CSP now carries `require-trusted-types-for 'script'` and `trusted-types 'none'`.
+  The client never assigns to an HTML sink, so the strongest DOM-XSS policy a browser
+  offers costs nothing and turns a future mistake into a browser-level refusal.
+- `el()` — the helper every view builds nodes with — validates URL-bearing attributes
+  against a scheme allowlist and throws otherwise. Writing the test found a real hole:
+  `//evil.example/path` passed the "starts with `/`" check and would have navigated
+  off-site.
+- Fastify was left with no timeouts, so a request that never finishes held a connection for
+  free; `requestTimeout`, `connectionTimeout` and `keepAliveTimeout` are now set, and
+  `maxParamLength` is 128 because every parameter here is an id or a username.
+
+**Consequences.** The public allowlist in the test is now the specification of what is
+reachable without a session, and changing it is a deliberate, reviewable act. Trusted Types
+constrains future client code: a view that reaches for `innerHTML` will not work in a
+modern browser, which is the intended pressure. The audit log answers incident questions
+for a year and then forgets, which is a policy choice recorded in `docs/PRIVACY.md` rather
+than an accident of nobody writing a delete.

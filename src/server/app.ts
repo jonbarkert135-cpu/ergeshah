@@ -6,6 +6,7 @@ import { parseCookies, serializeCookie } from "./lib/cookies.ts";
 import { resolveSession, type SessionUser } from "./lib/sessions.ts";
 import { consume, type LimitName } from "./lib/rate_limit.ts";
 import { enforceCsrf, registerSecurity } from "./security.ts";
+import { recordAudit } from "./lib/audit.ts";
 import { registerAuthRoutes } from "./routes/auth.ts";
 import { registerKeyRoutes } from "./routes/keys.ts";
 import { registerMessageRoutes } from "./routes/messages.ts";
@@ -23,6 +24,12 @@ declare module "fastify" {
     config: Config;
     /** Pre-rendered HTML shell of the single-page app. */
     appShell: string;
+    /**
+     * Every route this server exposes, collected as they are registered. It exists so
+     * that `test/authorization.test.ts` can walk the API and assert that each endpoint
+     * refuses an anonymous caller — an inventory nobody has to remember to update.
+     */
+    routeInventory: Array<{ method: string; url: string }>;
     /** Throws unless the request carries a valid session for an active account. */
     authenticate(request: FastifyRequest): Promise<SessionUser>;
     requireRole(request: FastifyRequest, roles: SessionUser["role"][]): Promise<SessionUser>;
@@ -40,8 +47,23 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     // Large enough for one base64url-encoded delivery (4/3 expansion plus JSON framing),
     // which is the biggest body this API accepts by design.
     bodyLimit: Math.max(config.maxEnvelopeBytes * 4, Math.ceil(config.maxDeliveryBytes * 1.4)),
-    routerOptions: { ignoreTrailingSlash: true },
+    // A URL parameter is an id or a username here; nothing legitimate is longer.
+    routerOptions: { ignoreTrailingSlash: true, maxParamLength: 128 },
+    // Slowloris and its friends: a request that never finishes is a connection held for
+    // free. Fastify leaves these unset, which means "wait forever".
+    requestTimeout: 30_000,
+    connectionTimeout: 30_000,
+    keepAliveTimeout: 20_000,
   });
+
+  const routeInventory: Array<{ method: string; url: string }> = [];
+  app.addHook("onRoute", (route) => {
+    for (const method of [route.method].flat()) {
+      if (method === "HEAD" || method === "OPTIONS") continue;
+      routeInventory.push({ method, url: route.url });
+    }
+  });
+  app.decorate("routeInventory", routeInventory);
 
   app.decorate("db", db);
   app.decorate("config", config);
@@ -59,7 +81,20 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     "requireRole",
     async (request: FastifyRequest, roles: SessionUser["role"][]): Promise<SessionUser> => {
       const user = await app.authenticate(request);
-      if (!roles.includes(user.role)) throw forbidden("insufficient privileges");
+      if (!roles.includes(user.role)) {
+        // A refused privileged request is the interesting one — it is what a compromised
+        // or curious account leaves behind. The route *pattern* is recorded, never the
+        // concrete URL, so this cannot become a log of which order someone poked at.
+        await recordAudit(db, {
+          actorUserId: user.id,
+          action: "privileged.denied",
+          subjectType: "route",
+          subjectId: request.routeOptions?.url ?? "unknown",
+          note: user.role,
+          result: "denied",
+        });
+        throw forbidden("insufficient privileges");
+      }
       return user;
     },
   );

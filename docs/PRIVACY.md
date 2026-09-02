@@ -60,6 +60,16 @@ travels inside the ciphertext with everything else. The operator learns that an 
 delivered, the padded size of the file (a multiple of 4 KB), and when it was uploaded and
 collected.
 
+**The administrative log is bounded on three sides.** `audit_log` records staff actions —
+who, what action, which subject, the result, the timestamp — and now also the refusals: an
+authenticated account turned away from a privileged route leaves an entry naming the route
+*pattern*, never the concrete URL, so the log cannot become a record of which order someone
+poked at. It contains no message content, no keys, no tokens and no free text (the `note`
+column takes short controlled values like a role name and is truncated at 64 characters).
+Entries are deleted after `AUDIT_RETENTION_MS`, one year by default: oversight needs recent
+history, and keeping the rest forever would build exactly the pile of personal data this
+project exists to avoid.
+
 **Physical orders carry no address.** A delivery address, a phone number, a door code — none
 of them is a column here, and no route accepts one. The buyer's browser encrypts them to
 the seller through the order's channel, the seller's browser keeps the plaintext in its
