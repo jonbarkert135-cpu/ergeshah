@@ -40,7 +40,7 @@ exist on the server. Everything else the server *can* see is enumerated in
 
 ```
 src/shared/crypto/   protocol: hkdf, aead, identity, x3dh, ratchet, vault, session, file
-src/shared/          encoding helpers used by both sides
+src/shared/          encoding helpers and the QR encoder used by both sides
 src/server/
   app.ts             Fastify wiring, authentication, CSRF, rate limiting
   security.ts        CSP and the rest of the browser-level hardening
@@ -51,6 +51,7 @@ src/server/
 src/client/
   state.ts           encrypted vault, device publication
   messaging.ts       sessions, send/receive/acknowledge
+  verification.ts    safety numbers, per-device verified state
   views/             auth, chat, market, orders, account, moderation
 test/                RFC vectors, protocol properties, API behaviour, authorization
 ```

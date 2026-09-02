@@ -23,7 +23,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Anything that would make the browser reach a host we do not operate. */
 const EXTERNAL = [
-  ["remote URL", /\b(?:https?|wss?|ftp):\/\/(?!localhost|127\.0\.0\.1|0\.0\.0\.0)[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi],
+  // The path is part of the match so that a report is actionable and so that an XML
+  // namespace can be told apart from a request to the same domain.
+  ["remote URL", /\b(?:https?|wss?|ftp):\/\/(?!localhost|127\.0\.0\.1|0\.0\.0\.0)[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s"'`<>)\]]*)?/gi],
   ["protocol-relative URL", /(?:^|[^:a-z0-9/])\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+\//gi],
   ["source map reference", /sourceMappingURL/g],
   ["telemetry API", /\bnavigator\.sendBeacon\b/g],
@@ -43,6 +45,13 @@ const SECRETS = [
   ],
 ];
 
+/**
+ * XML namespace URIs are identifiers, not endpoints: no browser ever fetches them, and
+ * `<svg xmlns="http://www.w3.org/2000/svg">` is the only way to write a standalone SVG.
+ * Nothing else on w3.org is exempt.
+ */
+const NAMESPACES = /^https?:\/\/www\.w3\.org\/(?:2000\/svg|1999\/xhtml|1999\/xlink)$/;
+
 /** Obvious non-secrets: docs, examples, and anything the code reads at runtime. */
 const PLACEHOLDER = /example|changeme|placeholder|your[-_ ]|xxx|\.\.\.|\$\{|process\.env|<[a-z]/i;
 
@@ -57,6 +66,7 @@ export function scan(text, rules) {
     for (const m of text.matchAll(new RegExp(pattern.source, pattern.flags))) {
       // The captured value, when a rule has one, is what decides placeholder-ness.
       if (m[1] !== undefined && PLACEHOLDER.test(m[1])) continue;
+      if (NAMESPACES.test(m[0])) continue;
       const line = text.slice(0, m.index).split("\n").length;
       const source = text.split("\n")[line - 1] ?? "";
       if (source.includes("audit:allow")) continue;

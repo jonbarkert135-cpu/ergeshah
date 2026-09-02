@@ -2,9 +2,8 @@ import { clear, el, notice } from "../ui.ts";
 import { conversations, receiveMessages, sendMessage, startConversation } from "../messaging.ts";
 import { state } from "../state.ts";
 import type { Conversation } from "../state.ts";
-import { safetyNumber } from "../../shared/crypto/identity.ts";
-import { decodeIdentity } from "../state.ts";
-import { fromBase64Url } from "../../shared/encoding.ts";
+import { markVerified, peerDevices, verificationState } from "../verification.ts";
+import { qrSvg } from "../../shared/qr.ts";
 
 let selectedChannel: string | null = null;
 
@@ -97,23 +96,86 @@ export function renderChat(root: HTMLElement): void {
     });
     send.addEventListener("click", submit);
 
+    const verification = verificationState(conversation);
     panel.append(
       el(
         "div",
         { class: "row" },
         el("h2", { style: "margin:0" }, conversation.peer),
         el("span", { class: "tag" }, "end-to-end encrypted"),
-        el(
-          "span",
-          { class: "muted mono", title: "Compare this with your contact over another channel" },
-          safetyFor(conversation),
-        ),
+        verification === "verified" ? el("span", { class: "tag" }, "verified ✓") : null,
+        el("button", { class: "ghost", onclick: () => drawVerification(conversation) }, "Safety number"),
+      ),
+      el(
+        "div",
+        {},
+        verification === "changed"
+          ? notice(
+              `A device in this conversation is not one you verified. That is either ${conversation.peer} adding a device, or someone else's key in its place — check the safety number before sending anything sensitive.`,
+              "error",
+            )
+          : null,
       ),
       messages,
       el("div", { class: "composer" }, box, send),
       status,
     );
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  /**
+   * The comparison screen: one safety number per device the peer is using, each with a
+   * scannable code. Both sides must see the same digits — that is the entire protocol,
+   * and it is why the code encodes exactly those digits and nothing clickable.
+   */
+  function drawVerification(conversation: Conversation) {
+    const devices = peerDevices(conversation);
+    clear(panel);
+    panel.append(
+      el(
+        "div",
+        { class: "row" },
+        el("h2", { style: "margin:0" }, `Verify ${conversation.peer}`),
+        el("button", { class: "ghost", onclick: () => drawPanel() }, "Back to messages"),
+      ),
+      el(
+        "p",
+        { class: "lede" },
+        "Compare these characters with the ones on their screen, in person or over a channel this server does not carry. Scanning the code shows the same characters — it does not verify anything by itself.",
+      ),
+    );
+    if (devices.length === 0) {
+      panel.append(el("p", { class: "muted" }, "No session yet — send a message first."));
+      return;
+    }
+    for (const device of devices) {
+      const image = el("img", {
+        // A data URL, so the page still loads nothing from anywhere (CSP: img-src 'self' data:).
+        src: `data:image/svg+xml;base64,${btoa(qrSvg(device.safetyNumber.replace(/ /g, "")))}`,
+        alt: "Safety number as a scannable code",
+        width: "222",
+        height: "222",
+      });
+      const button = el("button", { class: "primary" }, "They match — mark verified");
+      button.addEventListener("click", () => {
+        void markVerified(conversation, device.key).then(() => drawVerification(conversation));
+      });
+      panel.append(
+        el(
+          "div",
+          { class: "verify" },
+          image,
+          el("div", { class: "mono", style: "font-size:1.1rem" }, device.safetyNumber),
+          device.verifiedAt
+            ? el(
+                "p",
+                { class: "muted" },
+                `Verified on ${new Date(device.verifiedAt).toLocaleDateString()}.`,
+              )
+            : button,
+        ),
+      );
+    }
   }
 
   async function newConversation() {
@@ -145,13 +207,3 @@ export function renderChat(root: HTMLElement): void {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
-function safetyFor(conversation: Conversation): string {
-  const sessionKey = Object.keys(conversation.sessions)[0];
-  if (!sessionKey || !state.vault) return "no session yet";
-  const mine = decodeIdentity(state.vault.identity).identity.publicKey;
-  try {
-    return `safety ${safetyNumber(mine, fromBase64Url(sessionKey))}`;
-  } catch {
-    return "no session yet";
-  }
-}

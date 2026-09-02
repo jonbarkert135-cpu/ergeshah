@@ -26,7 +26,9 @@ It builds the *production* client (`NODE_ENV=production`: minified, no inline so
 map) and greps `public/app.js`, `app.css` and `index.html` for:
 
 - remote `http(s)://`, `ws(s)://` and protocol-relative URLs — anything that would make
-  a browser open a connection to a third party. Loopback and our own relative paths pass;
+  a browser open a connection to a third party. Loopback and our own relative paths pass,
+  as do the three XML namespace identifiers (`www.w3.org/2000/svg` and friends), which no
+  browser ever fetches and which a standalone SVG must carry;
 - `sourceMappingURL` — a production source map leaks build paths and original sources;
 - `navigator.sendBeacon` — the analytics primitive that survives page unload;
 - `openpgp` — ADR-0015 promises that dependency stays on the server;

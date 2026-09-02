@@ -35,6 +35,7 @@ Design philosophy, in priority order:
 | Opaque session tokens (hashed at rest, rotating, revocable) | working |
 | Cryptographic identity (Ed25519 identity + X25519 prekeys, per device) | working |
 | E2EE messaging: X3DH-style handshake + Double Ratchet (forward secrecy, PCS) | working |
+| Safety-number verification: scannable code, per-device verified state, warning on a new key | working |
 | Encrypted ratchet headers + padded plaintexts (no ratchet keys, counters or exact sizes on the wire) | working |
 | Store-and-forward envelopes, deleted from the server on delivery | working |
 | Marketplace: seller applications, listings, orders, reviews | working |

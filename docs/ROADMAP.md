@@ -62,6 +62,8 @@ integrity and `npm run audit:deployment`.*
 
 ## Client
 
-- **UI-1 — Safety-number verification flow** with a scannable code, not just a string.
+*Shipped: UI-1, the safety-number verification flow — a scannable code, a per-device
+verified state, and a warning when an unverified device appears.*
+
 - **UI-2 — Offline queue** for messages composed without connectivity.
 - **UI-3 — Accessibility pass** (keyboard traps, focus management, screen-reader labels).

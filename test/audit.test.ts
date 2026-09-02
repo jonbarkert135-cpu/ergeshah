@@ -25,6 +25,13 @@ describe("bundle audit", () => {
     expect(scanBundle(`fetch("/api/messages"); const dev = "http://127.0.0.1:8080";`)).toEqual([]);
   });
 
+  it("does not mistake an XML namespace for a network call", () => {
+    // The QR code is an inline SVG, and a standalone SVG must carry this exact attribute.
+    expect(scanBundle(`<svg xmlns="http://www.w3.org/2000/svg">`)).toEqual([]);
+    // The exemption is that one identifier, not the domain.
+    expect(rules(scanBundle(`fetch("https://www.w3.org/tracker.js")`))).toContain("remote URL");
+  });
+
   it("reports the line number, so a 1 MB bundle is still reviewable", () => {
     const findings = scanBundle(`ok\nok\nfetch("https://evil.example.com/x")\n`);
     expect(findings).toHaveLength(1);

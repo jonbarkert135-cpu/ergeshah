@@ -366,3 +366,36 @@ behaviour is asserted in `test/onion.test.ts` rather than described in a documen
 this is exactly the kind of conditional that rots. And the honest limit is unchanged: both
 entrypoints share one database, so Tor hides a user's network location from the operator,
 not their activity.
+
+## ADR-0020 — A 180-line QR encoder instead of a dependency, and verification per device
+
+**Status:** accepted (2026-09-02)
+
+**Context.** A safety number that is only text gets compared by nobody: reading forty
+characters aloud is exactly the ritual users skip, and skipping it leaves every first
+contact trust-on-first-use against a key directory the server controls. A scannable code
+fixes the ergonomics. The obvious way to get one is `npm i qrcode`, which is a runtime
+dependency in a project that has four and audits every one of them.
+
+**Decision.** Encode the code ourselves: byte mode, version 3, level M — one block, fixed
+layout, the eight standard masks, ~180 lines with no dependency, and a hard error above 42
+bytes rather than a code that will not scan. The correctness argument is not "we read the
+spec": `test/verification.test.ts` decodes the rendered modules with `jsqr`, a reference
+decoder kept as a *dev* dependency, exactly as `@scure/bip39` checks our BIP-39 code.
+
+Verification is stored per peer identity key in the local vault. `verificationState()` is a
+pure function of the conversation, so the badge, the warning and the tests all read the
+same logic: verified when every device in use has been compared, "changed" when one has
+not, which is the event worth interrupting someone for.
+
+**Alternatives.** A QR dependency (a fifth production dependency, and a supply-chain risk
+for a picture). No code, text only (the status quo nobody used). Scanning as well as
+showing (a decoder is an order of magnitude more code, and any phone camera already
+decodes — the other side only has to compare what it shows). Blocking messages to an
+unverified device (a warning respects the user; a block trains them to click through).
+
+**Consequences.** Payloads over 42 bytes are not supported and never silently truncated;
+if a future payload needs more, the encoder needs another version's parameters. Rendering
+is an SVG data URL, which the existing `img-src 'self' data:` CSP already allows — no
+canvas, no new directive. The record is local: a new device starts unverified, which is
+the honest answer rather than a convenient one.

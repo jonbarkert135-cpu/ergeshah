@@ -192,6 +192,25 @@ Limits, stated rather than hidden: a delivery is a single buffer in memory on bo
 seller who is willing to lie can upload the wrong file — this is a delivery mechanism, not
 an escrow (roadmap MKT-1).
 
+## Safety numbers
+
+```
+safety number = base64url(BLAKE2b-240(sort(identity_a, identity_b)))[0..40]
+                shown as five groups of eight characters
+```
+
+Both sides sort the two identity keys before hashing, so both see the same string without
+exchanging anything. The client renders it as text *and* as a QR code (`src/shared/qr.ts`,
+version 3, level M, ~180 lines and no dependency) so it can be compared across the room
+with a phone camera rather than read out character by character.
+
+Verification is recorded per *identity key*, not per person, in the local vault: a peer
+with two devices has two safety numbers. If a conversation that had verified devices gains
+an unverified one, the chat says so instead of quietly accepting it — that event is either
+a new device or a substituted key, and only the two humans can tell which. The record
+never reaches the server, and no message is blocked by it: this is a signal to the user,
+not an enforcement mechanism the operator could switch off.
+
 ## Known limitations
 
 1. **Traffic analysis is only partly addressed.** Headers are encrypted and lengths are

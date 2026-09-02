@@ -134,3 +134,6 @@ pre.block {
   font-family: var(--mono); font-size: 12px; color: var(--text);
   white-space: pre-wrap; word-break: break-all;
 }
+
+.verify { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 0; }
+.verify img { image-rendering: pixelated; border-radius: 4px; }

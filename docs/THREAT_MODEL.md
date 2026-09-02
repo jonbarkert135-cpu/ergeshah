@@ -114,8 +114,11 @@ to be a residual risk.
    are (the bucket, not the byte count).
 3. **Classical-only handshake.** Recorded traffic today may be decryptable by a future
    quantum adversary.
-4. **Unverified identities.** Without a safety-number comparison, a first contact is
-   trust-on-first-use.
+4. **Unverified identities.** A first contact is still trust-on-first-use: the key comes
+   from the server's directory. Comparing the safety number (text or scannable code, per
+   device) turns a substituted key into a *detectable* attack, and a later substitution
+   raises a warning in the conversation — but nothing forces anyone to look, and an
+   unverified conversation gives the operator the same opportunity it always did.
 5. **No external audit.** The cryptography follows published specifications and is
    property-tested, but it has not been reviewed by anyone outside this repository.
 6. **Availability.** A single VPS is a single point of failure, deliberately.

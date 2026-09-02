@@ -43,6 +43,8 @@ export interface Conversation {
   messages: ChatMessage[];
   /** Ratchet state per remote device, plus our own view of the session. */
   sessions: Record<string, SerializedRatchetState>;
+  /** Peer identity keys whose safety number the user compared, and when. */
+  verifiedKeys?: Record<string, number>;
 }
 
 /**
