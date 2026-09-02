@@ -4,6 +4,7 @@ import { receiveMessages, sendDeliveryKey } from "../messaging.ts";
 import { persistVault, state } from "../state.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
 import { fromBase64Url, toBase64Url } from "../../shared/encoding.ts";
+import { safeFileName } from "../../shared/uploads.ts";
 
 interface Order {
   id: string;
@@ -37,8 +38,11 @@ const NEXT_STEPS: Record<string, Array<{ status: string; label: string; role: "b
 
 /** Hands bytes to the browser's own download machinery: no library, no server round-trip. */
 function save(bytes: Uint8Array, name: string): void {
-  const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
-  const link = el("a", { href: url, download: name });
+  // `application/octet-stream` and a sanitised name: the bytes came from a seller, so they
+  // are never given a type the browser would render, and never a name that could be a path
+  // (point 49). The blob is only ever downloaded, never navigated to.
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/octet-stream" }));
+  const link = el("a", { href: url, download: safeFileName(name) });
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -263,7 +267,7 @@ export function renderOrders(root: HTMLElement): void {
           : "Delivered outside the platform. Check the order chat, then confirm.",
       );
     }
-    const button = el("button", { type: "button", class: "primary" }, held.kind === "text" ? "Show delivery" : `Download ${held.name}`);
+    const button = el("button", { type: "button", class: "primary" }, held.kind === "text" ? "Show delivery" : `Download ${safeFileName(held.name)}`);
     button.addEventListener("click", () => {
       button.disabled = true;
       void collect(order)
@@ -299,7 +303,7 @@ export function renderOrders(root: HTMLElement): void {
       dialog.showModal();
     } else {
       save(plaintext, held.name);
-      toast(`Saved ${held.name}`);
+      toast(`Saved ${safeFileName(held.name)}`);
     }
     // The buyer has the goods; the server has no reason to keep a copy of the ciphertext.
     await api(`/api/market/orders/${order.id}/delivery`, { method: "DELETE" });

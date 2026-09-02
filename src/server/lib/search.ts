@@ -91,27 +91,21 @@ export function termConditions(terms: string[]): { sql: string[]; params: unknow
   return { sql, params };
 }
 
-export interface Page {
-  /** Newest first, so a cursor is "everything older than this". */
-  day: number;
-  id: string;
-  limit: number;
-}
-
-const CURSOR_RE = /^(\d{1,7})\.([A-Za-z0-9_-]{8,64})$/;
+const CURSOR_RE = /^(\d{1,15})\.([A-Za-z0-9_-]{8,64})$/;
 
 /**
- * A cursor is the sort key of the last row of the previous page: `<day>.<id>`. Opaque
+ * A cursor is the sort key of the last row of the previous page: `<sort key>.<id>` — a day
+ * for listings, a millisecond timestamp for the notification inbox. Opaque
  * enough that nobody builds one by hand, cheap enough that the server keeps no state, and
  * stable under inserts — which `OFFSET` is not, and `OFFSET` also makes page 500 cost five
  * hundred pages of work. There is no total count for the same reason.
  */
-export function parseCursor(value: unknown): { day: number; id: string } | null {
+export function parseCursor(value: unknown): { key: number; id: string } | null {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value !== "string") throw badRequest("cursor must be a string");
   const match = CURSOR_RE.exec(value);
   if (!match) throw badRequest("cursor is not a cursor this server issued", "invalid_cursor");
-  return { day: Number(match[1]), id: match[2]! };
+  return { key: Number(match[1]), id: match[2]! };
 }
 
 export function cursorFor(row: { created_day: number; id: string }): string {

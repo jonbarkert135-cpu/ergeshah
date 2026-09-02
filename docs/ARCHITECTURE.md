@@ -77,12 +77,12 @@ in `src/` and fails if one crosses a line in the table below.
 | IDENTITY | `routes/keys.ts`, `shared/crypto/identity.ts`, `vault.ts` | devices, prekeys, the sealed vault, device linking |
 | MESSAGING | `routes/messages.ts`, `client/messaging.ts` | store-and-forward envelopes, delivery, acknowledgement |
 | CRYPTO | `shared/crypto/*` | the protocol: one implementation, imported by both sides, imports neither |
-| MARKETPLACE / SELLERS / ORDERS / REVIEWS | `routes/market.ts`, `lib/reputation.ts` | listings, applications, the order state machine, reviews and reputation |
+| MARKETPLACE / SELLERS / ORDERS / REVIEWS | `routes/market.ts`, `lib/reputation.ts`, `lib/search.ts` | listings, applications, the order state machine, reviews and reputation |
 | DELIVERY (STORAGE) | `routes/deliveries.ts` | blind blobs for digital goods, and their deletion |
 | MODERATION / ADMIN | `routes/moderation.ts`, `lib/audit.ts` | reports and disputes, decisions, roles, the audit trail |
 | SECURITY | `app.ts`, `security.ts`, `lib/rate_limit.ts`, `lib/validate.ts` | authentication of requests, CSRF, CSP, limits, input validation at the boundary |
 | INFRASTRUCTURE | `db/*`, `config.ts`, `main.ts`, `routes/static.ts` | drivers, migrations, configuration, the built client and its digests |
-| NOTIFICATIONS | — | deliberately absent: a notification is a server that knows when to contact you. The client polls; see `docs/PRIVACY.md` |
+| NOTIFICATIONS | `routes/notifications.ts`, `lib/notify.ts`, `client/views/notifications.ts` | the internal inbox: which of *your* records changed, never what a message said. No push, no email, no device token — the client polls (point 48, ADR-0032) |
 
 Rules the test enforces: `shared/` imports no side; the client never imports the server and
 vice versa; `lib/` never imports `routes/`; `db/` knows no domain; and one route module never

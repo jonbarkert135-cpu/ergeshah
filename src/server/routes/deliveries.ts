@@ -13,7 +13,7 @@
 import type { FastifyInstance } from "fastify";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
-import { asBase64Url, asId } from "../lib/validate.ts";
+import { asBase64Url, asId, onlyKeys } from "../lib/validate.ts";
 
 interface OrderParties {
   id: string;
@@ -44,6 +44,10 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
       throw forbidden(`an order can only be delivered from 'accepted', not '${order.status}'`);
     }
     const body = (request.body ?? {}) as { ciphertext?: unknown; manual?: unknown };
+    // Every upload is hostile, and the first hostile thing about one is its metadata. This
+    // endpoint accepts two fields; a body that also carries `filename`, `mimeType` or a
+    // `path` is refused rather than quietly ignored (point 49, ADR-0033).
+    onlyKeys(body, ["ciphertext", "manual"]);
     const manual = body.manual === true;
     if (manual === (body.ciphertext !== undefined)) {
       throw badRequest("send either ciphertext or manual: true");

@@ -17,6 +17,7 @@ import {
   type DeliveryKey,
 } from "./state.ts";
 import { fromBase64Url, toBase64Url } from "../shared/encoding.ts";
+import { safeFileName } from "../shared/uploads.ts";
 import { randomBytes } from "../shared/crypto/sodium.ts";
 import {
   acceptSession,
@@ -272,7 +273,9 @@ function storeDeliveryKey(delivery: DeliveryKey & { orderId: string }): void {
   deliveries[orderId] = {
     key,
     nonce,
-    name: typeof name === "string" ? name.slice(0, 120) : "delivery",
+    // A peer chose this name and it will end up in a download. It is sanitised here, once,
+    // at the point it enters the vault (point 49).
+    name: safeFileName(name),
     kind: kind === "text" ? "text" : "file",
     at: Date.now(),
   };

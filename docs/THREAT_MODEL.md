@@ -103,6 +103,29 @@ to be a residual risk.
 | Client network location | Hidden from the operator only for users who arrive over the onion service (`docs/DEPLOYMENT.md`). On the clearnet the reverse proxy sees an address, uses it as rate-limit input, and does not store it |
 | Browser fingerprinting | Not performed by us; not preventable by us |
 
+## Hostile uploads (point 49)
+
+Every byte a user uploads is treated as hostile. What makes that tractable here is that there
+is exactly one upload path — an order delivery — and what it carries is ciphertext the server
+cannot open: there is no image to transcode, no archive to expand, no document to render, and
+no declared type or filename to believe.
+
+| Vector | What stops it |
+| --- | --- |
+| MIME spoofing | The API accepts no content type. `Content-Type` on the request is `application/json`, and the payload is a base64url string; a body carrying `mimeType`/`contentType` is refused with `unexpected_field` rather than ignored |
+| Extension spoofing | The server stores no filename. The name a buyer sees travels inside the encrypted channel and is sanitised by `safeFileName()` before it is used — including the `U+202E` bidi trick that makes `annex‮exe.pdf` read as a PDF |
+| Oversized files | `MAX_DELIVERY_BYTES` is checked in **decoded bytes** (`asBase64Url`), Fastify's `bodyLimit` refuses the request before the handler runs, and the client caps the plaintext at `MAX_FILE_BYTES` |
+| Malicious SVG | Stored bytes are never served as a document: the delivery endpoint answers JSON with `X-Content-Type-Options: nosniff`, no `Content-Disposition` and no filename. The client saves the decrypted bytes as `application/octet-stream`, never navigates to the blob URL, and never builds markup from a string (lint rule `html-from-string`) |
+| Path traversal | No filesystem path in this server is derived from a request. Static assets are read from an explicit directory listing at boot and registered as literal routes; blobs live in the database, keyed by a random id |
+| Archive bombs | Nothing is decompressed server-side, ever — the server cannot even tell an archive from noise. A buyer who unpacks what they bought is doing so in their own tools, which is the same trust decision as buying the file |
+| Executable uploads | Storage is a database column; there is no directory an interpreter or web server could reach, and nothing is marked executable. A seller *may* legitimately sell software, so the file is not rejected for looking like a binary — it is delivered as an octet stream the buyer chose to receive |
+| Content sniffing | `nosniff` on every response, `Content-Security-Policy: default-src 'self'`, `X-Frame-Options: DENY`, and no route that echoes stored bytes with a caller-influenced type |
+
+Residual, stated plainly: the operator still learns that a delivery happened, its padded size
+and its timing, and the *buyer* still receives bytes chosen by the seller. Nothing here can
+tell them the file is safe to open; end-to-end encryption and malware scanning are mutually
+exclusive, and this project chose the encryption. `test/uploads.test.ts` covers the table.
+
 ## Residual risks, stated plainly
 
 1. **Server-served client code, and a closed source.** The operator can ship a malicious

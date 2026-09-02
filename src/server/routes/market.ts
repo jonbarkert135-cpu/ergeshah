@@ -23,6 +23,7 @@ import {
 import { recordAudit } from "../lib/audit.ts";
 import { listingRating, sellerReputation } from "../lib/reputation.ts";
 import { cursorFor, indexListing, parseCursor, queryTerms, termConditions } from "../lib/search.ts";
+import { notify } from "../lib/notify.ts";
 
 type OrderStatus =
   | "placed"
@@ -246,7 +247,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     }
     if (cursor) {
       conditions.push("(l.created_day < ? OR (l.created_day = ? AND l.id < ?))");
-      params.push(cursor.day, cursor.day, cursor.id);
+      params.push(cursor.key, cursor.key, cursor.id);
     }
     // One row more than the page, to answer "is there a next page" without counting.
     params.push(limit + 1);
@@ -346,6 +347,15 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
            VALUES (?, ?, ?, '', 'placed', ?)`,
           [newId(), id, user.id, now],
         );
+        // In the same transaction as the order: a seller is never told about an order that
+        // was rolled back, and never left uninformed about one that was not.
+        await notify(tx, {
+          userId: listing.seller_user_id,
+          kind: "order",
+          subjectType: "order",
+          subjectId: id,
+          detail: "placed",
+        });
       }),
       conflict("you already have an open order for this listing", "already_ordered"),
     );
@@ -465,6 +475,18 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
           [newId(), id, user.id, reason, today()],
         );
       }
+      // The other party, and only the other party: the status word is this codebase's, and
+      // the order id is already visible to both.
+      for (const party of [order.buyer_user_id, order.seller_user_id]) {
+        if (party === user.id) continue;
+        await notify(tx, {
+          userId: party,
+          kind: next === "disputed" ? "dispute" : "order",
+          subjectType: "order",
+          subjectId: id,
+          detail: next,
+        });
+      }
       if (settling) {
         // The order's outcome *is* the report's resolution; leaving the report open would
         // show a moderator work that is already done.
@@ -514,12 +536,23 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const existing = await db.get("SELECT id FROM reviews WHERE order_id = ?", [id]);
     if (existing) throw conflict("this order has already been reviewed", "already_reviewed");
 
-    await db.run(
-      `INSERT INTO reviews (id, order_id, listing_id, seller_user_id, author_user_id, rating, body,
-                            status, created_day)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'visible', ?)`,
-      [newId(), order.id, order.listing_id, order.seller_user_id, user.id, rating, text, today()],
-    );
+    const reviewId = newId();
+    await db.transaction(async (tx) => {
+      await tx.run(
+        `INSERT INTO reviews (id, order_id, listing_id, seller_user_id, author_user_id, rating, body,
+                              status, created_day)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'visible', ?)`,
+        [reviewId, order.id, order.listing_id, order.seller_user_id, user.id, rating, text, today()],
+      );
+      // The seller learns that a review exists and where to read it. Not its stars and not
+      // its text: `detail` holds status words, and a rating is neither.
+      await notify(tx, {
+        userId: order.seller_user_id,
+        kind: "review",
+        subjectType: "listing",
+        subjectId: order.listing_id,
+      });
+    });
     return { ok: true };
   });
 

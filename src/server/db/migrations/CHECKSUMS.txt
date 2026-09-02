@@ -6,3 +6,4 @@ sha256-05TKG/YNpVY48DyNNnjkxIgooH3ry3lo3Pzd72lr19w=  005_deliveries.sql
 sha256-vXb/l+o1ZwL6gLts+aINwBNDpNZvMcCZ7iqNJuwDIKU=  006_audit_result.sql
 sha256-OF/1bwSioHX9MY6zXX9gOQBoCjT9zCXwNDnBOyghu5Q=  007_integrity.sql
 sha256-N28dAc9XL3VheU6KZkncLWvgrITBUx2ORmL+JX1lHAg=  008_search.sql
+sha256-zy7f0C2/G6jmDp2Pzh1kWtNDNBCTHEm8EU5wBD5NjzQ=  009_notifications.sql

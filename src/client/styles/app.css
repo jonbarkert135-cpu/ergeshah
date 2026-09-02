@@ -703,6 +703,32 @@ form.card {
     box-shadow var(--duration) var(--ease);
 }
 
+/* An unread notification is marked by a bar, not by colour alone: colour is not available
+   to every reader, and a border survives a high-contrast mode. */
+.card.unread {
+  border-inline-start: 3px solid var(--accent);
+}
+
+.meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.row.center {
+  justify-content: center;
+}
+
+/* The unread count in the navigation. It is inside the link text, so a screen reader
+   announces "Notifications, 3 unread" rather than an unlabelled number. */
+.badge {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  margin-inline-start: var(--space-2);
+  font-size: var(--text-xs);
+}
+
 .card.interactive:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-md);
@@ -1022,7 +1048,7 @@ dialog .actions {
   display: grid;
   gap: var(--space-2);
   margin: var(--space-1) 0 var(--space-4);
-  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
 }
 
 .phrase-word {
@@ -1158,9 +1184,13 @@ pre.block {
 }
 
 @media (max-width: 640px) {
+  /* backdrop-filter makes the header the containing block for fixed descendants, which
+     would pin the navigation bar to the header instead of the viewport. Solid instead. */
   header.top {
     padding: 0 var(--space-3);
     gap: var(--space-3);
+    backdrop-filter: none;
+    background: var(--bg);
   }
 
   header.top .who {

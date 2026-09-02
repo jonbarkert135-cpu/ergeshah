@@ -114,12 +114,22 @@ with it by `ON DELETE CASCADE`, and rebuilt for anything that predates it by
 the filter and the sort order for keyset pagination, so a page is a seek rather than an
 `OFFSET` scan.
 
+## Notifications (009)
+
+`notifications` is an inbox: `user_id`, a `kind` from a closed set, an optional subject
+(`order`, `listing`, `review`, `user`) and a `detail` of at most 32 characters, constrained by
+`CHECK` so no free text can ever be stored there. There is no sender column, no channel
+column and no body. The partial unique index `notifications_one_unread_message` allows one
+unread `message` row per account, so the table cannot become a per-conversation message
+counter; `notifications_inbox_idx (user_id, created_at, id)` serves the paginated read.
+
 ## Retention, and what deletes what
 
 - Envelopes: on acknowledgement, or at `ENVELOPE_TTL_MS` (30 days).
 - Deliveries: at `DELIVERY_TTL_MS` (30 days).
 - Sessions: at expiry, and immediately on logout.
 - Audit entries: at `AUDIT_RETENTION_MS` (one year).
+- Notifications: at `NOTIFICATION_RETENTION_MS` (90 days), read or unread.
 - Rate-limit buckets: keys change daily; stale rows are pruned.
 - Account deletion: `ON DELETE CASCADE` from `users` through every table above.
   `test/auth.test.ts` deletes an account and then reads every table to prove nothing is left.

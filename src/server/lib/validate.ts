@@ -1,5 +1,6 @@
 /** Input validation. Everything that reaches the database goes through here first. */
 import { badRequest } from "./errors.ts";
+import { base64UrlBytes } from "../../shared/uploads.ts";
 
 const USERNAME_RE = /^[a-z0-9](?:[a-z0-9_.-]{1,30})[a-z0-9]$/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
@@ -43,10 +44,40 @@ export function asUsername(value: unknown): string {
   return username;
 }
 
+/**
+ * Base64url, capped by the number of bytes it *decodes to* — not by its length in
+ * characters, which is a third larger and made every documented cap a lie by 33% (point 49).
+ * A string of length `4n + 1` is rejected outright: it is not base64.
+ */
 export function asBase64Url(value: unknown, field: string, maxBytes: number): string {
   const text = asString(value, field, Math.ceil((maxBytes * 4) / 3) + 8);
   if (!BASE64URL_RE.test(text)) throw badRequest(`${field} must be base64url`);
+  const bytes = base64UrlBytes(text);
+  if (bytes === null) throw badRequest(`${field} is not valid base64url`);
+  if (bytes > maxBytes) throw badRequest(`${field} is larger than ${maxBytes} bytes`, "too_large");
   return text;
+}
+
+/**
+ * Rejects a request body that carries fields this endpoint does not accept.
+ *
+ * Ignoring unknown fields is the usual choice and it is the wrong one for an upload: a client
+ * that sends `filename`, `mimeType` or `contentType` is telling the server something about a
+ * file, and the answer has to be "this server does not want to know" — loudly, so nobody
+ * builds a client that depends on being believed, and so no future handler starts reading it.
+ */
+export function onlyKeys(body: unknown, allowed: readonly string[], field = "body"): void {
+  if (body === undefined || body === null) return;
+  if (typeof body !== "object" || Array.isArray(body)) throw badRequest(`${field} must be an object`);
+  const unexpected = Object.keys(body as Record<string, unknown>).filter(
+    (key) => !allowed.includes(key),
+  );
+  if (unexpected.length > 0) {
+    throw badRequest(
+      `${field} does not accept: ${unexpected.sort().join(", ")}`,
+      "unexpected_field",
+    );
+  }
 }
 
 export function asInteger(value: unknown, field: string, min: number, max: number): number {

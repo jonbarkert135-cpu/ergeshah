@@ -15,6 +15,7 @@ import { renderMarket, renderSell } from "./views/market.ts";
 import { renderOrders } from "./views/orders.ts";
 import { renderModeration } from "./views/admin.ts";
 import { renderAccount } from "./views/account.ts";
+import { renderNotifications, unreadCount } from "./views/notifications.ts";
 import { receiveMessages } from "./messaging.ts";
 
 const root = document.getElementById("app") as HTMLElement;
@@ -23,6 +24,7 @@ const ROUTES = [
   { hash: "#/market", label: "Market" },
   { hash: "#/chat", label: "Messages" },
   { hash: "#/orders", label: "Orders" },
+  { hash: "#/notifications", label: "Notifications" },
   { hash: "#/sell", label: "Sell" },
   { hash: "#/account", label: "Account" },
   { hash: "#/moderation", label: "Moderation", staffOnly: true },
@@ -46,7 +48,9 @@ async function main(): Promise<void> {
   window.setInterval(() => {
     if (!state.vault || document.hidden) return;
     void receiveMessages().catch(() => undefined);
+    void paintUnread();
   }, 10_000);
+  void paintUnread();
 }
 
 /** The frame, immediately: header, a placeholder, footer. No blank page, ever. */
@@ -96,6 +100,7 @@ function renderRoute(container: HTMLElement): void {
       render();
     });
   }
+  if (hash.startsWith("#/notifications")) return renderNotifications(container);
   if (hash.startsWith("#/moderation")) return renderModeration(container);
   return renderMarket(container, navigate);
 }
@@ -190,6 +195,7 @@ function header(signedIn: boolean): HTMLElement {
     for (const route of ROUTES) {
       if (route.staffOnly && !staff) continue;
       const link = el("a", { class: "ghost", href: route.hash }, route.label);
+      if (route.hash === "#/notifications") link.dataset.unread = "";
       if ((location.hash || "#/market").startsWith(route.hash)) link.setAttribute("aria-current", "page");
       nav.append(link);
     }
@@ -203,6 +209,20 @@ function header(signedIn: boolean): HTMLElement {
     signedIn ? el("span", { class: "who" }, `@${state.account?.username}`) : null,
     themeButton(),
   );
+}
+
+/**
+ * The unread badge. Written into the existing navigation link rather than kept in a state
+ * object: there is one place it can be wrong, and it disappears when the count is zero.
+ */
+async function paintUnread(): Promise<void> {
+  const link = document.querySelector<HTMLAnchorElement>("nav a[data-unread]");
+  if (!link) return;
+  const count = await unreadCount();
+  clear(link).append("Notifications");
+  if (count > 0) {
+    link.append(el("span", { class: "badge", "aria-label": `${count} unread` }, String(count)));
+  }
 }
 
 function main_(draw: (container: HTMLElement) => void): HTMLElement {

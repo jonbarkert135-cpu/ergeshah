@@ -14,6 +14,7 @@ import { registerMessageRoutes } from "./routes/messages.ts";
 import { registerMarketRoutes } from "./routes/market.ts";
 import { registerDeliveryRoutes } from "./routes/deliveries.ts";
 import { registerModerationRoutes } from "./routes/moderation.ts";
+import { registerNotificationRoutes } from "./routes/notifications.ts";
 import { registerStaticRoutes } from "./routes/static.ts";
 
 const SESSION_COOKIE = "session";
@@ -190,6 +191,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   await registerMarketRoutes(app);
   await registerDeliveryRoutes(app);
   await registerModerationRoutes(app);
+  await registerNotificationRoutes(app);
   await registerStaticRoutes(app);
 
   return app;

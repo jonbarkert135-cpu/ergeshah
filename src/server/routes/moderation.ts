@@ -14,6 +14,7 @@ import { dayToIsoDate, today } from "../lib/time.ts";
 import { asEnum, asId, asOptionalString, asString, asUsername, REPORT_REASONS, REPORT_TARGETS } from "../lib/validate.ts";
 import { destroyAllSessions } from "../lib/sessions.ts";
 import { sellerReputation } from "../lib/reputation.ts";
+import { notify, notifyQuietly } from "../lib/notify.ts";
 
 export async function registerModerationRoutes(app: FastifyInstance): Promise<void> {
   const { db } = app;
@@ -124,6 +125,12 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
         [decision, note, moderator.id, today(), id],
       );
       if (!decided) throw conflict("this application was already decided");
+      // The applicant is told the outcome by the same transaction that records it (point 48).
+      await notify(tx, {
+        userId: application.user_id,
+        kind: "seller_application",
+        detail: decision,
+      });
       if (decision === "approved") {
         const taken = await tx.get("SELECT user_id FROM sellers WHERE display_name = ?", [
           application.display_name,
@@ -150,12 +157,24 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const note = asOptionalString((request.body as Record<string, unknown>)?.note, "note", 1000);
-    const listing = await db.get<{ id: string }>("SELECT id FROM listings WHERE id = ?", [id]);
+    const listing = await db.get<{ id: string; seller_user_id: string }>(
+      "SELECT id, seller_user_id FROM listings WHERE id = ?",
+      [id],
+    );
     if (!listing) throw notFound("no such listing");
     await db.run("UPDATE listings SET status = 'removed', updated_day = ? WHERE id = ?", [
       today(),
       id,
     ]);
+    // A moderation action a seller is not told about is one they can only discover by
+    // noticing the absence of their own listing.
+    await notifyQuietly(db, {
+      userId: listing.seller_user_id,
+      kind: "moderation",
+      subjectType: "listing",
+      subjectId: id,
+      detail: "removed",
+    });
     await recordAudit(db, {
       actorUserId: moderator.id,
       action: "listing.removed",
@@ -195,6 +214,13 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     } else {
       await db.run("UPDATE sellers SET status = 'active' WHERE user_id = ?", [target.id]);
     }
+    await notifyQuietly(db, {
+      userId: target.id,
+      kind: "moderation",
+      subjectType: "user",
+      subjectId: target.id,
+      detail: status === "suspended" ? "suspended" : "reinstated",
+    });
     await recordAudit(db, {
       actorUserId: moderator.id,
       action: status === "suspended" ? "user.suspended" : "user.reinstated",
@@ -210,9 +236,19 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const note = asOptionalString((request.body as Record<string, unknown>)?.note, "note", 1000);
-    const review = await db.get<{ id: string }>("SELECT id FROM reviews WHERE id = ?", [id]);
+    const review = await db.get<{ id: string; author_user_id: string }>(
+      "SELECT id, author_user_id FROM reviews WHERE id = ?",
+      [id],
+    );
     if (!review) throw notFound("no such review");
     await db.run("UPDATE reviews SET status = 'hidden' WHERE id = ?", [id]);
+    await notifyQuietly(db, {
+      userId: review.author_user_id,
+      kind: "moderation",
+      subjectType: "review",
+      subjectId: id,
+      detail: "hidden",
+    });
     await recordAudit(db, {
       actorUserId: moderator.id,
       action: "review.hidden",

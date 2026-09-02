@@ -26,6 +26,8 @@ export interface Config {
   deliveryTtlMs: number;
   /** How long administrative audit entries are kept before housekeeping deletes them. */
   auditRetentionMs: number;
+  /** How long a read or unread notification stays in an inbox. An inbox is not a history. */
+  notificationRetentionMs: number;
   /** Per-operation token buckets, `DEFAULT_LIMITS` overridden by `RATE_LIMITS`. */
   rateLimits: Limits;
   /** v3 onion address of this service, advertised to Tor Browser. Empty = not published. */
@@ -93,6 +95,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     maxDeliveryBytes: Number(process.env.MAX_DELIVERY_BYTES ?? 5 * 1024 * 1024),
     deliveryTtlMs: Number(process.env.DELIVERY_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     auditRetentionMs: Number(process.env.AUDIT_RETENTION_MS ?? 365 * 24 * 60 * 60 * 1000),
+    notificationRetentionMs: Number(process.env.NOTIFICATION_RETENTION_MS ?? 90 * 24 * 60 * 60 * 1000),
     rateLimits: resolveLimits(process.env.RATE_LIMITS),
     onionHostname: onionHostname(process.env.ONION_HOSTNAME),
     behindTls: process.env.BEHIND_TLS !== "false",

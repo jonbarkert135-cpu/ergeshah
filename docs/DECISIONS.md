@@ -870,3 +870,88 @@ for `position: fixed` descendants.
 **Consequences.** The entry bundle grew from 88 kB to 95 kB (27 kB brotli) for the dialog
 and table helpers; the budget is 150 kB. Two palette steps were added to reach 4.5:1
 (`--grey-550`, `--grey-800`, `--state-danger-deep`) and two unused ones removed.
+
+## ADR-0032 — Notifications that do not describe messages
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Point 48 asks for internal notifications for new messages, order updates, seller
+application decisions, moderation actions, reviews and disputes — and requires that
+notification metadata not reveal the content of end-to-end encrypted messages to the server.
+The naive table (`user_id, title, body, sender, conversation_id`) would do exactly that: even
+without a preview, one row per message per recipient hands the server a per-conversation
+message counter and a timing trace, which is the traffic analysis `routes/messages.ts` goes
+out of its way not to keep.
+
+**Decision.**
+
+- *No free text anywhere.* The table has `kind` (closed set, `CHECK`), an optional subject
+  pointing at a record the server can already see, and `detail`: a status word this codebase
+  chose, capped at 32 characters by a constraint. `notify()` has no parameter for a sentence,
+  so no future caller can add one without changing the schema and this ADR. The prose a reader
+  sees is written in the client.
+- *One unread hint for messages, coalesced by the schema.* A partial unique index allows a
+  single unread `message` row per account; ten messages refresh its timestamp instead of
+  writing ten rows. The row names no sender and no channel. The client already polls for
+  envelopes and decrypts them — that is where "who" and "what" come from.
+- *No push, no email, no device tokens.* A notification is delivered by the client asking.
+  Web Push means a third-party endpoint learning when a pseudonymous account is contacted;
+  email means an identity this service deliberately never collects.
+- *Written in the transaction that caused it* for order, application and review events, so a
+  notification never describes a rolled-back action. Where the notification is a courtesy on
+  top of a completed action (a delivered message, a moderator's decision already recorded), it
+  is best-effort: `notifyQuietly` swallows the failure rather than turning it into a 500.
+- *Retention:* 90 days, read or unread (`NOTIFICATION_RETENTION_MS`), and `ON DELETE CASCADE`
+  with the account. An inbox is a notice board, not a history.
+
+**Rejected:** per-message rows (a message counter), an unread count per conversation (the
+same thing with extra steps), storing the sender for "message from @alice" (the social graph
+this project does not keep), and Web Push.
+
+**Consequences.** A user sees that mail arrived but not from whom until their client decrypts
+it, which is the honest consequence of the encryption. Notification volume for messages is one
+row per account per read cycle, so the table stays small. The residual risk is unchanged from
+messaging: the server still sees *when* an account is written to, which is stated in
+`docs/THREAT_MODEL.md`.
+
+## ADR-0033 — Uploads are hostile, and this server refuses to know anything about them
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Point 49 requires defences against MIME spoofing, extension spoofing, oversized
+files, malicious SVG, path traversal, archive bombs, executable uploads and content sniffing,
+using size limits, type validation, safe storage, randomised object names and non-executable
+storage. The usual implementation of "type validation" is magic-byte sniffing plus an
+allow-list — and it is impossible here, because the only bytes a client uploads are ciphertext
+the server cannot read. Attempting to validate a type would mean asking the client to declare
+one, which is the vector rather than the control.
+
+**Decision.** Refuse the metadata instead of trusting it, and keep the bytes somewhere nothing
+can interpret them.
+
+- *No type, no name, no path in the API or the schema.* `deliveries` has five columns and none
+  of them is a filename. A delivery body accepts `ciphertext` or `manual` and nothing else:
+  `onlyKeys()` rejects `filename`, `mimeType`, `path` and friends with `unexpected_field`, so
+  no client can come to depend on being believed and no future handler finds the field there.
+- *Caps in decoded bytes.* `asBase64Url` measured characters, which made every documented cap
+  a third too generous, and accepted lengths of `4n + 1` that are not base64 at all. Both are
+  now errors.
+- *Names are sanitised on the client, where the only name lives.* `safeFileName()` (in
+  `shared/`) strips separators, `..`, control characters and bidi overrides, refuses Windows
+  device names, caps the length and never returns an empty string. It runs where a peer's name
+  enters the vault and again where a download is named.
+- *Storage is a database column with a random id.* No directory, no filesystem path derived
+  from a request, nothing executable, and no static route that could serve a stored blob.
+  Downloads are `application/octet-stream` from a blob URL that is never navigated to.
+- *No scanning, and we say so.* An E2EE marketplace cannot scan what it cannot decrypt.
+  Pretending otherwise would be the absolute security claim `test/docs.test.ts` forbids.
+
+**Rejected:** magic-byte validation (nothing to sniff), rejecting executables (a software
+seller is a legitimate user; the honest control is that the buyer chose the seller), unpacking
+archives to check them (an archive bomb defence that runs the bomb), and storing files on disk
+behind a static server (the classic path-traversal and misconfigured-interpreter surface, for
+no benefit at 5 MiB).
+
+**Consequences.** The upload surface is one endpoint that accepts two fields and stores one
+opaque string. The buyer carries the residual risk that the bytes they bought are malicious,
+which is stated in `docs/THREAT_MODEL.md` rather than papered over.

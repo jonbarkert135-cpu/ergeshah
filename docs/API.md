@@ -78,6 +78,20 @@ exist. Drifted API documentation is worse than none, because people trust it.
 | `GET /api/messages` | session | `read` | Fetch envelopes addressed to this account's devices |
 | `POST /api/messages/ack` | session (owner) | `write` | Acknowledge envelopes, which deletes them |
 
+## Notifications
+
+| Method & path | Auth | Limit | Purpose |
+| --- | --- | --- | --- |
+| `GET /api/notifications` | session | `read` | The account's inbox, newest first. `?limit=` (1–50, default 20), `?cursor=` from `nextCursor`. Each item is `{ id, kind, subjectType, subjectId, detail, at, read }`; `unread` is the badge count |
+| `POST /api/notifications/read` | session | `write` | `{ all: true }` or `{ ids: [...] }` (at most 50). Ids belonging to another account match nothing |
+
+`kind` is one of `message`, `order`, `seller_application`, `moderation`, `review`, `dispute`.
+`detail` is a status word this server chose (`placed`, `accepted`, `approved`, `suspended`,
+`removed`, `hidden`…) — never text a user typed. A `message` notification carries no subject,
+no sender, no channel and no count: it says that something arrived, and the client learns
+what by fetching and decrypting its envelopes (ADR-0032). The wording a reader sees lives in
+the client.
+
 ## Marketplace
 
 | Method & path | Auth | Limit | Purpose |
@@ -93,8 +107,8 @@ exist. Drifted API documentation is worse than none, because people trust it.
 | `GET /api/market/orders` | session (party) | `read` | My orders, as buyer or as seller |
 | `POST /api/market/orders/:id/status` | session (party) | `order_write` | Advance the order state machine; illegal and stale transitions are refused server-side (`409 stale_status`). `disputed` requires a `reason` (10–2000 chars), which is filed as a report for moderation; a moderator settling a dispute closes that report and is audited |
 | `POST /api/market/orders/:id/review` | session (buyer) | `review` | Review a completed order, once |
-| `POST /api/market/orders/:id/delivery` | session (seller) | `message_send` | Deliver: `{ ciphertext }` for anything the seller encrypted in the browser (file, licence key, credentials, link — the server does not know which), or `{ manual: true }` for a delivery that happened outside the platform. Either moves the order to `delivered` |
-| `GET /api/market/orders/:id/delivery` | session (buyer) | `read` | Download that ciphertext |
+| `POST /api/market/orders/:id/delivery` | session (seller) | `message_send` | Deliver: exactly one of `{ ciphertext }` for anything the seller encrypted in the browser (file, licence key, credentials, link — the server does not know which), or `{ manual: true }` for a delivery that happened outside the platform. Either moves the order to `delivered`. No other field is accepted — a body carrying `filename`, `mimeType` or `path` is refused with `unexpected_field`, and `ciphertext` is capped in decoded bytes by `MAX_DELIVERY_BYTES` |
+| `GET /api/market/orders/:id/delivery` | session (buyer) | `read` | Download that ciphertext. Answered as JSON with `nosniff` and no `Content-Disposition`: the server never serves stored bytes as a document (ADR-0033) |
 | `DELETE /api/market/orders/:id/delivery` | session (seller) | `write` | Withdraw it before collection |
 
 Physical orders have no address column: the shipping address is an ordinary encrypted

@@ -6,6 +6,7 @@ import { pruneSessions } from "./lib/sessions.ts";
 import { pruneRateLimits } from "./lib/rate_limit.ts";
 import { pruneAuditLog } from "./lib/audit.ts";
 import { backfillSearchIndex } from "./lib/search.ts";
+import { pruneNotifications } from "./lib/notify.ts";
 
 const config = loadConfig();
 const db = await createDb(config);
@@ -13,7 +14,7 @@ await migrate(db);
 await backfillSearchIndex(db);
 const app = await buildApp(config, db);
 
-/** Housekeeping: expired sessions, envelopes, rate-limit buckets and audit entries. */
+/** Housekeeping: expired sessions, envelopes, buckets, audit entries and notifications. */
 const housekeeping = setInterval(
   () => {
     void (async () => {
@@ -22,6 +23,7 @@ const housekeeping = setInterval(
         await pruneRateLimits(db);
         await db.run("DELETE FROM envelopes WHERE expires_at < ?", [Date.now()]);
         await pruneAuditLog(db, config.auditRetentionMs);
+        await pruneNotifications(db, config.notificationRetentionMs);
       } catch (error) {
         process.stderr.write(`housekeeping failed: ${(error as Error).message}\n`);
       }

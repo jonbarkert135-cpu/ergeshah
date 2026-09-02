@@ -10,6 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { badRequest, notFound } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { asArray, asBase64Url, asId, asInteger, asString, asUsername } from "../lib/validate.ts";
+import { notifyQuietly } from "../lib/notify.ts";
 
 /**
  * The session invite is opaque to the server, but it is still parsed and re-serialised
@@ -86,6 +87,10 @@ export async function registerMessageRoutes(app: FastifyInstance): Promise<void>
     if (accepted.length === 0) {
       throw notFound("that user has no device that can receive this message");
     }
+    // "Something arrived for you", and nothing else: no sender, no channel, no count. The
+    // recipient's client already knows how to find out what it was — by decrypting it
+    // (point 48). One unread row per account, enforced by a partial unique index.
+    await notifyQuietly(db, { userId: target.id, kind: "message" });
     // The sender is not recorded anywhere: this response is the only acknowledgement.
     return { delivered: accepted.length };
   });

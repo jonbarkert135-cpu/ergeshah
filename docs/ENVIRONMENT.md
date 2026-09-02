@@ -50,6 +50,7 @@ the server remembers anything.
 | `MAX_DELIVERY_BYTES` | 5 MiB | Cap on encrypted digital goods for one order |
 | `DELIVERY_TTL_MS` | 30 days | How long a delivery stays collectable |
 | `AUDIT_RETENTION_MS` | 365 days | How long administrative audit entries are kept before pruning |
+| `NOTIFICATION_RETENTION_MS` | 90 days | How long a notification stays in an inbox, read or unread |
 | `RATE_LIMITS` | *see below* | JSON overriding per-operation buckets |
 
 ### `RATE_LIMITS`
