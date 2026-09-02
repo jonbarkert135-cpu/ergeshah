@@ -45,6 +45,8 @@ export interface VaultContents {
   };
   deviceId: string | null;
   conversations: Record<string, Conversation>;
+  /** True on a device that was linked rather than signed in: it does not own the backup. */
+  linked?: boolean;
 }
 
 export interface Account {
@@ -128,12 +130,18 @@ function sealCurrentVault(): SealedVault {
   return sealVault(state.vaultKey, utf8(JSON.stringify(state.vault)));
 }
 
-/** Persist locally and back the sealed blob up to the server, which cannot read it. */
+/**
+ * Persist locally and back the sealed blob up to the server, which cannot read it.
+ *
+ * A linked device never uploads: the account has one sealed backup, it belongs to the
+ * device that knows the account password, and overwriting it with a different device's
+ * vault would destroy the only copy of that device's keys.
+ */
 export async function persistVault(sync = true): Promise<void> {
   if (!state.vault || !state.vaultKey) return;
   const sealed = sealCurrentVault();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sealed));
-  if (sync) {
+  if (sync && !state.vault.linked) {
     await api("/api/keys/vault", { method: "PUT", body: { sealedVault: sealed } }).catch(() => {
       /* offline or rate-limited: the local copy is authoritative anyway */
     });
@@ -248,4 +256,30 @@ export async function deleteAccount(password: string): Promise<void> {
   keys.vaultKey.fill(0);
   forgetLocalVault();
   lock();
+}
+
+/**
+ * New device, after its bundle was authorised elsewhere: build a local vault around the
+ * identity it generated, then publish its one-time prekeys with the session it just got.
+ *
+ * The device password protects this browser's vault only. It is never sent anywhere and
+ * does not have to match the account password — this device cannot open the account's
+ * sealed backup and does not need to.
+ */
+export async function adoptLinkedIdentity(
+  account: Account,
+  identity: DeviceIdentity,
+  devicePassword: string,
+): Promise<void> {
+  const keys = deriveAccountKeys(account.username, devicePassword);
+  keys.authSecret.fill(0);
+  state.account = account;
+  state.vaultKey = keys.vaultKey;
+  state.vault = {
+    identity: encodeIdentity(identity),
+    deviceId: null,
+    conversations: {},
+    linked: true,
+  };
+  await publishDevice("linked device");
 }

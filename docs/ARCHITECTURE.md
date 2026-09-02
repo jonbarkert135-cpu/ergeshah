@@ -83,6 +83,27 @@ commercial data with day-granularity timestamps. `reports` and `audit_log` suppo
 moderation. `rate_limits` holds rotating HMACs, never addresses. Full field-by-field
 justification: [`PRIVACY.md`](PRIVACY.md).
 
+## Linking a second device
+
+Each device has its own key pair. Two browsers sharing one identity would mean two copies
+of the same ratchet advancing independently, which desynchronises every conversation, so
+linking never copies keys.
+
+1. The new browser generates an identity and a 32-byte secret, and shows both as a code,
+   together with the fingerprint of its identity key.
+2. A signed-in device reads the code, shows the same fingerprint for the person to compare,
+   publishes the new device's public bundle (it is authenticated; the new device is not),
+   and stores a one-time authorisation keyed by SHA-256 of the secret, valid five minutes.
+3. The new browser redeems the authorisation once and receives a session. The row is
+   deleted in the same transaction, so a photographed code is worthless afterwards, and no
+   token is stored in plaintext anywhere: the session is minted at redemption.
+4. The new browser seals its own local vault under a password chosen for that device, and
+   does *not* upload it — the account has exactly one sealed backup, owned by the device
+   that knows the account password.
+
+Senders already encrypt per recipient device, so both devices receive their own ciphertext
+from then on. History is not transferred: the server has no plaintext to replay.
+
 ## Why these technologies
 
 Recorded as decisions with alternatives and trade-offs in [`DECISIONS.md`](DECISIONS.md).

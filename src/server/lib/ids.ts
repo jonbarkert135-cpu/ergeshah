@@ -9,7 +9,8 @@ export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString("base64url");
 }
 
-export function sha256(value: string): string {
+/** Accepts bytes too: link secrets are hashed as bytes, the way the browser hashes them. */
+export function sha256(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("base64url");
 }
 

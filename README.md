@@ -28,6 +28,7 @@ Design philosophy, in priority order:
 | --- | --- |
 | Account identity (username + password, no email/phone required) | working |
 | Password change (re-seals the vault) and self-service account deletion | working |
+| Device linking: a second browser gets its own identity, authorised by a signed-in device | working |
 | Password handling (client-side Argon2id split → server-side scrypt) | working |
 | Opaque session tokens (hashed at rest, rotating, revocable) | working |
 | Cryptographic identity (Ed25519 identity + X25519 prekeys, per device) | working |
