@@ -18,7 +18,8 @@
     "audit:deps": "npm audit --omit=dev --audit-level=high",
     "audit:bundle": "node scripts/audit.mjs bundle",
     "audit:secrets": "node scripts/audit.mjs secrets",
-    "audit": "npm run audit:deps && npm run audit:bundle && npm run audit:secrets"
+    "audit": "npm run audit:deps && npm run audit:bundle && npm run audit:secrets",
+    "audit:deployment": "node scripts/audit.mjs deployment"
   },
   "dependencies": {
     "fastify": "^5.2.0",
@@ -31,7 +32,7 @@
     "@types/libsodium-wrappers-sumo": "^0.7.8",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
-    "esbuild": "^0.28.2",
+    "esbuild": "0.28.2",
     "typescript": "^5.7.2",
     "vitest": "^4.1.11"
   }

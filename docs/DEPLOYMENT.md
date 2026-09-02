@@ -26,6 +26,21 @@ Migrations run automatically at boot. The **first account to register becomes th
 administrator** — create it immediately after the first deploy, before announcing the
 address.
 
+## Verifying what you deployed
+
+The client build is reproducible, so anyone — including you, after an update — can check
+that the server serves exactly what this source tree builds:
+
+```bash
+npm ci                                        # locked versions; a different esbuild = different bytes
+npm run audit:deployment -- https://your.domain
+```
+
+The deployment publishes the digests of the files it loaded at boot at `/build.txt`, and
+`index.html` pins the script and stylesheet with subresource integrity. Publish the digest
+of `app.js` wherever you announce the service; a user who compares it is doing the audit
+you cannot do for them.
+
 ## PostgreSQL instead of SQLite
 
 Uncomment the `db` service in `deploy/docker-compose.yml`, then in `.env`:

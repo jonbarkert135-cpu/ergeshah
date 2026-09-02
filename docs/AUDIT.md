@@ -14,6 +14,7 @@ verify yourself in an hour, and — the part that matters — what neither of th
 | Dependency CVEs | `npm run audit:deps` | A production dependency has a high or critical advisory |
 | Client bundle | `npm run audit:bundle` | What we serve would talk to a host we do not operate |
 | Repository | `npm run audit:secrets` | Something that looks like key material was committed |
+| Reproducibility | part of `audit:bundle` | Two identical builds produced different bytes |
 
 `npm run audit` runs the last three together. The two new ones live in
 `scripts/audit.mjs`, are about a hundred lines of `String.matchAll`, and add no
@@ -66,9 +67,20 @@ ugly and shows up in review.
    locally, use it, and read the tables yourself.
 4. **Watch the network tab.** No requests to anything but the origin. That is the claim
    `audit:bundle` protects.
-5. **Diff the served bundle.** Build the client from this source and compare with what
-   the server sends you. Byte-for-byte reproducibility is not there yet (OPS-1 in
-   `docs/ROADMAP.md`) — until it is, this check is indicative, not conclusive.
+5. **Compare the served bundle with your own build.** The build is reproducible, so this
+   is one command:
+
+   ```bash
+   npm ci                                   # locked dependency versions, or the bytes differ
+   npm run audit:deployment -- https://the-deployment
+   ```
+
+   It builds the client here, fetches `/`, `/assets/app.js`, `/assets/app.css` and
+   `/favicon.svg` from that deployment, and compares SHA-256 digests of the bytes actually
+   sent. The deployment also publishes its own digests at `/build.txt`; that file is
+   convenience, not evidence — the comparison hashes what was served, not what the server
+   claims. Additionally, `index.html` pins the script and stylesheet with subresource
+   integrity, so a browser refuses a bundle that does not match the page it arrived with.
 
 ## What none of this proves
 
@@ -81,9 +93,15 @@ ugly and shows up in review.
 - **`audit:secrets` has both error kinds.** It misses a credential that does not look
   like one, and it will occasionally shout about a constant that is not one. Rotate
   anything it finds; never resolve a finding by widening the placeholder rule.
+- **Reproducible is not trustworthy.** A reproducible build proves the deployment matches
+  *this source*; it says nothing about whether this source is correct. And it is an
+  after-the-fact check by whoever runs it: a server can serve one bundle to an auditor and
+  another to one user, which is residual risk #1 in `docs/THREAT_MODEL.md` and is not
+  solved by hashing.
 - **CI runs on GitHub's infrastructure.** A green tick proves that *their* runner said
   these commands exited zero. It is not a proof about the artifact your users receive;
-  only reproducible builds (OPS-1) would move that trust.
+  the artifact your users receive; comparing that artifact is what `audit:deployment` is
+  for.
 - **Nothing here audits the deployment.** Server configuration, TLS termination, the
   operator's own machine and their backups are outside every check in this document.
   See `docs/DEPLOYMENT.md` and the operator section of `docs/THREAT_MODEL.md`.

@@ -104,10 +104,11 @@ to be a residual risk.
 ## Residual risks, stated plainly
 
 1. **Server-served client code.** The operator can ship a malicious bundle to a specific
-   user. Mitigation is procedural (published builds, third-party audit) and partial. CI
-   greps the production bundle for external references (`npm run audit:bundle`), which
-   catches an accidental third-party call but *not* a deliberate one — only reproducible
-   builds (roadmap OPS-1) would.
+   user. The build is now reproducible and a deployment can be compared against it
+   (`npm run audit:deployment`, `docs/AUDIT.md`), and `index.html` pins the bundle with
+   subresource integrity — so an *accidental* or *global* substitution is detectable by
+   anyone who checks. A targeted swap, served only to one user, remains possible: hashing
+   proves what the server sent to whoever asked, not what it sends to someone else.
 2. **Metadata.** Who is online, when, how often, and roughly how large their messages
    are (the bucket, not the byte count).
 3. **Classical-only handshake.** Recorded traffic today may be decryptable by a future

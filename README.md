@@ -40,6 +40,7 @@ Design philosophy, in priority order:
 | Marketplace: seller applications, listings, orders, reviews | working |
 | Digital delivery: file encrypted in the browser, blind blob on the server, key over the encrypted channel | working |
 | Moderation: reports, admin review queue, privacy-safe audit log | working |
+| Reproducible client build: published digests, subresource integrity, one-command deployment check | working |
 | Single-VPS deployment: Docker Compose + reverse proxy + TLS, SQLite or PostgreSQL | working |
 | Payments | **not implemented by design** — see `docs/ROADMAP.md` |
 | Post-quantum hybrid handshake (PQXDH-style) | **planned** — see `docs/ROADMAP.md` |
@@ -63,7 +64,9 @@ Later checks are added as npm scripts, not as workflow steps, so the copy under
 `npm test` runs the unit + API test suite (crypto vectors, ratchet properties, auth,
 marketplace, moderation). `npm run check` runs TypeScript in strict mode. `npm run audit`
 checks dependency advisories, greps the production bundle for anything that would contact
-a third party, and scans the repository for committed key material — see
+a third party, verifies the build repeats byte-for-byte, and scans the repository for
+committed key material. `npm run audit:deployment -- https://host` compares a running
+deployment with your own build of this source — see
 [`docs/AUDIT.md`](docs/AUDIT.md), which also lists what those checks do *not* prove.
 
 ## Production

@@ -15,6 +15,9 @@ const ASSETS: Array<{ route: string; file: string; type: string }> = [
   { route: "/assets/app.css", file: "app.css", type: "text/css; charset=utf-8" },
   { route: "/assets/sodium.js", file: "sodium.js", type: "application/javascript; charset=utf-8" },
   { route: "/favicon.svg", file: "favicon.svg", type: "image/svg+xml" },
+  // The digests of everything above, so a reader can build this repository and compare
+  // one file instead of diffing a megabyte of JavaScript (docs/AUDIT.md).
+  { route: "/build.txt", file: "BUILD.txt", type: "text/plain; charset=utf-8" },
 ];
 
 export async function registerStaticRoutes(app: FastifyInstance): Promise<void> {

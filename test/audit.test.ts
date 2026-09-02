@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { startTestServer } from "./helpers.ts";
 // @ts-expect-error - plain ESM script, no types needed for two pure functions
 import { scanBundle, scanSource } from "../scripts/audit.mjs";
 
@@ -59,5 +64,50 @@ describe("secret audit", () => {
     expect(rules(scanSource("-----BEGIN PGP PRIVATE KEY BLOCK-----", "test/pgp.test.ts"))).toContain( // audit:allow fixture
       "private key block",
     );
+  });
+});
+
+/**
+ * Reproducible builds (OPS-1). The expensive property — two builds are byte-identical —
+ * is checked by `npm run audit:bundle` in CI; here we check the parts that would silently
+ * make that check meaningless: that the build actually publishes digests, that they match
+ * the files on disk, and that the page pins the bundle it was built with.
+ */
+describe("reproducible build", () => {
+  const root = new URL("../", import.meta.url);
+  const digest = (bytes: Uint8Array | string) =>
+    `sha256-${createHash("sha256").update(bytes).digest("base64")}`;
+
+  it("publishes digests that match the files it produced", () => {
+    execFileSync(process.execPath, ["scripts/build-client.mjs"], {
+      cwd: fileURLToPath(root),
+      env: { ...process.env, NODE_ENV: "production" },
+    });
+    const listed = readFileSync(new URL("public/BUILD.txt", root), "utf8").trim().split("\n");
+    expect(listed).toHaveLength(4);
+    for (const line of listed) {
+      const [hash, file] = line.split("  ");
+      expect(digest(readFileSync(new URL(`public/${file}`, root)))).toBe(hash);
+    }
+  });
+
+  it("pins the script and stylesheet in the page, so a swapped bundle is refused", () => {
+    const shell = readFileSync(new URL("public/index.html", root), "utf8");
+    const js = digest(readFileSync(new URL("public/app.js", root)));
+    const css = digest(readFileSync(new URL("public/app.css", root)));
+    expect(shell).toContain(`src="/assets/app.js" integrity="${js}"`);
+    expect(shell).toContain(`href="/assets/app.css" integrity="${css}"`);
+  });
+
+  it("serves the digests, so a deployment can be compared with a local build", async () => {
+    const server = await startTestServer();
+    try {
+      const response = await server.app.inject({ method: "GET", url: "/build.txt" });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-type"]).toContain("text/plain");
+      expect(response.body).toBe(readFileSync(new URL("public/BUILD.txt", root), "utf8"));
+    } finally {
+      await server.close();
+    }
   });
 });

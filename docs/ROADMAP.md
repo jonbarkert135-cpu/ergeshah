@@ -52,11 +52,9 @@ wrapped master key (PR #7), and AUTH-7 PGP challenge–response as a second fact
 ## Operations
 
 *Shipped: the zero-cost audit pipeline — `audit:bundle`, `audit:secrets` and
-`docs/AUDIT.md` (PR #10).*
+`docs/AUDIT.md`. Reproducible client builds (OPS-1) with published digests, subresource
+integrity and `npm run audit:deployment`.*
 
-- **OPS-1 — Reproducible client builds** published with hashes, so a user can verify the
-  JavaScript they were served. This is the mitigation for the largest residual risk in
-  the threat model.
 - **OPS-2 — SQLite driver for the `Db` interface in tests against PostgreSQL in CI**, so
   both drivers are exercised on every commit.
 - **OPS-3 — Container image signing and an SBOM.**

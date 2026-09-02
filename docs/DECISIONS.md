@@ -302,3 +302,34 @@ PostgreSQL — the choice the whole schema already makes. The operator still lea
 order was delivered, the padded size and the timings, and can withhold a blob; that is
 denial of service, not disclosure, and it is written down in `docs/THREAT_MODEL.md`. A
 seller can still upload the wrong file: delivery is not escrow (MKT-1).
+
+## ADR-0018 — Reproducible client build, verified against the deployment
+
+**Status:** accepted (2026-09-02)
+
+**Context.** The largest residual risk in `docs/THREAT_MODEL.md` is that the operator
+serves the browser a bundle that does not match this source. Every claim in this
+repository about client-side encryption depends on that not happening, and until now the
+only answer was "read the source" — which nobody can do against a minified megabyte they
+were served ten minutes ago.
+
+**Decision.** Make the build reproducible and make the comparison one command.
+`scripts/build-client.mjs` writes `public/BUILD.txt` with the SHA-256 of every artefact and
+injects subresource integrity for the script and stylesheet into `index.html`; the server
+serves that file at `/build.txt`; `node scripts/audit.mjs deployment <origin>` builds
+locally, fetches what the deployment actually sends, and compares digests of the received
+bytes. `audit:bundle` builds twice and fails if the two builds differ, so reproducibility
+cannot rot unnoticed. `esbuild` is pinned to an exact version, because the bundler *is*
+part of the output.
+
+**Alternatives.** Signed release artefacts (a signature proves who built it, not that it
+matches the source, and adds a key to protect). A build attestation from CI (moves trust
+to GitHub, which the audit document explicitly declines to do). SRI alone (pins the bundle
+to the page, but the page is served by the same operator — necessary, not sufficient).
+
+**Consequences.** Verification requires `npm ci`: a different esbuild version produces
+different bytes, and a mismatch would look like tampering. `BUILD.txt` served by the
+deployment is convenience only — the check hashes what was received, never what the server
+claims. And the honest limit stands: this detects a global or accidental substitution, not
+a bundle served to one targeted user. That sentence is now in the threat model instead of
+an aspiration in the roadmap.

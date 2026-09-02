@@ -2,14 +2,19 @@
  * Two audits that cost nothing and catch the two mistakes that would quietly break the
  * project's promises:
  *
- *   node scripts/audit.mjs bundle   — the client the browser gets talks to no one but us
- *   node scripts/audit.mjs secrets  — no key material or credential is committed
+ *   node scripts/audit.mjs bundle      — the client the browser gets talks to no one but
+ *                                        us, and the build that produced it repeats
+ *   node scripts/audit.mjs secrets     — no key material or credential is committed
+ *   node scripts/audit.mjs deployment <origin>
+ *                                      — a running deployment serves exactly the bytes
+ *                                        this source tree builds
  *
  * Both are grep with a threat model attached. They do not replace review; they replace
  * *forgetting*. A line may opt out with an `audit:allow` comment on it, which is
  * deliberately visible in review.
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,12 +84,30 @@ function report(findings) {
   process.exit(1);
 }
 
-function bundle() {
-  // Audit what production actually serves: minified, no inline source map, no comments.
+/** Builds the production client. Returns `public/BUILD.txt`, the digests it produced. */
+function buildProduction() {
   execFileSync(process.execPath, [join(root, "scripts/build-client.mjs")], {
     env: { ...process.env, NODE_ENV: "production" },
     stdio: "inherit",
   });
+  return readFileSync(join(root, "public/BUILD.txt"), "utf8");
+}
+
+function sha256(bytes) {
+  return `sha256-${createHash("sha256").update(bytes).digest("base64")}`;
+}
+
+function bundle() {
+  // Audit what production actually serves: minified, no inline source map, no comments.
+  const first = buildProduction();
+  // Reproducibility is a property that rots silently — a plugin that embeds a timestamp,
+  // a path, or a hash-map iteration order breaks it and nothing else notices. So build
+  // twice and compare, which is the cheapest possible regression test for OPS-1.
+  if (buildProduction() !== first) {
+    console.error("\nbuild is not reproducible: two identical builds produced different digests");
+    console.error("expected:\n" + first);
+    process.exit(1);
+  }
   const files = ["public/app.js", "public/app.css", "public/index.html"];
   const findings = [];
   for (const file of files) {
@@ -94,6 +117,46 @@ function bundle() {
   }
   if (findings.length) report(findings);
   console.log(`bundle audit: ${files.length} files, no external references, no secrets`);
+  console.log(`build is reproducible; digests:\n${first.trimEnd()}`);
+}
+
+/**
+ * Compares a deployment with this source tree. It hashes the bytes the server actually
+ * sends — the server's own BUILD.txt is fetched for information, never trusted as the
+ * answer, since an operator who swaps the bundle can rewrite that file too.
+ */
+async function deployment(origin) {
+  const expected = new Map(
+    buildProduction()
+      .trim()
+      .split("\n")
+      .map((line) => line.split("  "))
+      .map(([hash, file]) => [file, hash]),
+  );
+  const routes = [
+    ["app.js", "/assets/app.js"],
+    ["app.css", "/assets/app.css"],
+    ["favicon.svg", "/favicon.svg"],
+    ["index.html", "/"],
+  ];
+  let mismatched = 0;
+  for (const [file, path] of routes) {
+    const url = new URL(path, origin);
+    const response = await fetch(url, { redirect: "error" });
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    const actual = sha256(new Uint8Array(await response.arrayBuffer()));
+    const ok = actual === expected.get(file);
+    if (!ok) mismatched += 1;
+    console.log(`${ok ? "ok  " : "DIFF"}  ${path}  ${actual}${ok ? "" : `\n      expected ${expected.get(file)}`}`);
+  }
+  if (mismatched) {
+    console.error(
+      `\n${mismatched} file(s) differ. Either the deployment runs different source, was built ` +
+        "with different dependency versions (use `npm ci`), or is serving something you did not write.",
+    );
+    process.exit(1);
+  }
+  console.log(`\n${origin} serves exactly what this source tree builds.`);
 }
 
 function secrets() {
@@ -115,5 +178,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
   if (mode === "bundle") bundle();
   else if (mode === "secrets") secrets();
-  else throw new Error(`usage: node scripts/audit.mjs bundle|secrets (got '${mode ?? ""}')`);
+  else if (mode === "deployment") {
+    const origin = process.argv[3];
+    if (!origin) throw new Error("usage: node scripts/audit.mjs deployment https://host");
+    await deployment(origin);
+  } else {
+    throw new Error(`usage: node scripts/audit.mjs bundle|secrets|deployment (got '${mode ?? ""}')`);
+  }
 }
