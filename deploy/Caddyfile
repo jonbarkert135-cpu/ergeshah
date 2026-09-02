@@ -1,0 +1,36 @@
+# Reverse proxy: TLS termination, and the last place a client IP address exists.
+#
+# Caddy's access log is disabled on purpose. If you need to debug, enable it temporarily
+# and remember that you are creating exactly the artefact this project tries not to have.
+{
+	admin off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+# Replace with your domain. Caddy obtains and renews a certificate automatically.
+example.com {
+	log {
+		output discard
+	}
+
+	encode zstd gzip
+
+	# Strip anything that could carry a fingerprint upstream, and refuse the ones a
+	# privacy-first service has no business receiving.
+	request_header -Referer
+	request_header -Cookie-Consent
+	header -Server
+
+	reverse_proxy app:8080 {
+		header_up X-Forwarded-For {remote_host}
+		header_up -X-Forwarded-Port
+	}
+}
+
+# Tor onion service (optional): no TLS, no ACME, no logs.
+# ergeshahxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion:80 {
+# 	log { output discard }
+# 	reverse_proxy app:8080
+# }

@@ -1,0 +1,44 @@
+import { loadConfig } from "./config.ts";
+import { createDb } from "./db/index.ts";
+import { migrate } from "./db/migrate.ts";
+import { buildApp } from "./app.ts";
+import { pruneSessions } from "./lib/sessions.ts";
+import { pruneRateLimits } from "./lib/rate_limit.ts";
+
+const config = loadConfig();
+const db = await createDb(config);
+await migrate(db);
+const app = await buildApp(config, db);
+
+/** Housekeeping: expired sessions, expired envelopes and yesterday's rate-limit buckets. */
+const housekeeping = setInterval(
+  () => {
+    void (async () => {
+      try {
+        await pruneSessions(db);
+        await pruneRateLimits(db);
+        await db.run("DELETE FROM envelopes WHERE expires_at < ?", [Date.now()]);
+      } catch (error) {
+        process.stderr.write(`housekeeping failed: ${(error as Error).message}\n`);
+      }
+    })();
+  },
+  60 * 60 * 1000,
+);
+housekeeping.unref();
+
+await app.listen({ host: config.host, port: config.port });
+process.stdout.write(
+  `ergeshah listening on ${config.host}:${config.port} (${config.dialect}, ${config.env})\n`,
+);
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    void (async () => {
+      clearInterval(housekeeping);
+      await app.close();
+      await db.close();
+      process.exit(0);
+    })();
+  });
+}
