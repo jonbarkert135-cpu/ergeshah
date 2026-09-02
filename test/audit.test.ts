@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { startTestServer } from "./helpers.ts";
 // @ts-expect-error - plain ESM script, no types needed for two pure functions
 import { scanBundle, scanSource } from "../scripts/audit.mjs";
+// @ts-expect-error - same: the linter is a plain ESM script
+import { lintFile } from "../scripts/lint.mjs";
 
 // This file necessarily contains every string the secret audit looks for, so its own
 // fixture lines carry `audit:allow` — the same escape hatch the audit documents.
@@ -116,5 +118,40 @@ describe("reproducible build", () => {
     } finally {
       await server.close();
     }
+  });
+});
+
+describe("lint", () => {
+  it("catches the mistakes it exists for", () => {
+    const cases: Array<[string, string, string]> = [
+      ["html-from-string", "src/client/x.ts", 'node.innerHTML = value;'], // audit:allow — fixture for the rule under test
+      ["dynamic-code", "src/client/x.ts", 'const f = new Function("return 1");'], // audit:allow — fixture for the rule under test
+      ["weak-random", "src/shared/x.ts", "const n = Math.random();"], // audit:allow — fixture for the rule under test
+      ["environment-outside-config", "src/server/routes/x.ts", "const p = process.env.PORT;"], // audit:allow — fixture for the rule under test
+      ["console-in-server", "src/server/x.ts", 'console.log("hello");'], // audit:allow — fixture for the rule under test
+      ["sql-interpolation", "src/server/x.ts", "await db.all(`SELECT * FROM t WHERE id = ${id}`);"], // audit:allow — fixture for the rule under test
+      ["focused-test", "test/x.test.ts", 'it.only("x", () => {});'], // audit:allow — fixture for the rule under test
+      ["unsafe-any", "src/server/x.ts", "const value = body as any;"], // audit:allow — fixture for the rule under test
+    ];
+    for (const [rule, file, line] of cases) {
+      const findings = lintFile(`${line}\n`, file) as Array<{ name: string }>;
+      expect(
+        findings.map((f) => f.name),
+        `${rule} in ${file}`,
+      ).toContain(rule);
+    }
+  });
+
+  it("respects a waiver on the line and on the line above, and nowhere else", () => {
+    const file = "src/server/x.ts";
+    expect(lintFile("const v = body as any; // audit:allow reviewed\n", file)).toEqual([]);
+    expect(lintFile("// audit:allow reviewed\nconst v = body as any;\n", file)).toEqual([]);
+    expect(lintFile("// audit:allow reviewed\n\nconst v = body as any;\n", file)).toHaveLength(1);
+  });
+
+  it("does not fire on a comment that describes the rule", () => {
+    // The codebase explains its own invariants in prose; a linter that cannot tell prose
+    // from code makes people delete the prose.
+    expect(lintFile("// never assign innerHTML from user content\nconst a = 1;\n", "src/client/x.ts")).toEqual([]);
   });
 });

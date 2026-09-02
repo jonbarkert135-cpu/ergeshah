@@ -129,16 +129,27 @@ export function lintFile(text, file) {
   return findings.sort((a, b) => a.line - b.line);
 }
 
+/** This file writes the rules down, so a naive scan of it matches every one of them. */
+const SELF = "scripts/lint.mjs";
+
 function main() {
-  const files = execFileSync("git", ["ls-files", "-z", "src", "test", "scripts"], {
-    cwd: root,
-    encoding: "utf8",
-  })
-    .split("\0")
-    .filter((f) => /\.(ts|mjs|js)$/.test(f));
+  // Tracked *and* new-but-not-yet-added files: a file that is only linted once it is
+  // staged is a file whose first CI run fails. (That happened. Hence this comment.)
+  const list = (args) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
+  const files = [
+    ...list(["ls-files", "-z", "src", "test", "scripts"]),
+    ...list(["ls-files", "-z", "--others", "--exclude-standard", "src", "test", "scripts"]),
+  ]
+    .filter((f) => /\.(ts|mjs|js)$/.test(f))
+    .sort();
 
   const findings = [];
-  for (const file of files) findings.push(...lintFile(readFileSync(join(root, file), "utf8"), file));
+  for (const file of files) {
+    const text = readFileSync(join(root, file), "utf8");
+    // The rule table is not code that runs; only whitespace hygiene applies to it.
+    findings.push(...(file === SELF ? formatting(text, file) : lintFile(text, file)));
+  }
 
   if (findings.length) {
     for (const f of findings) {
