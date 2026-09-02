@@ -27,6 +27,7 @@ Design philosophy, in priority order:
 | Area | Status |
 | --- | --- |
 | Account identity (username + password, no email/phone required) | working |
+| Password change (re-seals the vault) and self-service account deletion | working |
 | Password handling (client-side Argon2id split → server-side scrypt) | working |
 | Opaque session tokens (hashed at rest, rotating, revocable) | working |
 | Cryptographic identity (Ed25519 identity + X25519 prekeys, per device) | working |

@@ -23,13 +23,13 @@ timing and volume, which padding cannot touch.*
 
 ## Accounts
 
+*Shipped: AUTH-2 password change with atomic vault re-sealing, and AUTH-4 self-service
+deletion (PR #5).*
+
 - **AUTH-1 — PAKE login (OPAQUE).** Removes the last theoretical benefit a hostile server
   gets from observing login.
-- **AUTH-2 — Password change and vault re-encryption.** Currently a password change would
-  orphan the vault; the flow needs to re-seal it atomically.
 - **AUTH-3 — Multi-device linking.** QR-based device linking with a per-device identity,
   instead of restoring a sealed vault.
-- **AUTH-4 — Account deletion.** Self-service deletion with immediate envelope purge.
 
 ## Marketplace
 

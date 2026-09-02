@@ -1,6 +1,6 @@
 import { api } from "../api.ts";
 import { clear, el, notice } from "../ui.ts";
-import { forgetLocalVault, lock } from "../state.ts";
+import { changePassword, deleteAccount, forgetLocalVault, lock } from "../state.ts";
 
 export function renderAccount(root: HTMLElement, onSignedOut: () => void): void {
   clear(root);
@@ -92,6 +92,75 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
       notice(
         "Wiping removes the encrypted vault from this browser. Your messages exist nowhere else, so they are gone unless you can restore the sealed backup with your password.",
       ),
+    );
+
+    body.append(el("h2", {}, "Password"), passwordCard());
+    body.append(el("h2", {}, "Delete account"), deleteCard());
+  }
+
+  function passwordCard(): HTMLElement {
+    const current = el("input", { type: "password", placeholder: "Current password" });
+    const next = el("input", { type: "password", placeholder: "New password" });
+    const again = el("input", { type: "password", placeholder: "New password again" });
+    const message = el("div", { class: "muted" });
+    const button = el("button", {}, "Change password");
+
+    button.addEventListener("click", () => {
+      const values = [current, next, again].map((field) => (field as HTMLInputElement).value);
+      if (values[1] !== values[2]) {
+        message.textContent = "The two new passwords do not match.";
+        return;
+      }
+      if (values[1]!.length < 12) {
+        message.textContent = "Use at least 12 characters — this password protects your keys.";
+        return;
+      }
+      button.setAttribute("disabled", "");
+      message.textContent = "Re-sealing your vault…";
+      void changePassword(values[0]!, values[1]!)
+        .then(() => {
+          message.textContent = "Password changed. Other sessions were signed out.";
+          for (const field of [current, next, again]) (field as HTMLInputElement).value = "";
+        })
+        .catch((error: Error) => {
+          message.textContent = error.message;
+        })
+        .finally(() => button.removeAttribute("disabled"));
+    });
+
+    return el(
+      "div",
+      { class: "card" },
+      el("p", { class: "muted", style: "margin-top:0" },
+        "Your password unlocks the vault holding your private keys, so changing it re-encrypts the vault in this browser and replaces the sealed backup. Every other session is signed out."),
+      el("div", { class: "row" }, current, next, again),
+      el("div", { class: "row", style: "margin-top:12px" }, button, message),
+    );
+  }
+
+  function deleteCard(): HTMLElement {
+    const password = el("input", { type: "password", placeholder: "Password" });
+    const message = el("div", { class: "muted" });
+    const button = el("button", { class: "danger" }, "Delete my account");
+
+    button.addEventListener("click", () => {
+      if (!window.confirm("Delete the account for good? Messages, listings, orders and reviews go with it, and the username becomes available to someone else.")) return;
+      button.setAttribute("disabled", "");
+      void deleteAccount((password as HTMLInputElement).value)
+        .then(() => onSignedOut())
+        .catch((error: Error) => {
+          message.textContent = error.message;
+          button.removeAttribute("disabled");
+        });
+    });
+
+    return el(
+      "div",
+      { class: "card" },
+      el("p", { class: "muted", style: "margin-top:0" },
+        "This removes the account, the sealed vault, every device and prekey, undelivered messages, listings, orders and reviews. Moderation records stay, without your identity attached. Nothing here is recoverable."),
+      el("div", { class: "row" }, password, button),
+      message,
     );
   }
 

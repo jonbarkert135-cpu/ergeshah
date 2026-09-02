@@ -207,3 +207,45 @@ export function lock(): void {
   state.vault = null;
   state.account = null;
 }
+
+/**
+ * Change the password. Both halves move together: the server gets the new auth secret and
+ * the vault re-sealed under the new vault key in one request, because a password that
+ * authenticates but no longer opens the vault is worse than no change at all.
+ */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  if (!state.account || !state.vault) throw new Error("unlock the vault first");
+  const current = deriveAccountKeys(state.account.username, currentPassword);
+  const next = deriveAccountKeys(state.account.username, newPassword);
+  const sealed = sealVault(next.vaultKey, utf8(JSON.stringify(state.vault)));
+  await api("/api/auth/password", {
+    method: "POST",
+    body: {
+      currentAuthSecret: toBase64Url(current.authSecret),
+      newAuthSecret: toBase64Url(next.authSecret),
+      sealedVault: sealed,
+    },
+  });
+  current.authSecret.fill(0);
+  current.vaultKey.fill(0);
+  state.vaultKey?.fill(0);
+  state.vaultKey = next.vaultKey;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sealed));
+}
+
+/** Delete the account server-side, then leave nothing behind in this browser. */
+export async function deleteAccount(password: string): Promise<void> {
+  if (!state.account) throw new Error("not signed in");
+  const keys = deriveAccountKeys(state.account.username, password);
+  await api("/api/auth/delete", {
+    method: "POST",
+    body: { authSecret: toBase64Url(keys.authSecret) },
+  });
+  keys.authSecret.fill(0);
+  keys.vaultKey.fill(0);
+  forgetLocalVault();
+  lock();
+}

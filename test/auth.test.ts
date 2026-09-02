@@ -1,11 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   authSecretFor,
+  FAST_KDF,
+  promote,
+  publishDevice,
   register,
   startTestServer,
   TestClient,
   type TestServer,
 } from "./helpers.ts";
+import {
+  deriveAccountKeys,
+  openVault,
+  sealVault,
+  type SealedVault,
+} from "../src/shared/crypto/vault.ts";
+import { fromUtf8, utf8 } from "../src/shared/encoding.ts";
 
 let server: TestServer;
 
@@ -164,5 +174,186 @@ describe("privacy of what is stored", () => {
         expect(column.name).not.toMatch(/(^|_)(ip|ip_address|user_agent|referrer|fingerprint)$/);
       }
     }
+  });
+});
+
+/** What the browser does: seal a vault under the key derived from a password. */
+function sealedFor(username: string, password: string, note: string): SealedVault {
+  const keys = deriveAccountKeys(username, password, FAST_KDF);
+  return sealVault(keys.vaultKey, utf8(JSON.stringify({ note })));
+}
+
+describe("changing the password", () => {
+
+  it("moves the auth secret and the sealed vault together, and drops other sessions", async () => {
+    const client = await register(server, "alice");
+    await client.put("/api/keys/vault", {
+      sealedVault: sealedFor("alice", "correct horse battery staple", "before"),
+    });
+
+    // A second browser, signed in under the old password.
+    const other = new TestClient(server);
+    await other.get("/");
+    const signedIn = await other.post("/api/auth/login", {
+      username: "alice",
+      authSecret: authSecretFor("alice", "correct horse battery staple"),
+    });
+    expect(signedIn.status).toBe(200);
+
+    const changed = await client.post("/api/auth/password", {
+      currentAuthSecret: authSecretFor("alice", "correct horse battery staple"),
+      newAuthSecret: authSecretFor("alice", "a much longer passphrase entirely"),
+      sealedVault: sealedFor("alice", "a much longer passphrase entirely", "after"),
+    });
+    expect(changed.status).toBe(200);
+
+    // The old password is gone, the new one works.
+    const stale = new TestClient(server);
+    await stale.get("/");
+    expect(
+      (
+        await stale.post("/api/auth/login", {
+          username: "alice",
+          authSecret: authSecretFor("alice", "correct horse battery staple"),
+        })
+      ).status,
+    ).toBe(401);
+    const relogin = new TestClient(server);
+    await relogin.get("/");
+    const fresh = await relogin.post<{ sealedVault: SealedVault }>(
+      "/api/auth/login",
+      {
+        username: "alice",
+        authSecret: authSecretFor("alice", "a much longer passphrase entirely"),
+      },
+    );
+    expect(fresh.status).toBe(200);
+
+    // And the stored vault opens with the new vault key, not the old one.
+    const newKeys = deriveAccountKeys("alice", "a much longer passphrase entirely", FAST_KDF);
+    const oldKeys = deriveAccountKeys("alice", "correct horse battery staple", FAST_KDF);
+    expect(JSON.parse(fromUtf8(openVault(newKeys.vaultKey, fresh.body.sealedVault)))).toEqual({
+      note: "after",
+    });
+    expect(() => openVault(oldKeys.vaultKey, fresh.body.sealedVault)).toThrow();
+
+    // The other browser's session was authorised under the old password: it is gone.
+    expect((await other.get("/api/auth/me")).status).toBe(401);
+    // The session that made the change still works, with a rotated token.
+    expect((await client.get("/api/auth/me")).status).toBe(200);
+  });
+
+  it("refuses a wrong current password, and refuses to orphan an existing vault", async () => {
+    const client = await register(server, "bob");
+    await client.put("/api/keys/vault", {
+      sealedVault: sealedFor("bob", "correct horse battery staple", "keys"),
+    });
+
+    const wrong = await client.post("/api/auth/password", {
+      currentAuthSecret: authSecretFor("bob", "not my password"),
+      newAuthSecret: authSecretFor("bob", "a much longer passphrase entirely"),
+      sealedVault: sealedFor("bob", "a much longer passphrase entirely", "keys"),
+    });
+    expect(wrong.status).toBe(401);
+
+    const noVault = await client.post("/api/auth/password", {
+      currentAuthSecret: authSecretFor("bob", "correct horse battery staple"),
+      newAuthSecret: authSecretFor("bob", "a much longer passphrase entirely"),
+    });
+    expect(noVault.status).toBe(400);
+    expect((noVault.body as { error: string }).error).toBe("vault_required");
+
+    // Neither failure changed anything.
+    expect((await client.get("/api/auth/me")).status).toBe(200);
+    const stored = await server.db.get<{ sealed: string }>("SELECT sealed FROM vaults");
+    const keys = deriveAccountKeys("bob", "correct horse battery staple", FAST_KDF);
+    expect(JSON.parse(fromUtf8(openVault(keys.vaultKey, JSON.parse(stored!.sealed))))).toEqual({
+      note: "keys",
+    });
+  });
+});
+
+describe("deleting an account", () => {
+  it("removes everything belonging to the account and frees the username", async () => {
+    const alice = await register(server, "alice");
+    const bob = await register(server, "bob");
+    await publishDevice(bob);
+    await alice.put("/api/keys/vault", {
+      sealedVault: sealedFor("alice", "correct horse battery staple", "keys"),
+    });
+    const aliceDevice = await publishDevice(alice);
+    const sent = await bob.post("/api/messages", {
+      to: "alice",
+      channel: "Y2hhbm5lbA",
+      messages: [{ deviceId: aliceDevice, payload: JSON.stringify({ v: 2, h: "AA", ct: "BB" }) }],
+    });
+    expect(sent.status).toBe(200);
+    expect(await server.db.get("SELECT id FROM envelopes")).toBeTruthy();
+
+    const aliceId = (await server.db.get<{ id: string }>(
+      "SELECT id FROM users WHERE username = ?",
+      ["alice"],
+    ))!.id;
+    const deleted = await alice.post("/api/auth/delete", {
+      authSecret: authSecretFor("alice", "correct horse battery staple"),
+    });
+    expect(deleted.status).toBe(200);
+
+    // Nothing that belonged to alice survives anywhere, and bob is untouched.
+    for (const [table, column] of [
+      ["users", "id"],
+      ["vaults", "user_id"],
+      ["devices", "user_id"],
+      ["sessions", "user_id"],
+    ] as const) {
+      const rows = await server.db.all(`SELECT * FROM ${table} WHERE ${column} = ?`, [aliceId]);
+      expect(rows.length, table).toBe(0);
+    }
+    expect((await server.db.all("SELECT * FROM envelopes")).length).toBe(0);
+    expect((await server.db.all("SELECT * FROM users")).length).toBe(1); // bob
+    expect((await alice.get("/api/auth/me")).status).toBe(401);
+
+    // The name is available again, and the new account is a different account.
+    const impostor = await register(server, "alice");
+    const me = await impostor.get<{ username: string; role: string }>("/api/auth/me");
+    expect(me.body.username).toBe("alice");
+    expect(me.body.role).toBe("user");
+  });
+
+  it("keeps moderation history, without the moderator's identity", async () => {
+    const applicant = await register(server, "seller1");
+    const moderator = await register(server, "mod1");
+    await promote(server, "mod1", "moderator");
+    const application = await applicant.post<{ id: string }>("/api/market/seller-applications", {
+      displayName: "Careful Software",
+      statement: "I will sell carefully written software and design work.",
+    });
+    await moderator.post(
+      `/api/moderation/seller-applications/${application.body.id}/decide`,
+      { decision: "approved", note: "welcome" },
+    );
+    expect((await server.db.all("SELECT * FROM audit_log")).length).toBeGreaterThan(0);
+
+    const wrongPassword = await moderator.post("/api/auth/delete", {
+      authSecret: authSecretFor("mod1", "wrong password entirely"),
+    });
+    expect(wrongPassword.status).toBe(401);
+
+    const deleted = await moderator.post("/api/auth/delete", {
+      authSecret: authSecretFor("mod1", "correct horse battery staple"),
+    });
+    expect(deleted.status).toBe(200);
+
+    // The decision and the audit trail survive; the actor is unlinked, not erased.
+    const audit = await server.db.all<{ actor_user_id: string | null; action: string }>(
+      "SELECT actor_user_id, action FROM audit_log",
+    );
+    expect(audit.length).toBeGreaterThan(0);
+    expect(audit.every((row) => row.actor_user_id === null)).toBe(true);
+    const decided = await server.db.get<{ status: string; decided_by: string | null }>(
+      "SELECT status, decided_by FROM seller_applications",
+    );
+    expect(decided?.status).toBe("approved");
+    expect(decided?.decided_by).toBeNull();
   });
 });
