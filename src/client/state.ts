@@ -53,7 +53,7 @@ export interface Account {
   role: "user" | "moderator" | "admin";
 }
 
-const STORAGE_KEY = "ergeshah.vault.v1";
+const STORAGE_KEY = "ergeshah.vault.v2";
 
 export const state: {
   account: Account | null;

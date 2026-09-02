@@ -70,8 +70,13 @@ export function deriveAccountKeys(
   return keys;
 }
 
+/**
+ * Version 2: same sealing construction, but the session state inside gained header keys
+ * (ADR-0011). A version-1 blob cannot be interpreted by this code, so it is rejected
+ * rather than half-read into a session with missing keys.
+ */
 export interface SealedVault {
-  v: 1;
+  v: 2;
   nonce: string;
   data: string;
 }
@@ -79,11 +84,13 @@ export interface SealedVault {
 export function sealVault(vaultKey: Uint8Array, plaintext: Uint8Array): SealedVault {
   const nonce = randomBytes(24);
   const ciphertext = aeadEncrypt(vaultKey, plaintext, utf8("ergeshah-vault"), nonce);
-  return { v: 1, nonce: b64(nonce), data: b64(ciphertext) };
+  return { v: 2, nonce: b64(nonce), data: b64(ciphertext) };
 }
 
 export function openVault(vaultKey: Uint8Array, sealed: SealedVault): Uint8Array {
-  if (sealed.v !== 1) throw new Error("vault: unsupported version");
+  if (sealed.v !== 2) {
+    throw new Error("vault: unsupported version — sealed by an incompatible client");
+  }
   return aeadDecrypt(vaultKey, unb64(sealed.data), utf8("ergeshah-vault"), unb64(sealed.nonce));
 }
 

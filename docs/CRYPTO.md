@@ -68,11 +68,14 @@ interoperable Signal implementation and does not claim to be.
 ## Message encryption (Double Ratchet)
 
 ```
-KDF_RK(rk, dh)  = HKDF(ikm = dh, salt = rk, info = "ergeshah-root-v1", 64) → (rk', ck)
+KDF_RK(rk, dh)  = HKDF(ikm = dh, salt = rk, info = "ergeshah-root-he-v1", 96)
+                  → (rk', ck, next header key)
 KDF_CK(ck)      = (HMAC(ck, 0x01), HMAC(ck, 0x02))            → (message key, ck')
 message key     = HKDF(mk, salt = 0*32, info = "ergeshah-message-key-v1", 56)
                   → 32-byte AEAD key ‖ 24-byte nonce
-AAD             = AD ‖ header(ratchet public key ‖ pn ‖ n)
+enc_header      = nonce ‖ AEAD(HKs, header(ratchet key ‖ pn ‖ n), AD)   (always 80 bytes)
+AAD             = AD ‖ enc_header
+plaintext       = message ‖ 0x80 ‖ 0x00…    padded to 64 / 256 / 1024 / 4096·n bytes
 ```
 
 - **Forward secrecy**: chain keys advance one way; a message key is wiped after use.
@@ -83,12 +86,28 @@ AAD             = AD ‖ header(ratchet public key ‖ pn ‖ n)
 - **Atomic decryption**: the ratchet advances on a *copy* of the session; state is
   committed only after the AEAD tag verifies. Without this, an attacker who can post an
   envelope could desynchronise a conversation with a forged header.
+- **Header encryption** (the specification's header-encryption variant): each direction
+  holds a current and a next header key (`HKs`/`NHKs`, `HKr`/`NHKr`). The first two are
+  derived from the X3DH secret with the labels `ergeshah-header-key-initiator-v1` and
+  `…-responder-v1` — the specification expects the handshake to supply `shared_hka` and
+  `shared_nhkb`, and separate HKDF labels give the same independence without adding a
+  handshake field. Every later header key falls out of the root KDF, and both sides
+  promote "next" to "current" in the same ratchet step, which keeps the two schedules
+  aligned with no extra round trip. A receiver trials `HKr` then `NHKr`; success with the
+  latter *is* the signal that a DH ratchet step happened. Out-of-order messages keep the
+  header key alongside the stored message key, so a delayed message from a retired chain
+  still opens exactly once.
+- **Length hiding**: plaintext is padded to buckets (64, 256, 1024, then multiples of
+  4096) with ISO/IEC 7816-4 padding *inside* the AEAD. A sealed header is always 80
+  bytes, so an envelope reveals a bucket rather than a byte count.
 
 ## Known limitations
 
-1. **Headers are not encrypted.** The ratchet public key, previous-chain length and
-   message counter travel in the clear inside the envelope. A server operator can
-   therefore count messages per chain. Header encryption is roadmap item MD-3.
+1. **Traffic analysis is only partly addressed.** Headers are encrypted and lengths are
+   bucketed, so a server no longer sees ratchet keys, counters, chain boundaries or exact
+   sizes. It still sees *which device* an envelope is for, and *when* — the count and
+   timing of messages, and their bucket. Hiding those needs cover traffic and delayed
+   delivery, which is roadmap item MD-2 and is not implemented.
 2. **Classical only.** No post-quantum component today; recorded ciphertext is exposed to
    a future quantum adversary ("harvest now, decrypt later"). Roadmap item PQ-1 is a
    hybrid X25519 + ML-KEM handshake, in the PQXDH style, once a reviewed WASM
@@ -106,6 +125,9 @@ AAD             = AD ‖ header(ratchet public key ‖ pn ‖ n)
 `test/protocol.test.ts` asserts, against the real implementation: session agreement in
 both directions; unique ciphertext per message; root-key change per ratchet step;
 out-of-order and dropped-message handling; replay rejection; header and ciphertext
-tamper rejection; rejection of a forged signed prekey; failure for a third party holding
-the full public bundle; bounded skipped-key derivation; and vault round-trips. These are
+tamper rejection; rejection of a header sealed by a foreign session; that the wire format
+carries no ratchet key or counter; that padding collapses lengths into buckets; that a
+skipped message from a chain three ratchet steps old still opens exactly once; rejection
+of a forged signed prekey; failure for a third party holding the full public bundle;
+bounded skipped-key derivation; and vault round-trips. These are
 properties, not a security proof — but a change that breaks one of them fails CI.

@@ -212,16 +212,93 @@ describe("X3DH + Double Ratchet", () => {
     const b = accept(bob, invite);
     const message = decodeMessage(encryptText(a, "integrity"));
 
-    const tamperedHeader = encodeMessage({ header: { ...message.header, pn: 7 }, ciphertext: message.ciphertext });
-    expect(() => decryptText(b, tamperedHeader)).toThrow(/failed authentication/);
+    const tamperedHeader = new Uint8Array(message.encryptedHeader);
+    tamperedHeader[30] = (tamperedHeader[30]! ^ 0x01) & 0xff;
+    expect(() =>
+      decryptText(b, encodeMessage({ ...message, encryptedHeader: tamperedHeader })),
+    ).toThrow(/failed authentication/);
 
     const flipped = new Uint8Array(message.ciphertext);
     flipped[0] = (flipped[0]! ^ 0x01) & 0xff;
-    expect(() => decryptText(b, encodeMessage({ header: message.header, ciphertext: flipped }))).toThrow(
+    expect(() => decryptText(b, encodeMessage({ ...message, ciphertext: flipped }))).toThrow(
       /failed authentication/,
     );
     // the untampered message still decrypts
     expect(decryptText(b, encodeMessage(message))).toBe("integrity");
+  });
+
+  it("keeps the ratchet key and the counters off the wire", () => {
+    const alice = createDeviceIdentity(2);
+    const bob = createDeviceIdentity(2);
+    const { state: a, invite } = openSession(alice.identity, bundleOf(bob));
+    const b = accept(bob, invite);
+
+    const payload = encryptText(a, "metadata check");
+    const parsed = JSON.parse(payload) as Record<string, unknown>;
+    expect(Object.keys(parsed).sort()).toEqual(["ct", "h", "v"]);
+    // The sending ratchet key is what would let a server group messages by session.
+    expect(payload).not.toContain(toBase64Url(a.self.publicKey));
+
+    // Successive envelopes look alike: same size, no shared prefix to correlate on.
+    const second = encryptText(a, "metadata check");
+    const headers = [payload, second].map((p) => decodeMessage(p).encryptedHeader);
+    expect(headers[0]!.length).toBe(headers[1]!.length);
+    expect(toBase64Url(headers[0]!)).not.toBe(toBase64Url(headers[1]!));
+
+    expect(decryptText(b, payload)).toBe("metadata check");
+    expect(decryptText(b, second)).toBe("metadata check");
+  });
+
+  it("pads plaintext into buckets so length no longer identifies the message", () => {
+    const alice = createDeviceIdentity(2);
+    const bob = createDeviceIdentity(2);
+    const { state: a, invite } = openSession(alice.identity, bundleOf(bob));
+    const b = accept(bob, invite);
+
+    const sizeOf = (text: string) => decodeMessage(encryptText(a, text)).ciphertext.length;
+    // "hi" and a 63-byte message are indistinguishable: same bucket, same ciphertext size.
+    expect(sizeOf("hi")).toBe(64 + 16);
+    expect(sizeOf("x".repeat(63))).toBe(64 + 16);
+    // Larger messages move up a bucket, which is all an observer learns.
+    expect(sizeOf("x".repeat(64))).toBe(256 + 16);
+    expect(sizeOf("x".repeat(300))).toBe(1024 + 16);
+    expect(decryptText(b, encryptText(a, "hi"))).toBe("hi");
+  });
+
+  it("still opens a skipped message from a retired chain after several ratchet steps", () => {
+    const alice = createDeviceIdentity(2);
+    const bob = createDeviceIdentity(2);
+    const { state: a, invite } = openSession(alice.identity, bundleOf(bob));
+    const b = accept(bob, invite);
+
+    const delayed = encryptText(a, "sent early, delivered late");
+    decryptText(b, encryptText(a, "arrives first")); // stores the skipped key + its header key
+    for (let i = 0; i < 3; i += 1) {
+      decryptText(a, encryptText(b, `b${i}`));
+      decryptText(b, encryptText(a, `a${i}`));
+    }
+    // Three DH ratchet steps later the header key that sealed it is long retired, but the
+    // stored skipped entry carries it, so the message is still readable exactly once.
+    expect(decryptText(b, delayed)).toBe("sent early, delivered late");
+    expect(() => decryptText(b, delayed)).toThrow(/failed authentication/);
+  });
+
+  it("rejects a header sealed by a stranger's session", () => {
+    const alice = createDeviceIdentity(2);
+    const bob = createDeviceIdentity(2);
+    const { state: a, invite } = openSession(alice.identity, bundleOf(bob));
+    const b = accept(bob, invite);
+    const { state: mallory } = openSession(
+      createDeviceIdentity(2).identity,
+      bundleOf(createDeviceIdentity(2)),
+    );
+    const forged = decodeMessage(encryptText(mallory, "let me in"));
+    const genuine = decodeMessage(encryptText(a, "genuine"));
+
+    expect(() =>
+      decryptText(b, encodeMessage({ ...genuine, encryptedHeader: forged.encryptedHeader })),
+    ).toThrow(/failed authentication/);
+    expect(decryptText(b, encodeMessage(genuine))).toBe("genuine");
   });
 
   it("refuses an absurd skip count instead of grinding through key derivations", () => {
@@ -230,12 +307,11 @@ describe("X3DH + Double Ratchet", () => {
     const { state: a, invite } = openSession(alice.identity, bundleOf(bob));
     const b = accept(bob, invite);
     decryptText(b, encryptText(a, "first"));
-    const message = decodeMessage(encryptText(a, "far future"));
-    const flood = encodeMessage({
-      header: { ...message.header, n: MAX_SKIP_PER_CHAIN + 5 },
-      ciphertext: message.ciphertext,
-    });
-    expect(() => decryptText(b, flood)).toThrow(/too many skipped/);
+    // The counter is inside the sealed header now, so this cannot be forged from outside:
+    // the sender genuinely runs far ahead, and the receiver refuses to catch up.
+    let payload = "";
+    for (let i = 0; i <= MAX_SKIP_PER_CHAIN + 1; i += 1) payload = encryptText(a, `m${i}`);
+    expect(() => decryptText(b, payload)).toThrow(/too many skipped/);
   });
 
   it("a third party with the full bundle cannot read the conversation", () => {

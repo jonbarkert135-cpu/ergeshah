@@ -35,6 +35,10 @@ clients), `payload` (ciphertext), `invite` (public handshake values), `created_a
 `expires_at`.
 
 - There is **no sender column**. The sender's name is inside the ciphertext.
+- The ciphertext is a version-2 envelope: a sealed 80-byte header and a padded body. The
+  ratchet public key, chain length and message counter are encrypted, so the rows cannot
+  be grouped into sessions, and the length is a bucket (64/256/1024/4096·n), not the
+  message's real size.
 - Rows are deleted when the recipient acknowledges delivery, and unconditionally after
   `ENVELOPE_TTL_MS` (30 days by default).
 - The server can still see: which device an envelope is for, how large it is, and when it

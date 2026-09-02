@@ -118,3 +118,29 @@ Production dependencies, and why each one is justified:
 Everything else — cookies, CSRF, validation, rate limiting, static file serving, the
 migration runner — is a few dozen lines in `src/server/lib`, because each of those as a
 dependency would be more attack surface than code.
+
+## ADR-0011 — Encrypt ratchet headers and pad plaintexts; break the wire format to do it
+
+**Status:** accepted (2026-09-02)
+
+**Context.** The first release sent the ratchet header in the clear: ratchet public key,
+previous-chain length, message counter. That is enough for the server operator to group
+envelopes into sessions, count each conversation's turns, and watch DH ratchet steps —
+about as much as a conversation transcript's shape. Ciphertext length also tracked
+plaintext length byte for byte, which distinguishes "ok" from a pasted document.
+
+**Decision.** Implement the Double Ratchet specification's header-encryption variant, with
+the two initial header keys derived from the X3DH secret under distinct HKDF labels rather
+than added as handshake fields, and pad plaintexts to buckets (64, 256, 1024, then
+multiples of 4096) with ISO/IEC 7816-4 padding inside the AEAD. The wire format becomes
+version 2 — two opaque blobs — and version 1 is **refused**, not supported: the platform
+has no deployment yet, and a client that still accepts plaintext headers is a client an
+attacker can ask to downgrade. The local vault key changes with it, so stale browser
+state is ignored instead of half-read.
+
+**Consequences.** Positive: a server holding every envelope can no longer link them into
+sessions or read exact lengths, and the same code path now hides both. Negative: bucketing
+costs bandwidth (a one-word message occupies 64 bytes of plaintext), skipped message keys
+must store their header key, and out-of-order receipt now needs trial decryption over the
+distinct stored header keys — bounded by the skipped-key limits, so still cheap. Timing
+and message volume remain visible; padding was never going to fix those.
