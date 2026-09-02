@@ -4,9 +4,24 @@ import { badRequest } from "./errors.ts";
 const USERNAME_RE = /^[a-z0-9](?:[a-z0-9_.-]{1,30})[a-z0-9]$/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
 
+/**
+ * Characters that are invisible or that reorder what follows them. They belong in no field
+ * this API accepts, and they are how a display name reads "Alice" while resolving to
+ * something else — the classic marketplace impersonation trick, and a way to smuggle text
+ * past a moderator reading the same string.
+ */
+// eslint-disable-next-line no-control-regex
+const DANGEROUS_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/;
+
 export function asString(value: unknown, field: string, max: number, min = 1): string {
   if (typeof value !== "string") throw badRequest(`${field} must be a string`);
-  const trimmed = value.trim();
+  // Canonicalise first, then measure: "e\u0301" and "é" must not have different limits,
+  // and a length check on the unnormalised form is a length check on the wrong string.
+  const normalized = value.normalize("NFC");
+  if (DANGEROUS_CHARS.test(normalized)) {
+    throw badRequest(`${field} contains characters that are not allowed`, "invalid_characters");
+  }
+  const trimmed = normalized.trim();
   if (trimmed.length < min) throw badRequest(`${field} is too short`);
   if (trimmed.length > max) throw badRequest(`${field} is longer than ${max} characters`);
   return trimmed;

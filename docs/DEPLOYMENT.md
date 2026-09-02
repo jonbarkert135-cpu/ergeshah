@@ -135,3 +135,36 @@ Payments, email delivery, push notifications, object storage, an analytics stack
 CDN. Each of them would introduce a third party who learns something about your users;
 when they are added, they must be optional, isolated and documented — see
 `docs/ROADMAP.md`.
+
+## Secrets, and rotating them
+
+Nothing secret is in this repository, and `npm run audit:secrets` scans every tracked file
+on each push to keep it that way (`docs/AUDIT.md`). What the server needs at runtime it
+takes from the environment, or — preferably — from a file:
+
+| Secret | Supplied as | Rotation |
+| --- | --- | --- |
+| `RATE_LIMIT_PEPPER` | env or `RATE_LIMIT_PEPPER_FILE` | Any time. Buckets are per-day; rotating only resets current allowances |
+| `DATABASE_URL` (contains the database password) | env or `DATABASE_URL_FILE` | Change the password in PostgreSQL, update the secret, restart. No data is re-encrypted, because the server holds no key that protects user content |
+
+Both accept the `_FILE` form so that a Docker secret, a Kubernetes secret or a
+`systemd` credential can be mounted as a file instead of exported into the process
+environment:
+
+```yaml
+# docker-compose.yml
+services:
+  app:
+    environment:
+      RATE_LIMIT_PEPPER_FILE: /run/secrets/rate_limit_pepper
+    secrets: [rate_limit_pepper]
+secrets:
+  rate_limit_pepper:
+    file: ./secrets/rate_limit_pepper
+```
+
+What is deliberately *not* on this list: any key that protects user content. There is no
+message-encryption key, no vault key and no signing key on the server to rotate, because
+none exists there — that is the whole architecture (`docs/ARCHITECTURE.md`). The worst a
+leaked server secret does is let someone forge rate-limit buckets or reach the database;
+neither yields a plaintext message.

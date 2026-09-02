@@ -30,7 +30,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/reports", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "moderation");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const targetType = asEnum(body.targetType, "targetType", REPORT_TARGETS);
     const targetId = asString(body.targetId, "targetId", 64);
@@ -48,6 +48,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.get("/api/moderation/queue", async (request) => {
     await app.requireRole(request, [...staff]);
+    await app.limit(request, "moderation");
     const reports = await db.all<{
       id: string;
       target_type: string;
@@ -94,6 +95,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/seller-applications/:id/decide", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
+ await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const decision = asEnum(body.decision, "decision", ["approved", "rejected"] as const);
@@ -137,6 +139,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/listings/:id/remove", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
+ await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const note = asOptionalString((request.body as Record<string, unknown>)?.note, "note", 1000);
     const listing = await db.get<{ id: string }>("SELECT id FROM listings WHERE id = ?", [id]);
@@ -157,6 +160,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/users/:username/status", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
+ await app.limit(request, "moderation");
     const username = asUsername((request.params as { username: string }).username);
     const body = (request.body ?? {}) as Record<string, unknown>;
     const status = asEnum(body.status, "status", ["active", "suspended"] as const);
@@ -195,6 +199,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/reviews/:id/hide", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
+ await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const note = asOptionalString((request.body as Record<string, unknown>)?.note, "note", 1000);
     const review = await db.get<{ id: string }>("SELECT id FROM reviews WHERE id = ?", [id]);
@@ -212,6 +217,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/moderation/reports/:id/resolve", async (request) => {
     const moderator = await app.requireRole(request, [...staff]);
+ await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const outcome = asEnum(body.outcome, "outcome", ["actioned", "dismissed"] as const);
@@ -263,6 +269,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
   /** The audit log is readable by staff: oversight that only admins can see is not oversight. */
   app.get("/api/moderation/audit", async (request) => {
     await app.requireRole(request, [...staff]);
+    await app.limit(request, "moderation");
     const rows = await db.all<{
       id: string;
       action: string;

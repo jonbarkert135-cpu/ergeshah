@@ -131,7 +131,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const username = asUsername(body.username);
     const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
     const label = asOptionalString(body.label, "label", 40) || null;
-    await app.limit(request, "auth");
+    await app.limit(request, "login");
 
     const user = await db.get<{
       id: string;
@@ -225,7 +225,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     };
     const currentAuthSecret = asBase64Url(body.currentAuthSecret, "currentAuthSecret", 64);
     const newAuthSecret = asBase64Url(body.newAuthSecret, "newAuthSecret", 64);
-    await app.limit(request, "auth");
+    await app.limit(request, "login");
 
     const row = await db.get<{ password_hash: string }>(
       "SELECT password_hash FROM users WHERE id = ?",
@@ -286,7 +286,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const user = await app.authenticate(request);
     const body = (request.body ?? {}) as { authSecret?: unknown };
     const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
-    await app.limit(request, "auth");
+    await app.limit(request, "sensitive");
 
     const row = await db.get<{ password_hash: string }>(
       "SELECT password_hash FROM users WHERE id = ?",
@@ -321,7 +321,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post("/api/auth/link", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "sensitive");
     const body = (request.body ?? {}) as { linkHash?: unknown; label?: unknown };
     const linkHash = asBase64Url(body.linkHash, "linkHash", 32);
     const label = asOptionalString(body.label, "label", 40) || null;
@@ -341,7 +341,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/auth/link/claim", async (request, reply) => {
     const body = (request.body ?? {}) as { linkSecret?: unknown };
     const linkSecret = asBase64Url(body.linkSecret, "linkSecret", 32);
-    await app.limit(request, "auth");
+    await app.limit(request, "sensitive");
 
     const claimed = await db.transaction(async (tx) => {
       await tx.run("DELETE FROM device_links WHERE expires_at < ?", [Date.now()]);
@@ -382,7 +382,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/auth/recovery/challenge", async (request) => {
     const body = (request.body ?? {}) as { username?: unknown };
     const username = asUsername(body.username);
-    await app.limit(request, "auth");
+    await app.limit(request, "recovery");
 
     const user = await db.get<{ id: string; recovery_public_key: string | null }>(
       "SELECT id, recovery_public_key FROM users WHERE username = ? AND status = 'active'",
@@ -415,7 +415,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const challengeId = asId(body.challengeId, "challengeId");
     const signature = asBase64Url(body.signature, "signature", 64);
     const newAuthSecret = asBase64Url(body.newAuthSecret, "newAuthSecret", 64);
-    await app.limit(request, "auth");
+    await app.limit(request, "recovery");
 
     const claimed = await consumeChallenge(challengeId, "recovery");
     if (!claimed) throw unauthorized("that recovery challenge is unknown or expired");
@@ -478,7 +478,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post("/api/auth/pgp/challenge", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "auth");
+    await app.limit(request, "sensitive");
     const challenge = randomToken(32);
     const id = newId();
     await db.run(
@@ -502,7 +502,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const challengeId = asId(body.challengeId, "challengeId");
     const signature = asOptionalString(body.signature, "signature", 64 * 1024);
     if (!publicKey || !signature) throw badRequest("publicKey and signature are required");
-    await app.limit(request, "auth");
+    await app.limit(request, "sensitive");
 
     const row = await db.get<{ password_hash: string }>(
       "SELECT password_hash FROM users WHERE id = ?",
@@ -548,7 +548,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const signature = asOptionalString(body.signature, "signature", 64 * 1024);
     const label = asOptionalString(body.label, "label", 40) || null;
     if (!signature) throw badRequest("signature is required");
-    await app.limit(request, "auth");
+    await app.limit(request, "sensitive");
 
     const claimed = await consumeChallenge(challengeId, "pgp-login");
     if (!claimed) throw unauthorized("that challenge is unknown or expired");
@@ -593,7 +593,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const user = await app.authenticate(request);
     const body = (request.body ?? {}) as Record<string, unknown>;
     const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
-    await app.limit(request, "auth");
+    await app.limit(request, "sensitive");
     const row = await db.get<{ password_hash: string }>(
       "SELECT password_hash FROM users WHERE id = ?",
       [user.id],
@@ -615,7 +615,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
     const recoveryPublicKey = asBase64Url(body.recoveryPublicKey, "recoveryPublicKey", 32);
     const sealedVault = body.sealedVault === undefined ? null : asSealedVault(body.sealedVault);
-    await app.limit(request, "auth");
+    await app.limit(request, "sensitive");
 
     const row = await db.get<{ password_hash: string }>(
       "SELECT password_hash FROM users WHERE id = ?",

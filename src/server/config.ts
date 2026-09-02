@@ -3,6 +3,9 @@
  * default at all in production — the server refuses to start rather than run with a
  * guessable pepper.
  */
+import { readFileSync } from "node:fs";
+import { resolveLimits, type Limits } from "./lib/rate_limit.ts";
+
 export type Dialect = "sqlite" | "postgres";
 
 export interface Config {
@@ -23,17 +26,36 @@ export interface Config {
   deliveryTtlMs: number;
   /** How long administrative audit entries are kept before housekeeping deletes them. */
   auditRetentionMs: number;
+  /** Per-operation token buckets, `DEFAULT_LIMITS` overridden by `RATE_LIMITS`. */
+  rateLimits: Limits;
   /** v3 onion address of this service, advertised to Tor Browser. Empty = not published. */
   onionHostname: string;
   behindTls: boolean;
 }
 
+/**
+ * Reads a secret from the environment, or from a file named by `<NAME>_FILE`. The second
+ * form is how Docker and Kubernetes hand secrets to a container: a file mounted from a
+ * secret store, never a value in `docker inspect`, a shell history or a crash dump.
+ */
+function secretFromEnv(name: string): string | undefined {
+  const file = process.env[`${name}_FILE`];
+  if (file) {
+    try {
+      return readFileSync(file, "utf8").trim();
+    } catch (error) {
+      throw new Error(`${name}_FILE is set to ${file}, which cannot be read: ${(error as Error).message}`);
+    }
+  }
+  return process.env[name];
+}
+
 function requiredSecret(name: string, env: string): string {
-  const value = process.env[name];
+  const value = secretFromEnv(name);
   if (value && value.length >= 32) return value;
   if (env === "production") {
     throw new Error(
-      `${name} must be set to at least 32 random characters in production (see .env.example)`,
+      `${name} (or ${name}_FILE) must be set to at least 32 random characters in production (see .env.example)`,
     );
   }
   return `development-only-${name}-not-secret-0000000000`;
@@ -62,7 +84,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     port: Number(process.env.PORT ?? 8080),
     dialect: (process.env.DB_DIALECT as Dialect) ?? (process.env.DATABASE_URL ? "postgres" : "sqlite"),
     sqlitePath: process.env.SQLITE_PATH ?? "data/symvolon.sqlite",
-    postgresUrl: process.env.DATABASE_URL ?? null,
+    postgresUrl: secretFromEnv("DATABASE_URL") ?? null,
     bucketPepper: requiredSecret("RATE_LIMIT_PEPPER", env),
     trustProxy: process.env.TRUST_PROXY === "true",
     sessionTtlMs: Number(process.env.SESSION_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
@@ -71,6 +93,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     maxDeliveryBytes: Number(process.env.MAX_DELIVERY_BYTES ?? 5 * 1024 * 1024),
     deliveryTtlMs: Number(process.env.DELIVERY_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     auditRetentionMs: Number(process.env.AUDIT_RETENTION_MS ?? 365 * 24 * 60 * 60 * 1000),
+    rateLimits: resolveLimits(process.env.RATE_LIMITS),
     onionHostname: onionHostname(process.env.ONION_HOSTNAME),
     behindTls: process.env.BEHIND_TLS !== "false",
     ...overrides,

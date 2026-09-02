@@ -547,3 +547,54 @@ constrains future client code: a view that reaches for `innerHTML` will not work
 modern browser, which is the intended pressure. The audit log answers incident questions
 for a year and then forgets, which is a policy choice recorded in `docs/PRIVACY.md` rather
 than an accident of nobody writing a delete.
+
+## ADR-0025 — Rate limits per operation, counted against the account
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Points 26–30 of the brief ask for per-operation configurable rate limits, DoS
+resilience, untrusted-input handling, non-leaking errors and secrets kept out of Git. The
+existing limiter had five generic scopes (`auth`, `register`, `send`, `read`, `write`), was
+hardcoded, and keyed every bucket on the client address. Reviewing it produced three
+findings worth more than the checklist:
+
+1. **On an onion service, address-keyed limits are one global bucket.** Every request
+   arrives from 127.0.0.1, so a single spammer would throttle the whole site while barely
+   inconveniencing themselves. The same is true, less absolutely, behind any NAT.
+2. **Listing search had no limit at all.** It is also the only query in the system that
+   scans — `LIKE '%term%'` cannot use an index — and it is reachable without an account.
+3. **The limits could not be changed without a deploy**, which means that during an attack
+   the only available response is a code change.
+
+**Decision.**
+
+- Thirteen scopes, one per operation class the brief names: `register`, `login`,
+  `recovery`, `sensitive` (password change, key rotation, device linking, deletion),
+  `message_send`, `seller_application`, `listing_write`, `order_write`, `review`,
+  `moderation`, `search`, plus generic `read` and `write`. Every scope is its own bucket,
+  so exhausting one never disables another.
+- Buckets are keyed on the **account** when the request carries a session and on the
+  address only otherwise. A `preHandler` hook resolves the session once and decides
+  nothing; `authenticate` reuses that result, so public routes can still be limited per
+  account without an extra query.
+- `RATE_LIMITS` overrides any scope as JSON. Unknown scope names and impossible values
+  stop the server at boot: a limit you believe you tightened and did not is worse than no
+  limit.
+- Errors: a 500 now emits one structured JSON line for the operator (reference, route
+  pattern, error name and message — no stack, no body, no user, no query) and returns the
+  reference to the client with nothing else. Support conversations can start with
+  "error 7f3a" instead of a screenshot of internals.
+- Validation: every string is normalised to NFC *before* its length is measured, and
+  invisible or direction-reversing characters (zero-width spaces, RTL overrides, control
+  characters, BOM) are rejected outright — the standard way one marketplace display name
+  impersonates another.
+- Secrets: any secret may be supplied as `<NAME>_FILE`, the Docker/Kubernetes convention,
+  keeping it out of the process environment and out of `docker inspect`. Rotation is
+  documented in `docs/DEPLOYMENT.md`, including the part that matters: there is no
+  content-protecting key on the server to rotate, because none exists there.
+
+**Consequences.** An operator has one knob per operation and can tighten a single one under
+attack. Two accounts sharing an address no longer share an allowance, which is what makes
+limits meaningful over Tor. The cost is one session lookup on public API routes for
+logged-in visitors, and a slightly larger configuration surface — both cheap next to a
+limiter that, on the deployment this project is aimed at, was effectively global.

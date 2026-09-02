@@ -27,7 +27,7 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
   /** Publish (or re-publish) this device's identity and prekeys. */
   app.post("/api/keys/device", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "sensitive");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const identityKey = asBase64Url(body.identityKey, "identityKey", 32);
     const signedPreKeyId = asInteger(body.signedPreKeyId, "signedPreKeyId", 0, 2 ** 31 - 1);
@@ -153,7 +153,7 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
   /** Encrypted key backup. The server stores a blob it cannot open. */
   app.put("/api/keys/vault", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "sensitive");
     const body = (request.body ?? {}) as { sealedVault?: unknown };
     const sealed = asSealedVault(body.sealedVault);
     const existing = await db.get("SELECT user_id FROM vaults WHERE user_id = ?", [user.id]);

@@ -28,7 +28,7 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
   /** Seller uploads the ciphertext; the order moves to `delivered` in the same commit. */
   app.post("/api/market/orders/:id/delivery", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "send");
+    await app.limit(request, "message_send");
     const order = await orderFor(app, request, user.id);
     if (order.seller_user_id !== user.id) throw forbidden("only the seller can deliver an order");
     if (order.status !== "accepted") {

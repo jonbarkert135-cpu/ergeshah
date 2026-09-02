@@ -42,7 +42,7 @@ export async function registerMessageRoutes(app: FastifyInstance): Promise<void>
     // Authenticated so that only accounts can post envelopes, but the identity is
     // deliberately dropped here: nothing about the sender reaches the database.
     await app.authenticate(request);
-    await app.limit(request, "send");
+    await app.limit(request, "message_send");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const username = asUsername(body.to);
     const channel = asBase64Url(body.channel, "channel", 32);

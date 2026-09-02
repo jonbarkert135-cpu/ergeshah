@@ -19,7 +19,11 @@ export interface TestServer {
   close(): Promise<void>;
 }
 
-export async function startTestServer(overrides: Partial<Config> = {}): Promise<TestServer> {
+export async function startTestServer(
+  overrides: Partial<Config> = {},
+  /** Registered before `ready()`, for tests that need a route of their own. */
+  extraRoutes?: (app: FastifyInstance) => void,
+): Promise<TestServer> {
   await sodiumReady();
   const config = loadConfig({
     env: "test",
@@ -31,6 +35,7 @@ export async function startTestServer(overrides: Partial<Config> = {}): Promise<
   const db = createSqliteDb(":memory:");
   await migrate(db);
   const app = await buildApp(config, db);
+  extraRoutes?.(app);
   await app.ready();
   return {
     app,

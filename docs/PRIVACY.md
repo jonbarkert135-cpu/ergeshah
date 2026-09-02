@@ -60,6 +60,13 @@ travels inside the ciphertext with everything else. The operator learns that an 
 delivered, the padded size of the file (a multiple of 4 KB), and when it was uploaded and
 collected.
 
+**Rate-limit buckets are keyed to accounts as well as addresses.** The bucket key is
+still an HMAC that rotates daily and still stores no address, but for a request carrying a
+session the subject is the account id rather than the address. That is a privacy
+improvement as well as a security one: on an onion service the address is meaningless
+(everyone is 127.0.0.1), and hashing a meaningless value while letting one user throttle
+everybody else is the worst of both.
+
 **The administrative log is bounded on three sides.** `audit_log` records staff actions —
 who, what action, which subject, the result, the timestamp — and now also the refusals: an
 authenticated account turned away from a privileged route leaves an entry naming the route

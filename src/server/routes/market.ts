@@ -59,7 +59,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
 
   app.post("/api/market/seller-applications", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "seller_application");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const displayName = asString(body.displayName, "displayName", 40, 3);
     const statement = asString(body.statement, "statement", 2000, 20);
@@ -86,6 +86,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
   });
 
   app.get("/api/market/seller-applications/mine", async (request) => {
+    await app.limit(request, "read");
     const user = await app.authenticate(request);
     const rows = await db.all<{
       id: string;
@@ -115,7 +116,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
 
   app.post("/api/market/listings", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "listing_write");
     const seller = await requireSeller(app, user.id);
     const body = (request.body ?? {}) as Record<string, unknown>;
     const listing = {
@@ -149,7 +150,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
 
   app.patch("/api/market/listings/:id", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "listing_write");
     const id = asId((request.params as { id: string }).id, "id");
     const listing = await db.get<{ seller_user_id: string; status: string }>(
       "SELECT seller_user_id, status FROM listings WHERE id = ?",
@@ -184,6 +185,9 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
   });
 
   app.get("/api/market/listings", async (request) => {
+    // The only query in this system that scans: `LIKE '%term%'` cannot use an index, so
+    // browsing gets its own bucket rather than sharing the generous `read` one.
+    await app.limit(request, "search");
     const query = request.query as Record<string, string | undefined>;
     const search = asOptionalString(query.q, "q", 80).toLowerCase();
     const category = asOptionalString(query.category, "category", 40);
@@ -221,6 +225,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
   });
 
   app.get("/api/market/listings/:id", async (request) => {
+    await app.limit(request, "read");
     const id = asId((request.params as { id: string }).id, "id");
     const row = await db.get<ListingRow & { status: string }>(
       `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_minor, l.currency,
@@ -259,7 +264,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
 
   app.post("/api/market/orders", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "order_write");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const listingId = asId(body.listingId, "listingId");
     const listing = await db.get<{
@@ -294,6 +299,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
   });
 
   app.get("/api/market/orders", async (request) => {
+    await app.limit(request, "read");
     const user = await app.authenticate(request);
     const role = asEnum(
       (request.query as { role?: string }).role ?? "buyer",
@@ -338,7 +344,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
 
   app.post("/api/market/orders/:id/status", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "order_write");
     const id = asId((request.params as { id: string }).id, "id");
     const next = asEnum((request.body as { status?: unknown })?.status, "status", [
       "accepted",
@@ -388,7 +394,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
 
   app.post("/api/market/orders/:id/review", async (request) => {
     const user = await app.authenticate(request);
-    await app.limit(request, "write");
+    await app.limit(request, "review");
     const id = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const rating = asInteger(body.rating, "rating", 1, 5);
@@ -421,6 +427,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
   });
 
   app.get("/api/market/sellers/:username", async (request) => {
+    await app.limit(request, "read");
     const username = asString((request.params as { username: string }).username, "username", 32)
       .toLowerCase();
     const seller = await db.get<{
