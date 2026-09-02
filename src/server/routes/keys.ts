@@ -1,0 +1,243 @@
+/**
+ * Key directory: devices publish public prekey material, other clients claim a bundle.
+ *
+ * The server is an untrusted directory. It never holds a private key, and it cannot
+ * forge a bundle undetectably: the signed prekey carries a signature by the device's
+ * long-term identity key, which clients verify (`x3dhInitiate` refuses otherwise) and
+ * users can compare out of band as a safety number.
+ */
+import type { FastifyInstance } from "fastify";
+import { badRequest, conflict, notFound } from "../lib/errors.ts";
+import { newId } from "../lib/ids.ts";
+import { today } from "../lib/time.ts";
+import { asArray, asBase64Url, asInteger, asOptionalString, asUsername } from "../lib/validate.ts";
+
+const MAX_ONE_TIME_PREKEYS = 200;
+
+export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
+  const { db } = app;
+
+  /** Publish (or re-publish) this device's identity and prekeys. */
+  app.post("/api/keys/device", async (request) => {
+    const user = await app.authenticate(request);
+    await app.limit(request, "write");
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const identityKey = asBase64Url(body.identityKey, "identityKey", 32);
+    const signedPreKeyId = asInteger(body.signedPreKeyId, "signedPreKeyId", 0, 2 ** 31 - 1);
+    const signedPreKey = asBase64Url(body.signedPreKey, "signedPreKey", 32);
+    const signature = asBase64Url(body.signedPreKeySignature, "signedPreKeySignature", 64);
+    const label = asOptionalString(body.label, "label", 40) || null;
+    const oneTimePreKeys = asArray(body.oneTimePreKeys ?? [], "oneTimePreKeys", MAX_ONE_TIME_PREKEYS);
+
+    const owner = await db.get<{ user_id: string; id: string }>(
+      "SELECT id, user_id FROM devices WHERE identity_key = ?",
+      [identityKey],
+    );
+    if (owner && owner.user_id !== user.id) {
+      throw conflict("that identity key belongs to another account", "identity_key_taken");
+    }
+
+    const deviceId = owner?.id ?? newId();
+    await db.transaction(async (tx) => {
+      if (owner) {
+        await tx.run(
+          `UPDATE devices SET signed_prekey_id = ?, signed_prekey = ?, signed_prekey_signature = ?,
+                              label = ?, rotated_day = ?, revoked_at = NULL
+             WHERE id = ?`,
+          [signedPreKeyId, signedPreKey, signature, label, today(), deviceId],
+        );
+      } else {
+        await tx.run(
+          `INSERT INTO devices (id, user_id, label, identity_key, signed_prekey_id, signed_prekey,
+                                signed_prekey_signature, created_day, rotated_day)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [deviceId, user.id, label, identityKey, signedPreKeyId, signedPreKey, signature, today(), today()],
+        );
+      }
+      await insertOneTimePreKeys(tx, deviceId, oneTimePreKeys);
+    });
+
+    return { deviceId, oneTimePreKeysStored: await countUnclaimed(db, deviceId) };
+  });
+
+  /** Top up one-time prekeys. Clients do this when the server reports a low count. */
+  app.post("/api/keys/one-time", async (request) => {
+    const user = await app.authenticate(request);
+    await app.limit(request, "write");
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const device = await requireOwnDevice(app, user.id, body.deviceId);
+    const keys = asArray(body.oneTimePreKeys, "oneTimePreKeys", MAX_ONE_TIME_PREKEYS);
+    await db.transaction((tx) => insertOneTimePreKeys(tx, device.id, keys));
+    return { oneTimePreKeysStored: await countUnclaimed(db, device.id) };
+  });
+
+  /** How healthy is this device's key material? Drives client-side top-up and rotation. */
+  app.get("/api/keys/status", async (request) => {
+    const user = await app.authenticate(request);
+    const devices = await db.all<{ id: string; label: string | null; rotated_day: number }>(
+      "SELECT id, label, rotated_day FROM devices WHERE user_id = ? AND revoked_at IS NULL",
+      [user.id],
+    );
+    return {
+      devices: await Promise.all(
+        devices.map(async (device) => ({
+          deviceId: device.id,
+          label: device.label,
+          signedPreKeyAgeDays: today() - device.rotated_day,
+          oneTimePreKeysAvailable: await countUnclaimed(db, device.id),
+        })),
+      ),
+    };
+  });
+
+  /** Claim a prekey bundle for every active device of a user. One-time keys are consumed. */
+  app.get("/api/keys/bundle/:username", async (request) => {
+    await app.authenticate(request);
+    await app.limit(request, "read");
+    const username = asUsername((request.params as { username: string }).username);
+    const target = await db.get<{ id: string; status: string }>(
+      "SELECT id, status FROM users WHERE username = ?",
+      [username],
+    );
+    if (!target || target.status !== "active") throw notFound("no such user");
+
+    const devices = await db.all<{
+      id: string;
+      identity_key: string;
+      signed_prekey_id: number;
+      signed_prekey: string;
+      signed_prekey_signature: string;
+    }>(
+      `SELECT id, identity_key, signed_prekey_id, signed_prekey, signed_prekey_signature
+         FROM devices WHERE user_id = ? AND revoked_at IS NULL`,
+      [target.id],
+    );
+    if (devices.length === 0) throw notFound("that user has no device that can receive messages");
+
+    const bundles = [];
+    for (const device of devices) {
+      const oneTime = await claimOneTimePreKey(app, device.id);
+      bundles.push({
+        deviceId: device.id,
+        identityKey: device.identity_key,
+        signedPreKeyId: device.signed_prekey_id,
+        signedPreKey: device.signed_prekey,
+        signedPreKeySignature: device.signed_prekey_signature,
+        oneTimePreKeyId: oneTime?.key_id ?? null,
+        oneTimePreKey: oneTime?.public_key ?? null,
+      });
+    }
+    return { username, bundles };
+  });
+
+  app.post("/api/keys/revoke", async (request) => {
+    const user = await app.authenticate(request);
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const device = await requireOwnDevice(app, user.id, body.deviceId);
+    await db.transaction(async (tx) => {
+      await tx.run("UPDATE devices SET revoked_at = ? WHERE id = ?", [Date.now(), device.id]);
+      await tx.run("DELETE FROM one_time_prekeys WHERE device_id = ?", [device.id]);
+      // Undelivered envelopes for a revoked device are unreadable: drop them.
+      await tx.run("DELETE FROM envelopes WHERE recipient_device_id = ?", [device.id]);
+    });
+    return { ok: true };
+  });
+
+  /** Encrypted key backup. The server stores a blob it cannot open. */
+  app.put("/api/keys/vault", async (request) => {
+    const user = await app.authenticate(request);
+    await app.limit(request, "write");
+    const body = (request.body ?? {}) as { sealedVault?: unknown };
+    if (!body.sealedVault || typeof body.sealedVault !== "object") {
+      throw badRequest("sealedVault must be an object produced by sealVault()");
+    }
+    const sealed = JSON.stringify(body.sealedVault);
+    if (sealed.length > 256 * 1024) throw badRequest("sealed vault too large");
+    const existing = await db.get("SELECT user_id FROM vaults WHERE user_id = ?", [user.id]);
+    if (existing) {
+      await db.run("UPDATE vaults SET sealed = ?, updated_day = ? WHERE user_id = ?", [
+        sealed,
+        today(),
+        user.id,
+      ]);
+    } else {
+      await db.run("INSERT INTO vaults (user_id, sealed, updated_day) VALUES (?, ?, ?)", [
+        user.id,
+        sealed,
+        today(),
+      ]);
+    }
+    return { ok: true };
+  });
+
+  app.get("/api/keys/vault", async (request) => {
+    const user = await app.authenticate(request);
+    const row = await db.get<{ sealed: string }>("SELECT sealed FROM vaults WHERE user_id = ?", [
+      user.id,
+    ]);
+    return { sealedVault: row ? JSON.parse(row.sealed) : null };
+  });
+}
+
+async function insertOneTimePreKeys(
+  tx: FastifyInstance["db"],
+  deviceId: string,
+  keys: unknown[],
+): Promise<void> {
+  for (const entry of keys) {
+    const key = entry as { keyId?: unknown; publicKey?: unknown };
+    const keyId = asInteger(key.keyId, "oneTimePreKeys[].keyId", 0, 2 ** 31 - 1);
+    const publicKey = asBase64Url(key.publicKey, "oneTimePreKeys[].publicKey", 32);
+    const existing = await tx.get("SELECT id FROM one_time_prekeys WHERE device_id = ? AND key_id = ?", [
+      deviceId,
+      keyId,
+    ]);
+    if (existing) continue;
+    await tx.run(
+      "INSERT INTO one_time_prekeys (id, device_id, key_id, public_key) VALUES (?, ?, ?, ?)",
+      [newId(), deviceId, keyId, publicKey],
+    );
+  }
+}
+
+async function countUnclaimed(db: FastifyInstance["db"], deviceId: string): Promise<number> {
+  const row = await db.get<{ count: number }>(
+    "SELECT COUNT(*) AS count FROM one_time_prekeys WHERE device_id = ? AND claimed_at IS NULL",
+    [deviceId],
+  );
+  return Number(row?.count ?? 0);
+}
+
+/**
+ * Claiming is a transaction: two people fetching a bundle at the same moment must never
+ * receive the same one-time prekey, or the forward secrecy it provides is gone.
+ */
+async function claimOneTimePreKey(
+  app: FastifyInstance,
+  deviceId: string,
+): Promise<{ key_id: number; public_key: string } | null> {
+  return app.db.transaction(async (tx) => {
+    const candidate = await tx.get<{ id: string; key_id: number; public_key: string }>(
+      `SELECT id, key_id, public_key FROM one_time_prekeys
+        WHERE device_id = ? AND claimed_at IS NULL ORDER BY key_id LIMIT 1`,
+      [deviceId],
+    );
+    if (!candidate) return null;
+    await tx.run("DELETE FROM one_time_prekeys WHERE id = ?", [candidate.id]);
+    return { key_id: candidate.key_id, public_key: candidate.public_key };
+  });
+}
+
+async function requireOwnDevice(
+  app: FastifyInstance,
+  userId: string,
+  deviceId: unknown,
+): Promise<{ id: string }> {
+  if (typeof deviceId !== "string") throw badRequest("deviceId is required");
+  const device = await app.db.get<{ id: string }>(
+    "SELECT id FROM devices WHERE id = ? AND user_id = ?",
+    [deviceId, userId],
+  );
+  if (!device) throw notFound("no such device on this account");
+  return device;
+}

@@ -40,6 +40,11 @@ npm run migrate           # creates ./data/ergeshah.sqlite
 npm run dev               # http://127.0.0.1:8080
 ```
 
+Continuous integration: copy `deploy/github-ci.yml` to `.github/workflows/ci.yml` to run
+type checking, the test suite, the client build and a production dependency audit on
+every push. (It is not committed under `.github/` because the automation account that
+created this repository is not permitted to write workflow files.)
+
 `npm test` runs the unit + API test suite (crypto vectors, ratchet properties, auth,
 marketplace, moderation). `npm run check` runs TypeScript in strict mode.
 
