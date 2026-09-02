@@ -598,3 +598,62 @@ attack. Two accounts sharing an address no longer share an allowance, which is w
 limits meaningful over Tor. The cost is one session lookup on public API routes for
 logged-in visitors, and a slightly larger configuration surface — both cheap next to a
 limiter that, on the deployment this project is aimed at, was effectively global.
+
+## ADR-0026 — Project hygiene as executable checks, not as a document
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Points 31–35 of the brief ask for professional repository structure, the full
+documentation set, CI gates (lint, types, unit, integration, security, dependency audit,
+secret scanning, build verification, migration verification), dependency minimalism,
+supply-chain protection, and privacy-by-default. Most of that could be satisfied by writing
+documents. Documents rot: the API page that describes an endpoint removed last month is
+worse than no page, because it is trusted.
+
+**Decision.** Every requirement that *can* be checked by a machine is checked by one, and
+the document is what the check refers to.
+
+- **Documentation drift is a test failure.** `test/docs.test.ts` walks Fastify's route
+  table and fails if an endpoint is undocumented (or documented but gone), compares the
+  schema against `docs/DATABASE.md`, and compares what `config.ts` reads against
+  `docs/ENVIRONMENT.md`. It also fails on any absolute security claim ("unbreakable",
+  "100% anonymous") that is not being explicitly rejected — the brief's own rule, enforced
+  rather than remembered.
+- **No ESLint.** A generic linter is ~100 transitive packages, which point 33 forbids, in
+  exchange for style opinions; `tsc --noEmit` already does the type-aware part. Instead
+  `scripts/lint.mjs` (≈130 lines, no dependencies) enforces the nine rules that are
+  actually load-bearing here. Two of them found real code on first run: `Math.random` in
+  the recovery-phrase quiz, now `crypto.getRandomValues`, and three SQL template literals
+  that turned out to be safe and now say so in a waiver.
+- **`audit:history`.** Scanning the working tree for secrets answers the wrong question; a
+  key committed and later deleted is in every clone. The new audit walks every blob in
+  every commit. Reviewed fixtures are allowed by blob hash, not by path.
+- **Released migrations are immutable**, enforced by `CHECKSUMS.txt`, and
+  `test/migrations.test.ts` applies the whole set to an empty database, twice.
+- **Dependency policy is executable.** Every production dependency needs a `###` section in
+  `docs/DEPENDENCIES.md` answering the brief's seven questions; licences are checked against
+  an allowlist that excludes copyleft we cannot ship; the tree has a written budget (68,
+  currently 65) that can only rise in a commit that explains why.
+- **Supply chain.** `.npmrc` sets `ignore-scripts=true` (install scripts are the most used
+  npm compromise path; verified that `npm ci` and the build still work without them),
+  `save-exact`, `engine-strict`, and the public registry only. `audit:supply` verifies the
+  lockfile's integrity hashes and origins. CI actions are pinned to commit SHAs, the
+  checkout keeps no credentials, and `fetch-depth: 0` is required for the history audit.
+- **Privacy by default is a test, not a paragraph.** `test/defaults.test.ts` asserts that a
+  deployment configuring nothing gets `Secure` cookies, no proxy trust, a loopback bind,
+  bounded retention everywhere and every rate-limit scope active; that padding has no
+  "off"; that no source file contains a privacy toggle; and that a fresh account has no
+  capability it did not earn.
+
+**Conflict worth naming.** The brief says a pull request must pass security gates before
+merge; the owner's standing instruction is that everything goes straight to `main` with no
+branches. Both cannot hold. The resolution: CI runs on `push` to `main` *and* on
+`pull_request`, so the gate exists whichever way a change arrives, and the same commands run
+locally before every push (`CONTRIBUTING.md`). Making the gate *blocking* requires a branch
+ruleset in the GitHub UI, which only the repository owner can create; until then the gate is
+"CI is red for everyone until it is fixed", not "the merge button is disabled".
+
+**Consequences.** Adding an endpoint now costs a documentation line, and adding a dependency
+costs a written justification. That friction is the point. The risk is a check that annoys
+more than it protects — the waiver mechanism (`audit:allow` with a reason, visible in review)
+exists so the answer to a false positive is never to delete the rule.

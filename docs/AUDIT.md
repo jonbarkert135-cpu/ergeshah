@@ -19,16 +19,48 @@ floor of verifiability for any web application, and closing the source does not 
 
 | Check | Command | What a failure means |
 | --- | --- | --- |
-| Types | `npm run check` | TypeScript strict mode found a hole |
-| Behaviour | `npm test` | Crypto vectors, ratchet properties, authorization, recovery, PGP |
+| Lint | `npm run lint` | A project rule was broken: markup built from a string, `Math.random`, the environment read outside `config.ts`, SQL built by interpolation, a `.only` test |
+| Types | `npm run typecheck` | TypeScript strict mode found a hole |
+| Behaviour | `npm test` | Crypto vectors, ratchet properties, authorization, limits, defaults, migrations, documentation drift |
 | Dependency CVEs | `npm run audit:deps` | A production dependency has a high or critical advisory |
+| Dependency policy | `npm run audit:dependencies` | A package entered the tree without a justification in `docs/DEPENDENCIES.md`, carries a licence we cannot ship, or the tree exceeded its budget |
 | Client bundle | `npm run audit:bundle` | What we serve would talk to a host we do not operate |
-| Repository | `npm run audit:secrets` | Something that looks like key material was committed |
+| Repository | `npm run audit:secrets` | Something that looks like key material is committed |
+| Git history | `npm run audit:history` | Something that looks like key material was committed *at any point*, including in a commit later reverted |
+| Migrations | `npm run audit:migrations` | A released migration was edited, numbering has a gap, or something destructive is unexplained |
+| Supply chain | `npm run audit:supply` | The lockfile lost an integrity hash, a package resolves outside the public registry, or install scripts are no longer disabled |
 | Reproducibility | part of `audit:bundle` | Two identical builds produced different bytes |
 
-`npm run audit` runs the last three together. The two new ones live in
-`scripts/audit.mjs`, are about a hundred lines of `String.matchAll`, and add no
-dependency.
+`npm run check` runs lint and types; `npm run audit` runs the seven audits.
+
+They all live in `scripts/audit.mjs` and `scripts/lint.mjs`, are `String.matchAll` and
+`git` plumbing, and add no dependency.
+
+### `audit:history` — nothing secret was *ever* committed
+
+`audit:secrets` reads the working tree, which answers the wrong question: a key committed
+in March and deleted in April is still in every clone of this repository. `audit:history`
+enumerates every blob in every commit (deduplicated by hash, so 39 commits cost 365 scans,
+not thousands) and applies the same rules. A finding here cannot be fixed by editing a
+file: rotate the secret, then rewrite history. The scanner's own test fixtures — bare PEM
+headers, AWS's documented example key id, the RFC 7519 example JWT — are listed by blob
+hash in `scripts/history-allow.json` with the reason each was reviewed.
+
+### `audit:migrations` — a released migration is immutable
+
+Editing a migration that has already run somewhere is the one mistake a redeploy cannot
+fix: the developer's database has the change, production does not, and nothing says so
+until a constraint fails months later. Digests live in
+`src/server/db/migrations/CHECKSUMS.txt`; `npm run migrate:checksums` registers a new
+migration; changing an old one fails the build.
+
+### `audit:supply` — the install itself
+
+`ignore-scripts=true` in `.npmrc` means no package executes code during installation,
+which is the most-used npm compromise path. The audit verifies that setting, that every
+locked package has an integrity hash and resolves to the public registry, that the
+lockfile is version 3 or newer, and that the build tool is pinned to an exact version
+rather than a range — a caret on `esbuild` is a caret on the bytes the browser runs.
 
 ### `audit:bundle` — the client talks to us and no one else
 

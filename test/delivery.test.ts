@@ -195,6 +195,7 @@ describe("shipping details for a physical order", () => {
     );
     const dump: string[] = [];
     for (const { name } of tables) {
+      // audit:allow — table names come from sqlite_master; this test dumps the whole schema
       dump.push(JSON.stringify(await server.db.all(`SELECT * FROM ${name}`)));
     }
     expect(dump.join()).not.toContain("Rue des Lilas");

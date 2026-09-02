@@ -12,6 +12,9 @@ on:
     branches: [main]
   pull_request:
 
+# The workflow needs to read the code and nothing else. No token is written to the
+# checkout (persist-credentials: false), so a compromised build step has no credential
+# to push with.
 permissions:
   contents: read
 
@@ -23,23 +26,33 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Actions are pinned to a commit, not a tag: a tag can be moved to different code,
+      # and a third-party action runs with our token in our runner (point 34).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          # audit:history walks every commit, so the full history is needed here.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
+
+      # .npmrc sets ignore-scripts=true, so nothing in the dependency tree executes code
+      # during installation. `npm ci` fails if package-lock.json and package.json disagree.
       - run: npm ci
-      - name: Type check
+
+      - name: Lint and type check
         run: npm run check
-      - name: Tests (crypto vectors, protocol properties, API, authorization)
+
+      - name: Tests (crypto vectors, protocol, API, authorization, limits, defaults, docs)
         run: npm test
+
       - name: Build client
         run: npm run build:client
-      - name: Audit production dependencies
-        run: npm run audit:deps
-      # Появятся в PR C (аудиты). --if-present: пока скрипта нет, шаг просто пропускается,
-      # и .github/workflows/ci.yml не придётся вставлять заново.
-      - name: Audit client bundle (external URLs, inline secrets)
-        run: npm run audit:bundle --if-present
-      - name: Scan repository for secrets
-        run: npm run audit:secrets --if-present
+
+      # One step, seven audits: dependency CVEs, dependency policy and licences, client
+      # bundle and build reproducibility, secrets in the working tree, secrets anywhere in
+      # git history, migration order and checksums, supply-chain policy.
+      - name: Security audits
+        run: npm run audit

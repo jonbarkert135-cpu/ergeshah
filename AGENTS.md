@@ -29,6 +29,19 @@ npm run check && npm test && npm run audit
 `npm run audit` reads git-*tracked* files, so run it after `git add`, not before — an
 untracked file it would reject passes locally and fails in CI.
 
+`npm run check` is lint plus types. The lint rules are in `scripts/lint.mjs` and are
+specific to this project (no markup from strings, no `Math.random`, the environment read
+in `config.ts` only, no SQL built by interpolation). A rule can be waived on a line with
+an `audit:allow` comment — on the line, or in the comment directly above it — and the
+waiver must carry a reason.
+
+Documentation is machine-checked: `test/docs.test.ts` fails if a route, table or
+environment variable exists that `docs/API.md`, `docs/DATABASE.md` or
+`docs/ENVIRONMENT.md` does not mention, and if any document makes an absolute security
+claim. A new endpoint is not done until it is documented.
+
+A new migration needs `npm run migrate:checksums`; an old one is never edited.
+
 ## CI files: what an agent may and may not touch
 
 A GitHub App (and most automation tokens) cannot write anything under `.github/workflows/`
@@ -42,6 +55,7 @@ A GitHub App (and most automation tokens) cannot write anything under `.github/w
 
 Because re-copying costs a human action, keep the workflow **stable**: steps call npm
 scripts (`npm run check`, `npm test`, `npm run audit:*`), never inline commands. A new
-check is a new script in `package.json`; the workflow calls the optional ones with
-`--if-present`, so it keeps working before the script exists. Only a change that cannot
-be expressed as an npm script justifies asking for a re-copy.
+check is a new script in `package.json` — and better still, folded into the composite
+`check` or `audit` scripts the workflow already calls, which needs no re-copy at all.
+Only a change that cannot be expressed as an npm script (runner permissions, a pinned
+action, `fetch-depth`) justifies asking for a re-copy.

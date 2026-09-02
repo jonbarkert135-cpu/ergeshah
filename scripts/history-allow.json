@@ -1,0 +1,8 @@
+[
+  {
+    "blob": "dda3ef0fd138c4840e683e3fc43bb2934e56aa86",
+    "path": "test/audit.test.ts",
+    "reviewed": "2026-09-02",
+    "reason": "The secret scanner's own test data: bare PEM headers with no key body, AWS's documented example key id (AKIAIOSFODNN7EXAMPLE), and the RFC 7519 example JWT. Nothing here ever authenticated anything. Later revisions of this file carry inline audit:allow markers; this one predates them."
+  }
+]

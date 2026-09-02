@@ -5,6 +5,7 @@
  * as a *dev* dependency only, so production ships our ~50 lines and the vendored
  * wordlist, while the tests still prove those lines agree with the specification.
  */
+import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { generateMnemonic, mnemonicToEntropy, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
@@ -49,7 +50,7 @@ describe("recovery phrases", () => {
     // Our encoder against the reference decoder, and the reference encoder against ours.
     for (const size of [16, 32]) {
       for (let round = 0; round < 5; round += 1) {
-        const entropy = new Uint8Array(size).map(() => Math.floor(Math.random() * 256));
+        const entropy = randomBytes(size);
         const ours = encodePhrase(entropy);
         expect(validateMnemonic(ours, wordlist)).toBe(true);
         expect([...mnemonicToEntropy(ours, wordlist)]).toEqual([...entropy]);

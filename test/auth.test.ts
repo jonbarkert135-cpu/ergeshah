@@ -337,6 +337,7 @@ describe("deleting an account", () => {
       ["devices", "user_id"],
       ["sessions", "user_id"],
     ] as const) {
+      // audit:allow — table and column come from the literal list above, in a test
       const rows = await server.db.all(`SELECT * FROM ${table} WHERE ${column} = ?`, [aliceId]);
       expect(rows.length, table).toBe(0);
     }

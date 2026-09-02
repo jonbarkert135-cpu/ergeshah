@@ -445,12 +445,26 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
   }
 }
 
+/** A uniform integer in [0, bound) from the CSPRNG. No modulo bias, no Math.random. */
+function randomBelow(bound: number): number {
+  if (bound <= 1) return 0;
+  const limit = Math.floor(0x100000000 / bound) * bound;
+  const buffer = new Uint32Array(1);
+  let value = limit;
+  while (value >= limit) {
+    crypto.getRandomValues(buffer);
+    value = buffer[0]!;
+  }
+  return value % bound;
+}
+
 /** Three positions spread across the phrase, so the check is not all from one corner. */
 function pickPositions(words: number): number[] {
+  const third = Math.floor(words / 3);
   const thirds = [
-    1 + Math.floor(Math.random() * Math.floor(words / 3)),
-    1 + Math.floor(words / 3) + Math.floor(Math.random() * Math.floor(words / 3)),
-    1 + Math.floor((2 * words) / 3) + Math.floor(Math.random() * Math.floor(words / 3)),
+    1 + randomBelow(third),
+    1 + third + randomBelow(third),
+    1 + 2 * third + randomBelow(third),
   ];
   return [...new Set(thirds)].sort((a, b) => a - b);
 }

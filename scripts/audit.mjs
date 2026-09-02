@@ -8,6 +8,14 @@
  *   node scripts/audit.mjs deployment <origin>
  *                                      — a running deployment serves exactly the bytes
  *                                        this source tree builds
+ *   node scripts/audit.mjs history     — no secret was ever committed, in any commit
+ *   node scripts/audit.mjs migrations  — migrations are ordered, and released ones are
+ *                                        byte-for-byte what they were when released
+ *   node scripts/audit.mjs supply      — lockfile, pinning and install-script policy
+ *   node scripts/audit.mjs dependencies
+ *                                      — every production dependency is justified in
+ *                                        docs/DEPENDENCIES.md, licensed acceptably, and
+ *                                        the tree stays inside its budget
  *
  * Both are grep with a threat model attached. They do not replace review; they replace
  * *forgetting*. A line may opt out with an `audit:allow` comment on it, which is
@@ -15,7 +23,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -169,6 +177,265 @@ async function deployment(origin) {
   console.log(`\n${origin} serves exactly what this source tree builds.`);
 }
 
+/**
+ * Point 31 asks that the *history* contain no secrets, which is a different claim from
+ * "the working tree contains no secrets": a key committed and then deleted is still in
+ * every clone, forever. This walks every blob that has ever been committed. It is the one
+ * audit that cannot be fixed by editing a file — a finding here means rotating the secret
+ * and rewriting history.
+ */
+function history() {
+  const revisions = execFileSync("git", ["rev-list", "--all"], { cwd: root, encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+  // Every (path, blob) pair that has ever existed, deduplicated by blob hash: a file
+  // unchanged across 200 commits is scanned once.
+  const blobs = new Map();
+  for (const rev of revisions) {
+    const listing = execFileSync("git", ["ls-tree", "-r", "-z", rev], { cwd: root, encoding: "utf8" });
+    for (const entry of listing.split("\0").filter(Boolean)) {
+      const [meta, path] = entry.split("\t");
+      const [, type, hash] = meta.split(/\s+/);
+      if (type !== "blob") continue;
+      if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|pdf)$/i.test(path) || path === "package-lock.json") continue;
+      if (!blobs.has(hash)) blobs.set(hash, path);
+    }
+  }
+  const allowPath = join(root, "scripts/history-allow.json");
+  const allowed = new Map(
+    (existsSync(allowPath) ? JSON.parse(readFileSync(allowPath, "utf8")) : []).map((entry) => [
+      entry.blob,
+      entry,
+    ]),
+  );
+  const findings = [];
+  const unreviewed = [];
+  for (const [hash, path] of blobs) {
+    if (allowed.has(hash)) continue;
+    const text = execFileSync("git", ["cat-file", "blob", hash], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const hits = scanSource(text, path);
+    if (hits.length) {
+      unreviewed.push({ blob: hash, path });
+      findings.push(...hits.map((f) => ({ ...f, file: `${path}@${hash.slice(0, 8)}` })));
+    }
+  }
+  if (findings.length) {
+    console.error("Something that looks like a secret is in git history.");
+    console.error("If it is real: rotate it, then rewrite history — a deleted file is still in every clone.");
+    console.error("If it is a fixture (the scanner's own test data), add these to scripts/history-allow.json");
+    console.error("with a reason, after reading the blob:\n");
+    console.error(JSON.stringify(unreviewed.map((u) => ({ ...u, reason: "" })), null, 2));
+    console.error("");
+    report(findings);
+  }
+  console.log(
+    `history audit: ${revisions.length} commits, ${blobs.size} distinct blobs ` +
+      `(${allowed.size} reviewed fixtures allowed), no credential ever committed`,
+  );
+}
+
+/**
+ * Migrations are the one part of the system where a mistake is not fixable by deploying
+ * again: an edited migration means development and production diverge silently, and the
+ * divergence is discovered by a constraint violation months later. So released migrations
+ * are checksummed, and the checksums are committed.
+ *
+ *   node scripts/audit.mjs migrations --update   after adding a new migration
+ */
+function migrations(update = false) {
+  const dir = join(root, "src/server/db/migrations");
+  const files = readdirSync(dir).filter((name) => name.endsWith(".sql")).sort();
+  const problems = [];
+
+  files.forEach((name, index) => {
+    if (!/^\d{3}_[a-z0-9_]+\.sql$/.test(name)) {
+      problems.push(`${name}: name must be NNN_lower_snake_case.sql`);
+    }
+    const expected = String(index + 1).padStart(3, "0");
+    if (name.slice(0, 3) !== expected) {
+      problems.push(`${name}: out of sequence, expected ${expected}_*.sql (no gaps, no duplicates)`);
+    }
+    const sql = readFileSync(join(dir, name), "utf8");
+    // Destructive statements are sometimes right, but never accidental.
+    const destructive = sql.match(/\b(DROP\s+TABLE|DROP\s+COLUMN|TRUNCATE|DELETE\s+FROM)\b/i);
+    if (destructive && !/--\s*destructive:/i.test(sql)) {
+      problems.push(
+        `${name}: contains ${destructive[0].toUpperCase()} — say why in a '-- destructive: …' comment`,
+      );
+    }
+  });
+
+  const manifestPath = join(dir, "CHECKSUMS.txt");
+  const current = files
+    .map((name) => `${sha256(readFileSync(join(dir, name)))}  ${name}`)
+    .join("\n") + "\n";
+
+  if (update) {
+    writeFileSync(manifestPath, current);
+    console.log(`migrations: wrote checksums for ${files.length} migration(s) — commit CHECKSUMS.txt`);
+    return;
+  }
+
+  const recorded = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : "";
+  if (recorded !== current) {
+    const recordedLines = new Map(
+      recorded.split("\n").filter(Boolean).map((line) => line.split("  ")).map(([h, n]) => [n, h]),
+    );
+    for (const line of current.split("\n").filter(Boolean)) {
+      const [hash, name] = line.split("  ");
+      const was = recordedLines.get(name);
+      if (was === undefined) problems.push(`${name}: new migration — run 'npm run migrate:checksums'`);
+      else if (was !== hash) {
+        problems.push(
+          `${name}: CHANGED after release. Deployments that already applied it will not see the edit. ` +
+            "Write a new migration instead.",
+        );
+      }
+      recordedLines.delete(name);
+    }
+    for (const name of recordedLines.keys()) problems.push(`${name}: recorded but missing from disk`);
+  }
+
+  if (problems.length) {
+    for (const problem of problems) console.error(`  ${problem}`);
+    console.error(`\n${problems.length} migration problem(s).`);
+    process.exit(1);
+  }
+  console.log(`migration audit: ${files.length} migrations, ordered, unmodified since release`);
+}
+
+/**
+ * Supply chain (point 34). The threat is not a vulnerability in a dependency — that is
+ * `audit:deps` — but a package that runs code on `npm install`, a floating version that
+ * resolves to something new on the build machine, or a lockfile that is not the one the
+ * build used.
+ */
+function supply() {
+  const problems = [];
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+
+  const npmrc = existsSync(join(root, ".npmrc")) ? readFileSync(join(root, ".npmrc"), "utf8") : "";
+  if (!/^ignore-scripts\s*=\s*true/m.test(npmrc)) {
+    problems.push(".npmrc must set ignore-scripts=true: install scripts are arbitrary code execution");
+  }
+  if (!existsSync(join(root, "package-lock.json"))) {
+    problems.push("package-lock.json must be committed; without it 'npm ci' cannot pin anything");
+  }
+
+  const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
+  const withInstallScripts = [];
+  if (lock.lockfileVersion < 3) problems.push("lockfile version must be >= 3 (integrity hashes per package)");
+  for (const [path, entry] of Object.entries(lock.packages ?? {})) {
+    if (!path || entry.link) continue;
+    if (entry.resolved && !entry.integrity) problems.push(`${path}: no integrity hash in the lockfile`);
+    if (entry.resolved && !entry.resolved.startsWith("https://registry.npmjs.org/")) {
+      problems.push(`${path}: resolved from ${entry.resolved} — only the public registry is expected`);
+    }
+    // Not a failure by itself — esbuild ships one to link its platform binary, and with
+    // ignore-scripts it simply never runs (verified: `npm ci` then a build still works).
+    // Worth counting, because the number going up is worth a look.
+    if (entry.hasInstallScript) withInstallScripts.push(path.replace("node_modules/", ""));
+  }
+
+  // The build tool decides what the browser runs, so it is pinned exactly rather than by
+  // range: a caret on esbuild is a caret on the bytes we ship.
+  for (const name of ["esbuild"]) {
+    const range = pkg.devDependencies?.[name];
+    if (range && !/^\d/.test(range)) problems.push(`${name} must be pinned exactly, got ${range}`);
+  }
+
+  const installScripts = Object.keys(pkg.scripts ?? {}).filter((name) =>
+    ["preinstall", "install", "postinstall", "prepare"].includes(name),
+  );
+  if (installScripts.length) {
+    problems.push(`package.json defines ${installScripts.join(", ")} — this project runs no install hooks`);
+  }
+
+  if (problems.length) {
+    for (const problem of problems) console.error(`  ${problem}`);
+    console.error(`\n${problems.length} supply-chain problem(s).`);
+    process.exit(1);
+  }
+  const count = Object.keys(lock.packages ?? {}).length - 1;
+  console.log(
+    `supply-chain audit: ${count} locked packages, all from the public registry with integrity hashes`,
+  );
+  console.log(
+    withInstallScripts.length
+      ? `  ${withInstallScripts.length} ship an install script (${withInstallScripts.join(", ")}) — none run: ignore-scripts=true`
+      : "  no package ships an install script",
+  );
+}
+
+/**
+ * Licences we can ship in a closed-source product. Copyleft that reaches the application
+ * (GPL, AGPL) is absent on purpose; LGPL is present because openpgp.js is used unmodified
+ * as a separate module, which is the condition the LGPL attaches (see THIRD_PARTY.md).
+ */
+const LICENCES = /^(MIT|ISC|0BSD|BSD-2-Clause|BSD-3-Clause|Apache-2\.0|Unlicense|CC0-1\.0|LGPL-3\.0(-or-later|\+)?|BlueOak-1\.0\.0|Python-2\.0)$/;
+
+/**
+ * Point 33: every dependency is attack surface. The rule this enforces is not "few
+ * dependencies" — it is "no dependency without a written reason", which is the version a
+ * machine can check. The budget is a ratchet: it goes up only when someone edits it in a
+ * commit that also explains why.
+ */
+function dependencies() {
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
+  const doc = existsSync(join(root, "docs/DEPENDENCIES.md"))
+    ? readFileSync(join(root, "docs/DEPENDENCIES.md"), "utf8")
+    : "";
+  const problems = [];
+
+  const direct = Object.keys(pkg.dependencies ?? {});
+  for (const name of direct) {
+    if (!new RegExp(`^###\\s+\`?${name.replace(/[/\\-]/g, "\\$&")}\`?`, "m").test(doc)) {
+      problems.push(`${name}: no '### ${name}' section in docs/DEPENDENCIES.md justifying it`);
+    }
+  }
+
+  // The production tree, as npm would install it with --omit=dev.
+  const production = Object.entries(lock.packages ?? {}).filter(
+    ([path, entry]) => path.startsWith("node_modules/") && !entry.dev && !entry.link,
+  );
+  for (const [path, entry] of production) {
+    const name = path.replace(/^node_modules\//, "");
+    const manifest = join(root, path, "package.json");
+    const licence =
+      entry.license ?? (existsSync(manifest) ? JSON.parse(readFileSync(manifest, "utf8")).license : null);
+    const text = typeof licence === "string" ? licence : licence?.type;
+    if (!text) problems.push(`${name}: no licence declared`);
+    else if (!text.split(/\s+OR\s+/i).some((part) => LICENCES.test(part.replace(/[()]/g, "")))) {
+      problems.push(`${name}: licence ${text} is not on the allowlist for a closed-source product`);
+    }
+  }
+
+  const budget = Number(readFileSync(join(root, "docs/DEPENDENCIES.md"), "utf8").match(/budget:\s*(\d+)/i)?.[1]);
+  if (!Number.isFinite(budget)) {
+    problems.push("docs/DEPENDENCIES.md must state a 'budget: N' for the production tree");
+  } else if (production.length > budget) {
+    problems.push(
+      `production tree is ${production.length} packages, budget is ${budget}. ` +
+        "Remove something, or raise the budget in the same commit that explains why.",
+    );
+  }
+
+  if (problems.length) {
+    for (const problem of problems) console.error(`  ${problem}`);
+    console.error(`\n${problems.length} dependency problem(s).`);
+    process.exit(1);
+  }
+  console.log(
+    `dependency audit: ${direct.length} direct, ${production.length} in the production tree ` +
+      `(budget ${budget}), every one justified, every licence allowed`,
+  );
+}
+
 function secrets() {
   const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
     .split("\0")
@@ -188,11 +455,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
   if (mode === "bundle") bundle();
   else if (mode === "secrets") secrets();
+  else if (mode === "history") history();
+  else if (mode === "migrations") migrations(process.argv.includes("--update"));
+  else if (mode === "supply") supply();
+  else if (mode === "dependencies") dependencies();
   else if (mode === "deployment") {
     const origin = process.argv[3];
     if (!origin) throw new Error("usage: node scripts/audit.mjs deployment https://host");
     await deployment(origin);
   } else {
-    throw new Error(`usage: node scripts/audit.mjs bundle|secrets|deployment (got '${mode ?? ""}')`);
+    throw new Error(
+      `usage: node scripts/audit.mjs bundle|secrets|history|migrations|supply|dependencies|deployment (got '${mode ?? ""}')`,
+    );
   }
 }

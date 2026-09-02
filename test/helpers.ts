@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { randomUUID } from "node:crypto";
 import { buildApp } from "../src/server/app.ts";
 import { loadConfig, type Config } from "../src/server/config.ts";
 import { createSqliteDb } from "../src/server/db/sqlite.ts";
@@ -29,7 +30,7 @@ export async function startTestServer(
     env: "test",
     dialect: "sqlite",
     behindTls: false,
-    bucketPepper: `test-pepper-${Math.random()}-0000000000000000`,
+    bucketPepper: `test-pepper-${randomUUID()}-0000000000000000`,
     ...overrides,
   });
   const db = createSqliteDb(":memory:");
@@ -162,7 +163,7 @@ export async function approveSeller(
     displayName,
     statement: "I will sell carefully written software and design work.",
   });
-  const admin = await register(server, `mod${Math.floor(Math.random() * 1e6)}`);
+  const admin = await register(server, `mod${randomUUID().slice(0, 8)}`);
   await promote(server, admin.username, "moderator");
   const decision = await admin.post(
     `/api/moderation/seller-applications/${application.body.id}/decide`,

@@ -178,6 +178,8 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     if (updates.length === 0) throw badRequest("nothing to update");
     updates.push(["updated_day", today()]);
     await db.run(
+      // Column names come from the literal strings pushed above, never from the request;
+      // every *value* is still a bound parameter. audit:allow
       `UPDATE listings SET ${updates.map(([column]) => `${column} = ?`).join(", ")} WHERE id = ?`,
       [...updates.map(([, value]) => value), id],
     );

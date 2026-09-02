@@ -110,6 +110,12 @@ never simplified away. In this codebase they *are* the product.
 | [`docs/CRYPTO.md`](docs/CRYPTO.md) | key hierarchy, handshake, ratchet, wire format, test vectors |
 | [`docs/PRIVACY.md`](docs/PRIVACY.md) | every field stored, why, retention, what leaks anyway |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | VPS setup, TLS, backups, onion service, hardening |
+| [`docs/API.md`](docs/API.md) | every endpoint, its authentication, its rate-limit bucket |
+| [`docs/DATABASE.md`](docs/DATABASE.md) | every table, what it stores, what it deliberately does not, retention |
+| [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) | every configuration variable and its default |
+| [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) | why each dependency exists, and what was refused |
+| [`docs/TESTING.md`](docs/TESTING.md) | how the suites are organised and what is not covered |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | the working loop, and what every change is held to |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | ADRs: tech choices, dependency + license justification |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | what is deliberately not built yet, and in which order |
 | [`SECURITY.md`](SECURITY.md) | how to report a vulnerability |

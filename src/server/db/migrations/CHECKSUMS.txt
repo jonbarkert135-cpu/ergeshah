@@ -1,0 +1,6 @@
+sha256-vjPlbTSxX/tM/cvEBgucLysGel8z5dbJ92rTeqWHchs=  001_init.sql
+sha256-rkLFDCnPrREU+YpiyoZs2c/8cibIVXM/fXWhs7Qq5Dw=  002_device_links.sql
+sha256-Eq8DLJshjTKUK2TkAhjMb6zwFnnfmx7fAbF5hKv5jV0=  003_recovery.sql
+sha256-Z14U751kq2s8aoPUqTBPqKtZmggEkl+acwJY0LpMzNQ=  004_pgp.sql
+sha256-05TKG/YNpVY48DyNNnjkxIgooH3ry3lo3Pzd72lr19w=  005_deliveries.sql
+sha256-vXb/l+o1ZwL6gLts+aINwBNDpNZvMcCZ7iqNJuwDIKU=  006_audit_result.sql
