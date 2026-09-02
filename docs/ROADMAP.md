@@ -68,3 +68,9 @@ verified state, and a warning when an unverified device appears.*
 
 - **UI-2 — Offline queue** for messages composed without connectivity.
 - **UI-3 — Accessibility pass** (keyboard traps, focus management, screen-reader labels).
+
+## At launch, not before
+
+**OSS-1 — publish the client half.** The assembly and its correctness check already exist
+(`npm run publish:client`, ADR-0023); what is left is creating the mirror repository and
+rewriting the paragraphs that currently, correctly, describe a closed project.

@@ -18,8 +18,10 @@
     "audit:deps": "npm audit --omit=dev --audit-level=high",
     "audit:bundle": "node scripts/audit.mjs bundle",
     "audit:secrets": "node scripts/audit.mjs secrets",
-    "audit": "npm run audit:deps && npm run audit:bundle && npm run audit:secrets",
-    "audit:deployment": "node scripts/audit.mjs deployment"
+    "audit": "npm run audit:deps && npm run audit:bundle && npm run audit:secrets && npm run audit:oss",
+    "audit:deployment": "node scripts/audit.mjs deployment",
+    "publish:client": "node scripts/publish-client-source.mjs",
+    "audit:oss": "node scripts/publish-client-source.mjs --check"
   },
   "dependencies": {
     "fastify": "^5.2.0",
