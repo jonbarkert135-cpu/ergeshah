@@ -1,9 +1,23 @@
 name: ci
 
+# Этот файл живёт по двум путям:
+#   deploy/github-ci.yml      — версия в репозитории, её правят агенты
+#   .github/workflows/ci.yml  — работающая копия, её вставляет человек
+# GitHub App агента не имеет права workflows, поэтому копию обновляет владелец репо.
+# Чтобы копию приходилось трогать как можно реже, шаги ниже вызывают npm-скрипты,
+# а не команды: новые проверки добавляются в package.json, не сюда.
+
 on:
   push:
     branches: [main]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -23,3 +37,9 @@ jobs:
         run: npm run build:client
       - name: Audit production dependencies
         run: npm run audit:deps
+      # Появятся в PR C (аудиты). --if-present: пока скрипта нет, шаг просто пропускается,
+      # и .github/workflows/ci.yml не придётся вставлять заново.
+      - name: Audit client bundle (external URLs, inline secrets)
+        run: npm run audit:bundle --if-present
+      - name: Scan repository for secrets
+        run: npm run audit:secrets --if-present
