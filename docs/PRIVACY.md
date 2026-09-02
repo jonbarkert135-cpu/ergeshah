@@ -107,6 +107,16 @@ Two consequences worth stating plainly:
 - Messages already delivered to other people stay with them. The server cannot reach into
   another user's device, and E2EE means it could not read them to delete them anyway.
 
+## Linked devices
+
+`device_links` holds, per pending authorisation: SHA-256 of the secret, the account id, an
+optional label and an expiry. No token, no address, nothing about the device beyond what
+the key directory already stores. Rows are deleted on redemption, or on the first claim
+attempt after they expire.
+
+A linked device keeps its vault locally only. It never uploads a sealed vault, because the
+account has one backup and it belongs to the device that knows the account password.
+
 ## Changing the password
 
 The password derives both the server-side auth secret and the vault key. `POST

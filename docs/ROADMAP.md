@@ -23,13 +23,19 @@ timing and volume, which padding cannot touch.*
 
 ## Accounts
 
-*Shipped: AUTH-2 password change with atomic vault re-sealing, and AUTH-4 self-service
-deletion (PR #5).*
+*Shipped: AUTH-2 password change with atomic vault re-sealing, AUTH-4 self-service
+deletion (PR #5), and AUTH-3 device linking with a per-device identity (PR #6).*
+
+- **AUTH-5 — Camera capture for the device code.** Linking works by reading a code across
+  devices; scanning it needs either the browser's own `BarcodeDetector` (Chromium only) or
+  a QR library, and rendering one needs an encoder. Neither is worth a dependency or 200
+  lines of Reed–Solomon until someone asks for the camera flow.
+- **AUTH-6 — Identity-key change warnings.** A username that is deleted can be registered
+  again by someone else. The defence is a client that notices a peer's identity key
+  changed and says so, rather than a tombstone in the database.
 
 - **AUTH-1 — PAKE login (OPAQUE).** Removes the last theoretical benefit a hostile server
   gets from observing login.
-- **AUTH-3 — Multi-device linking.** QR-based device linking with a per-device identity,
-  instead of restoring a sealed vault.
 
 ## Marketplace
 

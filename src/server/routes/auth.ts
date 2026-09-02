@@ -7,7 +7,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { csrfCookie, sessionCookie } from "../app.ts";
 import { badRequest, conflict, unauthorized } from "../lib/errors.ts";
-import { newId, randomToken } from "../lib/ids.ts";
+import { newId, randomToken, sha256 } from "../lib/ids.ts";
 import { hashAuthSecret, verifyAuthSecret } from "../lib/password.ts";
 import {
   createSession,
@@ -22,6 +22,9 @@ import {
   asSealedVault,
   asUsername,
 } from "../lib/validate.ts";
+
+/** Long enough to walk to the other device, short enough that a photographed screen ages out. */
+const LINK_TTL_MS = 5 * 60 * 1000;
 
 interface Credentials {
   username: unknown;
@@ -240,6 +243,67 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     reply.header("set-cookie", [sessionCookie(config, "", 0), csrfCookie(config, "", 0)]);
     return { ok: true };
+  });
+
+  /**
+   * Authorise a new device (called by a device that is already signed in).
+   *
+   * The new device shows a code containing its public bundle and a secret. This device
+   * publishes the bundle through /api/keys/device, then parks a one-time authorisation
+   * here under SHA-256 of the secret. No session token is stored: the session is minted
+   * when the new device redeems the row, and the row is deleted in the same transaction.
+   */
+  app.post("/api/auth/link", async (request) => {
+    const user = await app.authenticate(request);
+    await app.limit(request, "write");
+    const body = (request.body ?? {}) as { linkHash?: unknown; label?: unknown };
+    const linkHash = asBase64Url(body.linkHash, "linkHash", 32);
+    const label = asOptionalString(body.label, "label", 40) || null;
+
+    await db.run(
+      `INSERT INTO device_links (link_hash, user_id, label, expires_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (link_hash) DO UPDATE SET expires_at = excluded.expires_at`,
+      [linkHash, user.id, label, Date.now() + LINK_TTL_MS],
+    );
+    return { expiresInSeconds: LINK_TTL_MS / 1000 };
+  });
+
+  /**
+   * Redeem the authorisation. Unauthenticated by necessity — the secret *is* the
+   * credential — so it is rate-limited, single-use and short-lived.
+   */
+  app.post("/api/auth/link/claim", async (request, reply) => {
+    const body = (request.body ?? {}) as { linkSecret?: unknown };
+    const linkSecret = asBase64Url(body.linkSecret, "linkSecret", 32);
+    await app.limit(request, "auth");
+
+    const claimed = await db.transaction(async (tx) => {
+      await tx.run("DELETE FROM device_links WHERE expires_at < ?", [Date.now()]);
+      const row = await tx.get<{ link_hash: string; user_id: string; label: string | null }>(
+        "SELECT link_hash, user_id, label FROM device_links WHERE link_hash = ?",
+        [sha256(Buffer.from(linkSecret, "base64url"))],
+      );
+      if (!row) return null;
+      // Deleted before the session exists: a replay of the same code finds nothing.
+      await tx.run("DELETE FROM device_links WHERE link_hash = ?", [row.link_hash]);
+      return row;
+    });
+    if (!claimed) throw unauthorized("this link code is unknown, expired or already used");
+
+    const user = await db.get<{ id: string; username: string; role: string; status: string }>(
+      "SELECT id, username, role, status FROM users WHERE id = ?",
+      [claimed.user_id],
+    );
+    if (!user || user.status !== "active") throw unauthorized("account is not active");
+
+    const session = await createSession(db, user.id, config.sessionTtlMs, claimed.label);
+    return replyWithSession(reply, config, {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      token: session.token,
+      expiresAt: session.expiresAt,
+    });
   });
 
   app.get("/api/auth/me", async (request) => {

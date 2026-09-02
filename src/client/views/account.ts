@@ -1,6 +1,7 @@
 import { api } from "../api.ts";
 import { clear, el, notice } from "../ui.ts";
 import { changePassword, deleteAccount, forgetLocalVault, lock } from "../state.ts";
+import { authoriseDevice, parseDeviceCode, type ParsedDeviceCode } from "../linking.ts";
 
 export function renderAccount(root: HTMLElement, onSignedOut: () => void): void {
   clear(root);
@@ -94,8 +95,64 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
       ),
     );
 
+    body.append(el("h2", {}, "Link a device"), linkCard());
     body.append(el("h2", {}, "Password"), passwordCard());
     body.append(el("h2", {}, "Delete account"), deleteCard());
+  }
+
+  /** Read a code from a new device, check its fingerprint, then vouch for its keys. */
+  function linkCard(): HTMLElement {
+    const codeBox = el("textarea", { rows: "4", class: "mono", placeholder: "symvolon-link.v1…", style: "width:100%" });
+    const label = el("input", { placeholder: "Label, e.g. laptop", maxlength: "40" });
+    const message = el("div", { class: "muted" });
+    const authorise = el("button", {}, "Authorise this device");
+    let parsed: ParsedDeviceCode | null = null;
+
+    codeBox.addEventListener("input", () => {
+      const value = (codeBox as HTMLTextAreaElement).value.trim();
+      if (!value) {
+        parsed = null;
+        message.textContent = "";
+        return;
+      }
+      try {
+        parsed = parseDeviceCode(value);
+        message.textContent = `Fingerprint: ${parsed.fingerprint} — it must match the other screen exactly.`;
+      } catch (error) {
+        parsed = null;
+        message.textContent = (error as Error).message;
+      }
+    });
+
+    authorise.addEventListener("click", () => {
+      if (!parsed) {
+        message.textContent = "Paste the code from the new device first.";
+        return;
+      }
+      if (!window.confirm(`Authorise the device with fingerprint ${parsed.fingerprint}? It will receive every message sent to you from now on.`)) return;
+      authorise.setAttribute("disabled", "");
+      void authoriseDevice(parsed, (label as HTMLInputElement).value.trim() || "linked device")
+        .then(() => {
+          message.textContent = "Authorised. The other device has five minutes to finish.";
+          (codeBox as HTMLTextAreaElement).value = "";
+          parsed = null;
+          void load();
+        })
+        .catch((error: Error) => {
+          message.textContent = error.message;
+        })
+        .finally(() => authorise.removeAttribute("disabled"));
+    });
+
+    return el(
+      "div",
+      { class: "card" },
+      el("p", { class: "muted", style: "margin-top:0" },
+        "A second browser gets its own keys rather than a copy of these — two devices sharing one identity would break your conversations. On the new device choose \"Link this browser\", then paste its code here."),
+      codeBox,
+      el("div", { class: "row", style: "margin-top:12px" }, label, authorise),
+      message,
+    );
   }
 
   function passwordCard(): HTMLElement {

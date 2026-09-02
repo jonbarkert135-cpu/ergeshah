@@ -1,6 +1,7 @@
 import { api, ApiError } from "../api.ts";
 import { clear, el, field, input, notice } from "../ui.ts";
 import {
+  adoptLinkedIdentity,
   deriveKeys,
   forgetLocalVault,
   localSealedVault,
@@ -10,17 +11,22 @@ import {
   state,
   unlockVault,
 } from "../state.ts";
+import { claimDeviceLink, newDeviceCode } from "../linking.ts";
 import type { SealedVault } from "../../shared/crypto/vault.ts";
 
 export function renderAuth(root: HTMLElement, onReady: () => void): void {
   clear(root);
-  let mode: "login" | "register" = localSealedVault() ? "login" : "register";
+  let mode: "login" | "register" | "link" = localSealedVault() ? "login" : "register";
   const container = el("div", {});
   root.append(container);
   draw();
 
   function draw(message?: HTMLElement) {
     clear(container);
+    if (mode === "link") {
+      drawLink(message);
+      return;
+    }
     const username = input("username", { autocomplete: "username", minlength: "3", maxlength: "32" });
     const password = input("password", { type: "password", autocomplete: "current-password", minlength: "12" });
     const submit = el("button", { class: "primary", type: "submit" }, mode === "login" ? "Unlock" : "Create account");
@@ -42,6 +48,8 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
       el("div", { class: "row", style: "margin-top:16px" }, submit,
         el("button", { type: "button", class: "ghost", onclick: () => { mode = mode === "login" ? "register" : "login"; draw(); } },
           mode === "login" ? "Create an account instead" : "I already have an account"),
+        el("button", { type: "button", class: "ghost", onclick: () => { mode = "link"; draw(); } },
+          "Link this browser to an account"),
       ),
       status,
     );
@@ -62,6 +70,72 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
       }, 30);
     });
     container.append(form);
+  }
+
+  /**
+   * Linking screen. This browser makes its own keys and shows a code; a device that is
+   * already signed in reads the code and vouches for the keys. We poll until it does.
+   */
+  function drawLink(message?: HTMLElement) {
+    const { code, fingerprint, secret, identity } = newDeviceCode();
+    const password = input("device password", { type: "password", minlength: "12" });
+    const status = el("div", {});
+    let polling = false;
+
+    const codeBox = el("textarea", { readonly: "", rows: "4", class: "mono", style: "width:100%" });
+    (codeBox as HTMLTextAreaElement).value = code;
+
+    const start = el("button", { class: "primary" }, "Waiting for the other device…");
+    start.addEventListener("click", () => {
+      if (polling) return;
+      if (password.value.length < 12) {
+        status.replaceChildren(notice("Use at least 12 characters for this device.", "error"));
+        return;
+      }
+      polling = true;
+      start.disabled = true;
+      status.replaceChildren(notice("Watching for the authorisation…"));
+      void poll(password.value);
+    });
+
+    async function poll(devicePassword: string): Promise<void> {
+      const deadline = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < deadline) {
+        const account = await claimDeviceLink(secret);
+        if (account) {
+          await adoptLinkedIdentity(account, identity, devicePassword);
+          onReady();
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+      polling = false;
+      start.disabled = false;
+      status.replaceChildren(notice("The code expired. Reload to get a new one.", "error"));
+    }
+
+    const card = el(
+      "div",
+      { class: "card" },
+      el("h1", {}, "Link this browser"),
+      el(
+        "p",
+        { class: "lede" },
+        "This browser will get its own keys. Read the code below into an already signed-in device (Account → Link a device), then start waiting here.",
+      ),
+      field("Device code", codeBox, "Copy all of it."),
+      el("p", { class: "mono" }, `Fingerprint: ${fingerprint}`),
+      notice(
+        "Check that the other device shows the same fingerprint before you authorise it. Linking does not copy your message history — this browser starts empty and receives what arrives from now on.",
+      ),
+      field("Password for this device", password, "Protects this browser's keys. Never sent anywhere; it does not have to match your account password."),
+      el("div", { class: "row", style: "margin-top:16px" }, start,
+        el("button", { type: "button", class: "ghost", onclick: () => { mode = localSealedVault() ? "login" : "register"; draw(); } }, "Back"),
+      ),
+      status,
+    );
+    if (message) status.append(message);
+    container.append(card);
   }
 
   async function run(username: string, password: string): Promise<void> {
