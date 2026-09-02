@@ -1,7 +1,7 @@
 import { api } from "../api.ts";
 import { clear, el, field, input, money, notice } from "../ui.ts";
 import { state } from "../state.ts";
-import { startConversation } from "../messaging.ts";
+import { sendShippingDetails, startConversation } from "../messaging.ts";
 
 interface Listing {
   id: string;
@@ -60,6 +60,13 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
     const message = el("button", { class: "ghost" }, "Message seller");
     const local = el("div", {});
     buy.addEventListener("click", () => {
+      // A physical order needs an address. It is collected here and sent through the order's
+      // encrypted channel — the API call below carries the listing id and nothing else.
+      const details =
+        listing.kind === "physical_good"
+          ? window.prompt("Delivery address (encrypted for the seller; the server never sees it)")
+          : null;
+      if (listing.kind === "physical_good" && !details?.trim()) return;
       buy.disabled = true;
       void api<{ id: string; channel: string }>("/api/market/orders", {
         method: "POST",
@@ -67,6 +74,9 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
       })
         .then(async (order) => {
           await startConversation(listing.seller.username);
+          if (details?.trim()) {
+            await sendShippingDetails(listing.seller.username, order.channel, order.id, details.trim());
+          }
           clear(local).append(notice(`Order ${order.id.slice(0, 8)} placed — see Orders.`));
         })
         .catch((error: Error) => clear(local).append(notice(error.message, "error")))
@@ -86,7 +96,7 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
         "div",
         { class: "row" },
         el("span", { class: "price" }, money(listing.priceMinor, listing.currency)),
-        el("span", { class: "tag" }, listing.kind === "service" ? "service" : "digital good"),
+        el("span", { class: "tag" }, KIND_LABELS[listing.kind] ?? listing.kind),
         el("span", { class: "tag" }, listing.category),
       ),
       el("p", { class: "muted" }, listing.description.slice(0, 220)),
@@ -107,6 +117,12 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
     );
   }
 }
+
+const KIND_LABELS: Record<string, string> = {
+  digital_good: "digital good",
+  service: "service",
+  physical_good: "physical good",
+};
 
 export function renderSell(root: HTMLElement): void {
   clear(root);
@@ -182,6 +198,7 @@ export function renderSell(root: HTMLElement): void {
       { name: "kind" },
       el("option", { value: "digital_good" }, "digital good"),
       el("option", { value: "service" }, "service"),
+      el("option", { value: "physical_good" }, "physical good"),
     );
     const result = el("div", {});
     const listings = el("div", { class: "grid" });

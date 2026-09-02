@@ -93,6 +93,25 @@ export async function sendDeliveryKey(
 interface OutgoingPayload {
   text: string;
   delivery?: DeliveryKey & { orderId: string };
+  shipping?: { orderId: string; details: string };
+}
+
+/**
+ * A delivery address is a message, not a database row. It travels through the order's
+ * encrypted channel like everything else, so the server never has a field to leak, and
+ * the seller's copy lives in their vault until the order is done.
+ */
+export async function sendShippingDetails(
+  peer: string,
+  channel: string,
+  orderId: string,
+  details: string,
+): Promise<void> {
+  const conversation = await startConversation(peer, channel);
+  await sendPayload(conversation, {
+    text: "Delivery details sent.",
+    shipping: { orderId, details: details.slice(0, 2000) },
+  });
 }
 
 async function sendPayload(conversation: Conversation, payload: OutgoingPayload): Promise<void> {
@@ -161,10 +180,12 @@ export async function receiveMessages(): Promise<number> {
         text: string;
         at: number;
         delivery?: DeliveryKey & { orderId: string };
+        shipping?: { orderId: string; details: string };
       };
       conversation.sessions[opened.sessionKey] = serializeState(opened.state);
       if (conversation.peer === "unknown") conversation.peer = plaintext.from;
       if (plaintext.delivery) storeDeliveryKey(plaintext.delivery);
+      if (plaintext.shipping) storeShipping(plaintext.shipping);
       conversation.messages.push({
         from: plaintext.from,
         text: plaintext.text,
@@ -254,4 +275,12 @@ function storeDeliveryKey(delivery: DeliveryKey & { orderId: string }): void {
     name: typeof name === "string" ? name.slice(0, 120) : "delivery",
     at: Date.now(),
   };
+}
+
+/** Same treatment as a delivery key: a peer sends this, so it is validated, not trusted. */
+function storeShipping(shipping: { orderId: string; details: string }): void {
+  const { orderId, details } = shipping;
+  if (typeof details !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(String(orderId))) return;
+  const shipments = (state.vault!.shipments ??= {});
+  shipments[orderId] = { text: details.slice(0, 2000), at: Date.now() };
 }

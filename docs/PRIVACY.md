@@ -60,6 +60,14 @@ travels inside the ciphertext with everything else. The operator learns that an 
 delivered, the padded size of the file (a multiple of 4 KB), and when it was uploaded and
 collected.
 
+**Physical orders carry no address.** A delivery address, a phone number, a door code — none
+of them is a column here, and no route accepts one. The buyer's browser encrypts them to
+the seller through the order's channel, the seller's browser keeps the plaintext in its
+local vault, and the server holds only the same opaque envelope it holds for any other
+message, deleted the moment it is delivered. An operator who dumps this database gets the
+fact that an order exists, its parties, its price and its status — and no way to ship
+anything to anyone.
+
 `order_events` keeps millisecond timestamps: a dispute needs an ordered record of who did
 what, and both parties already know it.
 

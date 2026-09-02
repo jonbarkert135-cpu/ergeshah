@@ -40,6 +40,7 @@ Design philosophy, in priority order:
 | Store-and-forward envelopes, deleted from the server on delivery | working |
 | Marketplace: seller applications, listings, orders, reviews | working |
 | Digital delivery: file encrypted in the browser, blind blob on the server, key over the encrypted channel | working |
+| Physical orders: delivery address encrypted to the seller, never a column in any table | working |
 | Moderation: reports, admin review queue, privacy-safe audit log | working |
 | Reproducible client build: published digests, subresource integrity, one-command deployment check | working |
 | Single-VPS deployment: Docker Compose + reverse proxy + TLS, SQLite or PostgreSQL | working |

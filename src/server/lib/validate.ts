@@ -61,7 +61,12 @@ export function asArray(value: unknown, field: string, maxLength: number): unkno
 }
 
 export const CURRENCIES = ["USD", "EUR", "XMR", "BTC"] as const;
-export const LISTING_KINDS = ["digital_good", "service"] as const;
+/**
+ * `physical_good` exists so a client knows an order needs a delivery address. The address
+ * itself never reaches this server: there is no field for it in any route, and no column
+ * for it in any table — see ADR-0021.
+ */
+export const LISTING_KINDS = ["digital_good", "service", "physical_good"] as const;
 
 /**
  * The sealed vault is opaque to the server, but it is still checked: it must be an object

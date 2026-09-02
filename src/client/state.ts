@@ -70,6 +70,8 @@ export interface VaultContents {
   conversations: Record<string, Conversation>;
   /** Delivery keys by order id. Absent on vaults written before deliveries existed. */
   deliveries?: Record<string, DeliveryKey>;
+  /** Shipping details a buyer sent us, by order id. Never uploaded anywhere. */
+  shipments?: Record<string, { text: string; at: number }>;
   /** True on a device that was linked rather than signed in: it does not own the backup. */
   linked?: boolean;
 }

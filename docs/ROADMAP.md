@@ -43,7 +43,8 @@ wrapped master key (PR #7), and AUTH-7 PGP challenge–response as a second fact
 - **PAY-1 — Optional payment adapters.** Isolated, replaceable, never required; the first
   candidate is a self-hosted Monero payment gateway, precisely because it needs no
   third-party identity.
-*Shipped: MKT-2, client-encrypted digital delivery with blind server-side storage.*
+*Shipped: MKT-2, client-encrypted digital delivery with blind server-side storage. MKT-4,
+physical orders whose delivery details are a message rather than a database column.*
 
 - **MKT-1 — Escrow and dispute evidence.** Evidence exchanged in the encrypted channel,
   with only a hash committed server-side.

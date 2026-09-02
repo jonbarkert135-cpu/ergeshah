@@ -399,3 +399,36 @@ if a future payload needs more, the encoder needs another version's parameters. 
 is an SVG data URL, which the existing `img-src 'self' data:` CSP already allows — no
 canvas, no new directive. The record is local: a new device starts unverified, which is
 the honest answer rather than a convenient one.
+
+## ADR-0021 — A delivery address is a message, not a column
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Selling physical goods means the seller needs an address, and the reflex is a
+`shipping_address` column, perhaps encrypted with a key the server also holds. That reflex
+is how every marketplace breach becomes a list of home addresses: the data is in the
+database, the key is on the same host, and the operator is one subpoena or one compromised
+backup away from handing over both.
+
+**Decision.** There is no address field anywhere in the API or the schema. `physical_good`
+is added as a listing kind so the *client* knows to ask; the buyer's browser then sends the
+address as an ordinary encrypted message in the order's channel, exactly like the delivery
+keys in ADR-0017. The seller's browser stores the plaintext in its own vault; the server
+stores the same opaque envelope it stores for any message, and deletes it on delivery.
+`test/delivery.test.ts` places a physical order while deliberately posting an address in
+the request body, then dumps every table and asserts the string is nowhere — the route
+drops unknown fields, and the test proves it rather than trusting it.
+
+**Alternatives.** A column encrypted with a server-held key (the operator can still read
+it; a compromise yields both halves). A column encrypted to the seller's public key (better,
+but it makes the server the storage and retention point for personal data, with a row that
+outlives the order and a schema that invites "just one more field"). A third-party
+fulfilment integration (an external processor receiving every buyer's address is the
+opposite of this project).
+
+**Consequences.** A seller who loses their vault loses the address and must ask the buyer
+again — the same trade this project already makes for message history, and the reason
+`docs/PRIVACY.md` says so plainly. Moderating a shipping dispute cannot be done by reading
+the address, which is intentional: dispute evidence belongs in the encrypted channel with
+only a hash committed server-side (MKT-1). And a physical marketplace still leaks what it
+must: the operator knows an order exists, between whom, and for how much.

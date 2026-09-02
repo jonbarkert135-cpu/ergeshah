@@ -115,6 +115,10 @@ export function renderOrders(root: HTMLElement): void {
       }
       if (order.status === "completed" && role === "buyer") actions.append(reviewButton(order));
       if (order.status === "accepted" && role === "seller") actions.append(uploadControl(order));
+      if (role === "seller") {
+        const shipment = state.vault?.shipments?.[order.id];
+        if (shipment) actions.append(shippingControl(shipment.text));
+      }
       if (order.status === "delivered" && role === "buyer") actions.append(downloadControl(order));
       table.append(
         el(
@@ -172,6 +176,21 @@ export function renderOrders(root: HTMLElement): void {
       name: file.name.slice(0, 120),
       at: Date.now(),
     });
+  }
+
+  /**
+   * Seller side: the buyer's address, which exists only here and in the buyer's browser.
+   * It is shown on demand rather than printed into the table, because a delivery address
+   * on screen is a delivery address someone can read over your shoulder.
+   */
+  function shippingControl(details: string): HTMLElement {
+    const button = el("button", { class: "ghost" }, "Delivery details");
+    const shown = el("div", { class: "mono" });
+    button.addEventListener("click", () => {
+      if (shown.textContent) clear(shown);
+      else shown.append(document.createTextNode(details));
+    });
+    return el("div", {}, button, shown);
   }
 
   /** Buyer side: fetch ciphertext, decrypt in the page, save, then have the server forget it. */

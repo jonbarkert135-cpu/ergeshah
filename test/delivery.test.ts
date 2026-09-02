@@ -160,3 +160,46 @@ describe("delivering a digital good", () => {
     expect(await server.db.all("SELECT id FROM deliveries")).toHaveLength(0);
   });
 });
+
+/**
+ * Physical orders (MKT-4). The delivery address is the most dangerous field a marketplace
+ * can have, so this system does not have it: it travels as an ordinary encrypted message
+ * in the order channel, and these tests assert the absence rather than describing it.
+ */
+describe("shipping details for a physical order", () => {
+  it("has no route and no column that would accept an address", async () => {
+    const seller = await register(server, "physicalseller");
+    await approveSeller(server, seller, "Paper Goods");
+    const listing = await seller.post<{ id: string }>("/api/market/listings", {
+      title: "Letterpress notebook",
+      description: "A description of a physical object, long enough to pass validation.",
+      category: "stationery",
+      kind: "physical_good",
+      priceMinor: 2500,
+      currency: "EUR",
+    });
+    expect(listing.status).toBe(200);
+
+    const buyer = await register(server, "physicalbuyer");
+    const address = "12 Rue des Lilas, 75011 Paris";
+    // A naive (or hostile) client sends the address anyway: the route must simply drop it.
+    const order = await buyer.post<{ id: string }>("/api/market/orders", {
+      listingId: listing.body.id,
+      shippingAddress: address,
+      note: address,
+    });
+    expect(order.status).toBe(200);
+
+    const tables = await server.db.all<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table'",
+    );
+    const dump: string[] = [];
+    for (const { name } of tables) {
+      dump.push(JSON.stringify(await server.db.all(`SELECT * FROM ${name}`)));
+    }
+    expect(dump.join()).not.toContain("Rue des Lilas");
+    expect(dump.join()).not.toContain("shippingAddress");
+    // And no column anywhere is named after one, either.
+    expect(dump.join().toLowerCase()).not.toContain("address");
+  });
+});
