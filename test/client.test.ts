@@ -111,7 +111,7 @@ describe("browser client against the real server", () => {
 
     expect(state.vault?.deviceId).toBeTruthy();
     const sealed = localSealedVault();
-    expect(sealed?.v).toBe(1);
+    expect(sealed?.v).toBe(2);
     // What is on disk is ciphertext, not keys.
     expect(JSON.stringify(sealed)).not.toContain(state.vault!.identity.identity.privateKey);
 

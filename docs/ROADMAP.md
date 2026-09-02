@@ -9,13 +9,13 @@ here is *not implemented today*; the README table says what is.
   recorded session is not decryptable by a future quantum adversary. Blocked on an
   audited, browser-capable ML-KEM implementation; a hand-rolled one would violate the
   rule that keeps this project honest.
-- **MD-3 — Header encryption.** Encrypt the ratchet header with a header key chain, so
-  the server cannot count messages per chain.
 - **CRY-1 — External audit.** The property tests are necessary and not sufficient.
 
 ## Metadata
 
-- **MD-1 — Message padding.** Pad ciphertext to size buckets so length stops leaking.
+*Shipped: MD-3 header encryption and MD-1 message padding (PR #2). What remains here is
+timing and volume, which padding cannot touch.*
+
 - **MD-2 — Delivery timing noise.** Randomised polling intervals and optional delayed
   delivery to blur send/fetch correlation.
 - **MD-4 — Sealed sender.** Today the sender is hidden from the database; the *sending

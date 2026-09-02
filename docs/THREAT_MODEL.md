@@ -10,7 +10,7 @@ to be a residual risk.
   your ISP, your device, or someone standing behind you.
 - Not unbreakable. It is an implementation of well-studied constructions; implementations
   have bugs, and this one has not been externally audited.
-- Not free of metadata. Connection timing, message timing and message sizes remain
+- Not free of metadata. Connection timing, message timing and message size *buckets* remain
   observable to the operator and to a network observer.
 - Not resistant to a compromised endpoint. Malware on your device reads your messages
   before any encryption happens.
@@ -45,7 +45,7 @@ to be a residual risk.
 
 | Attack | Mitigation | Residual |
 | --- | --- | --- |
-| Read stored messages | Server stores ciphertext only; keys never reach it | Server sees ciphertext size and arrival time |
+| Read stored messages | Server stores ciphertext only; keys never reach it | Server sees the size bucket and the arrival time |
 | Crack passwords from a dump | Client-side Argon2id, then server-side Argon2id over the derived half | A weak password is still a weak password |
 | Steal sessions from a dump | Only SHA-256 hashes of tokens are stored | A live attacker can steal cookies in transit on a compromised server |
 | Reconstruct a user's activity | Coarse (day) timestamps on long-lived rows; no access log; no read receipts | `envelopes.created_at` is millisecond-precise while undelivered |
@@ -97,14 +97,15 @@ to be a residual risk.
 | Referrers | `Referrer-Policy: no-referrer` plus a meta tag; the proxy strips `Referer` upstream |
 | Error logs | Method, route and error message only — no bodies, no identifiers |
 | Backups | Contain no plaintext messages by construction; still encrypt them (see DEPLOYMENT.md) |
-| Message timing/size | **Visible to the operator.** No padding or cover traffic in this version (roadmap MD-1/MD-2) |
+| Message timing/size | Sizes are padded to buckets (64/256/1024/4096·n) and headers are encrypted, so ratchet keys, counters and exact lengths are hidden. **Timing, count and bucket remain visible to the operator** — no cover traffic or delayed delivery (roadmap MD-2) |
 | Browser fingerprinting | Not performed by us; not preventable by us |
 
 ## Residual risks, stated plainly
 
 1. **Server-served client code.** The operator can ship a malicious bundle to a specific
    user. Mitigation is procedural (published builds, third-party audit) and partial.
-2. **Metadata.** Who is online, when, how often, and how large their messages are.
+2. **Metadata.** Who is online, when, how often, and roughly how large their messages
+   are (the bucket, not the byte count).
 3. **Classical-only handshake.** Recorded traffic today may be decryptable by a future
    quantum adversary.
 4. **Unverified identities.** Without a safety-number comparison, a first contact is

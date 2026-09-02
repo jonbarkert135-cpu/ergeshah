@@ -251,7 +251,7 @@ describe("end-to-end messaging through the real API", () => {
 
   it("stores the key vault sealed, and never the key that opens it", async () => {
     const alice = await peer("alice");
-    const sealed = { v: 1, nonce: "AAAA", data: "BBBB" };
+    const sealed = { v: 2, nonce: "AAAA", data: "BBBB" };
     expect((await alice.http.request("PUT", "/api/keys/vault", { sealedVault: sealed })).status).toBe(200);
     const row = await server.db.get<{ sealed: string }>("SELECT sealed FROM vaults");
     expect(JSON.parse(row!.sealed)).toEqual(sealed);
