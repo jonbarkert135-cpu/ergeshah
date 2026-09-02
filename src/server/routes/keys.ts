@@ -36,12 +36,22 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
     const label = asOptionalString(body.label, "label", 40) || null;
     const oneTimePreKeys = asArray(body.oneTimePreKeys ?? [], "oneTimePreKeys", MAX_ONE_TIME_PREKEYS);
 
-    const owner = await db.get<{ user_id: string; id: string }>(
-      "SELECT id, user_id FROM devices WHERE identity_key = ?",
+    const owner = await db.get<{ user_id: string; id: string; revoked_at: number | null }>(
+      "SELECT id, user_id, revoked_at FROM devices WHERE identity_key = ?",
       [identityKey],
     );
     if (owner && owner.user_id !== user.id) {
       throw conflict("that identity key belongs to another account", "identity_key_taken");
+    }
+    // Revocation is final. Re-publishing the same identity key used to clear `revoked_at`,
+    // which handed a stolen device its own undo button: the thief still holds the identity
+    // private key, and one publish would put the device back in every prekey bundle. A new
+    // device is a new identity, which is what the client generates on a fresh install.
+    if (owner && owner.revoked_at !== null) {
+      throw conflict(
+        "that device identity was revoked; generate a new device identity instead",
+        "device_revoked",
+      );
     }
 
     const deviceId = owner?.id ?? newId();
@@ -49,7 +59,7 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
       if (owner) {
         await tx.run(
           `UPDATE devices SET signed_prekey_id = ?, signed_prekey = ?, signed_prekey_signature = ?,
-                              label = ?, rotated_day = ?, revoked_at = NULL
+                              label = ?, rotated_day = ?
              WHERE id = ?`,
           [signedPreKeyId, signedPreKey, signature, label, today(), deviceId],
         );
@@ -100,7 +110,11 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
   /** Claim a prekey bundle for every active device of a user. One-time keys are consumed. */
   app.get("/api/keys/bundle/:username", async (request) => {
     await app.authenticate(request);
-    await app.limit(request, "read");
+    // Its own bucket, and a tight one: every call consumes one one-time prekey per device
+    // of the target, so the ordinary `read` allowance would let one account drain another
+    // account's prekeys in seconds and force every new session onto the signed prekey
+    // alone (weaker forward secrecy for the first message). ADR-0035.
+    await app.limit(request, "key_bundle");
     const username = asUsername((request.params as { username: string }).username);
     const target = await db.get<{ id: string; status: string }>(
       "SELECT id, status FROM users WHERE username = ?",

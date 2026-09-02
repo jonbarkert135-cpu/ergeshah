@@ -55,9 +55,11 @@ the server remembers anything.
 
 ### `RATE_LIMITS`
 
-Thirteen scopes: `register`, `login`, `recovery`, `sensitive`, `message_send`,
+Fourteen scopes: `register`, `login`, `recovery`, `sensitive`, `message_send`,
 `seller_application`, `listing_write`, `order_write`, `review`, `moderation`, `search`,
-`read`, `write`. Each has a `burst` (tokens available at once) and `perMinute` (refill rate).
+`key_bundle`, `read`, `write`. Each has a `burst` (tokens available at once) and
+`perMinute` (refill rate). `key_bundle` is separate from `read` because claiming a prekey
+bundle *consumes* one of the target's one-time prekeys (ADR-0035).
 Override any subset:
 
 ```

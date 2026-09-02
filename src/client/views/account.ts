@@ -92,10 +92,14 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
         "div",
         { class: "row spaced" },
         el("button", { onclick: () => void signOut(false) }, "Sign out"),
+        el("button", { class: "danger", onclick: () => void signOutEverywhere() }, "Sign out everywhere"),
         el("button", { class: "danger", onclick: () => void signOut(true) }, "Sign out and wipe this device"),
       ),
       notice(
         "Wiping removes the encrypted vault from this browser. Your messages exist nowhere else, so they are gone unless you can restore the sealed backup with your password.",
+      ),
+      notice(
+        "Lost a device? Revoking it stops messages reaching it, but a session it left signed in keeps working until it is revoked here — or sign out everywhere, which ends all of them at once.",
       ),
     );
 
@@ -450,7 +454,10 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
     button.addEventListener("click", () => {
       void confirmDialog({
         title: "Revoke this device?",
-        body: "It stops receiving messages immediately, and anything already waiting for it is deleted.",
+        body:
+          "It stops receiving messages immediately, anything already waiting for it is deleted, " +
+          "and that device identity can never be published again. Sessions signed in on it are " +
+          "separate: end those under Sessions, or with \u201CSign out everywhere\u201D.",
         confirmLabel: "Revoke",
         danger: true,
       }).then(async (agreed) => {
@@ -461,6 +468,20 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
       });
     });
     return button;
+  }
+
+  /** Ends every session of the account, including this one — the stolen-device button. */
+  async function signOutEverywhere() {
+    const agreed = await confirmDialog({
+      title: "Sign out everywhere?",
+      body: "Every signed-in session ends, on this device and on all the others. The encrypted vault stays in this browser.",
+      confirmLabel: "Sign out everywhere",
+      danger: true,
+    });
+    if (!agreed) return;
+    await api("/api/auth/logout-everywhere", { method: "POST" }).catch(() => undefined);
+    lock();
+    onSignedOut();
   }
 
   async function signOut(wipe: boolean) {

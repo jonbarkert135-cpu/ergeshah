@@ -14,7 +14,40 @@ const BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
 // eslint-disable-next-line no-control-regex
 const DANGEROUS_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/;
 
+/**
+ * A single-line field: everything except prose. Line breaks are refused here rather than
+ * stored, because a name, a title or a device label that spans three lines is a spoofing
+ * tool — it pushes text out of a card, hides the real value below the fold, and reads
+ * differently to a moderator than to a buyer. Prose fields opt in through `asText`.
+ */
 export function asString(value: unknown, field: string, max: number, min = 1): string {
+  const text = clean(value, field, max, min);
+  if (/[\r\n]/.test(text)) throw badRequest(`${field} must be a single line`, "invalid_characters");
+  return text;
+}
+
+export function asOptionalString(value: unknown, field: string, max: number): string {
+  if (value === undefined || value === null || value === "") return "";
+  return asString(value, field, max, 0);
+}
+
+/**
+ * A field where line breaks are the point: a description, a statement, a dispute reason,
+ * a moderator's note, an ASCII-armoured PGP key. Line endings are normalised rather than
+ * refused — a paste from Windows carries CRLF, and rejecting it would be a validator
+ * teaching users that the software is broken.
+ */
+export function asText(value: unknown, field: string, max: number, min = 1): string {
+  if (typeof value !== "string") throw badRequest(`${field} must be a string`);
+  return clean(value.replace(/\r\n?/g, "\n"), field, max, min);
+}
+
+export function asOptionalText(value: unknown, field: string, max: number): string {
+  if (value === undefined || value === null || value === "") return "";
+  return asText(value, field, max, 0);
+}
+
+function clean(value: unknown, field: string, max: number, min: number): string {
   if (typeof value !== "string") throw badRequest(`${field} must be a string`);
   // Canonicalise first, then measure: "e\u0301" and "é" must not have different limits,
   // and a length check on the unnormalised form is a length check on the wrong string.
@@ -26,11 +59,6 @@ export function asString(value: unknown, field: string, max: number, min = 1): s
   if (trimmed.length < min) throw badRequest(`${field} is too short`);
   if (trimmed.length > max) throw badRequest(`${field} is longer than ${max} characters`);
   return trimmed;
-}
-
-export function asOptionalString(value: unknown, field: string, max: number): string {
-  if (value === undefined || value === null || value === "") return "";
-  return asString(value, field, max, 0);
 }
 
 export function asUsername(value: unknown): string {

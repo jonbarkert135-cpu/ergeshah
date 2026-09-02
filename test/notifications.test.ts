@@ -92,15 +92,14 @@ describe("what an inbox holds", () => {
     await buyer.post(`/api/market/orders/${order.body.id}/status`, { status: "completed" });
     await buyer.post(`/api/market/orders/${order.body.id}/review`, { rating: 5, body: "Superb." });
     const afterReview = await inbox(seller);
-    expect(afterReview.body.notifications[0]).toMatchObject({
-      kind: "review",
-      subjectType: "listing",
-      subjectId: listing,
-    });
+    // Looked up by kind rather than by position: the completion and the review can land in
+    // the same millisecond, and two rows with the same timestamp have no true order.
+    const review = afterReview.body.notifications.find((row) => row.kind === "review");
+    expect(review).toMatchObject({ kind: "review", subjectType: "listing", subjectId: listing });
     // The stars and the words are not in the inbox: only that a review exists.
     expect(JSON.stringify(afterReview.body)).not.toContain("Superb");
     // Neither the stars nor the words: the rating appears nowhere in the inbox payload.
-    expect(afterReview.body.notifications[0]!.detail).toBeNull();
+    expect(review!.detail).toBeNull();
   });
 
   it("tells a buyer's counterparty about a dispute, with the kind but not the reason", async () => {

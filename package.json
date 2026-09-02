@@ -31,7 +31,8 @@
     "backup:verify": "node scripts/backup.mjs verify",
     "backup:restore": "node scripts/backup.mjs restore",
     "backup:prune": "node scripts/backup.mjs prune",
-    "backup:keygen": "node scripts/backup.mjs keygen"
+    "backup:keygen": "node scripts/backup.mjs keygen",
+    "incident": "node scripts/incident.mjs"
   },
   "dependencies": {
     "fastify": "^5.2.0",

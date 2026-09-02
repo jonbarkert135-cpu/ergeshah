@@ -117,6 +117,24 @@ The database contains no plaintext messages, but it does contain password hashes
 vaults, marketplace records and public keys. The backup key is not part of the application's
 configuration on purpose: a compromised running service cannot decrypt the backup history.
 
+## When something goes wrong
+
+Procedures — credential rotation, session revocation, a compromised server, a database
+breach, a dependency vulnerability, a key compromise — are in
+**`docs/INCIDENT_RESPONSE.md`**. Their commands are `scripts/incident.mjs`, run **on the
+host** next to the database file rather than inside the container: the application image is
+read-only and a break-glass path shipped inside the running service would be a backdoor
+with a nicer name (ADR-0037).
+
+```bash
+npm run incident status                          # counts first: see the blast radius
+npm run incident sessions:revoke-all -- --yes    # end every session on the deployment
+npm run incident suspend someone -- --reason "under investigation" --yes
+```
+
+Every destructive command requires `--yes`, prints what it changed, and can only take
+access away — there is no command that reads a message, a vault or a password hash.
+
 ## Logs
 
 What is logged, why, for how long, who can read it and when it is deleted: **`docs/LOGGING.md`**.

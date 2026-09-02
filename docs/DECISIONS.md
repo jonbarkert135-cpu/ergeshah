@@ -1002,3 +1002,87 @@ restore drill takes a minute. Data lost more than 35 days ago is genuinely unrec
 deliberate. Debugging is harder than with request logging: an operator gets a route pattern, an
 error name and a scrubbed message, and for anything more must reproduce it. That is the trade
 this project is here to make.
+
+## ADR-0035 — Revocation is final, and claiming a prekey is not an ordinary read
+
+**Status:** accepted (2026-09-03)
+
+**Context.** PASS 2 of the review loop (`SECURITY_REVIEW.md`, R-02 and R-03) attacked the
+key directory as a hostile *account*, the cheapest attacker to be. Two things worked.
+
+Re-publishing a device set `revoked_at = NULL`, so "revoke this device" was undone by the
+device itself: a thief holding the identity private key and a session could publish the
+same bundle again and reappear in every prekey bundle. And `GET /api/keys/bundle/:username`
+consumes one one-time prekey per device per call while sitting in the generic `read` bucket
+(240 burst, 240/minute) — one account could empty another account's prekeys in seconds, so
+every new session with that person would open against the signed prekey alone.
+
+**Decision.** A revoked identity key is refused for good (`409 device_revoked`); a new
+device means a new identity, which is what the client generates anyway. Bundle claiming
+gets its own scope, `key_bundle` (30 burst, 10/minute) — the fourteenth, and the first that
+exists because a *read* consumes something belonging to somebody else.
+
+**Rejected:** keeping a "re-activate device" path behind the password (the password is what
+a stolen unlocked browser already has); refilling one-time prekeys server-side (the server
+has no private material and must not invent any); making the bundle route
+`sensitive` (that bucket is shared with password changes and linking, and exhausting it
+would break account management rather than slow an attacker).
+
+**Consequences.** Revoking a device on the wrong day costs a new device identity and a new
+safety-number comparison — deliberate friction on a rare action. A client that opens many
+conversations at once (a first sign-in with a large contact list) will now be throttled at
+30; it retries, and the alternative was letting anyone drain a stranger's prekeys. Neither
+change touches an existing session, a stored key or the wire format.
+
+## ADR-0036 — One writer at a time on SQLite, because handlers are not synchronous
+
+**Status:** accepted (2026-09-03)
+
+**Context.** `node:sqlite` is synchronous, but a request handler is not. A transaction body
+that awaits anything yields to the event loop, and the next request's `BEGIN IMMEDIATE`
+runs *inside* the first transaction: SQLite answers "cannot start a transaction within a
+transaction" (a 500 under any real concurrency), and the statements that do get through
+share one transaction — a rollback in one request could discard another request's writes.
+Found by a test that fetched four prekey bundles at once (R-01); three of the four failed.
+PostgreSQL never had the problem, because each transaction checks out its own pooled client.
+
+**Decision.** The SQLite driver queues transactions on the connection: each waits for the
+previous one to finish before it opens. Nested calls are unchanged — they reuse the open
+transaction, which is what the existing `inTransaction` flag already meant.
+
+**Rejected:** a mutex library (nine lines of promise chaining, no dependency); retrying on
+`SQLITE_BUSY` (the failure is not contention between processes, it is one process talking
+over itself); `PRAGMA journal_mode`/`busy_timeout` tuning (a timeout does not stop a nested
+`BEGIN`); making every handler synchronous (it is the shape of the whole application).
+
+**Consequences.** Writes were already serialised by SQLite's single-writer rule; the queue
+makes the waiting explicit instead of an error. Reads outside a transaction are untouched.
+A transaction body that never settles would now stall later transactions — acceptable,
+because every one of them is a handful of statements with no external I/O.
+
+## ADR-0037 — A break-glass tool that can only take access away
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 52 asks for incident procedures. A procedure whose step is "run this SQL
+by hand" is a procedure nobody follows correctly at 3am, and the operator genuinely needs
+three things the API cannot give them: acting for *other people's* accounts, acting while
+the application is stopped, and one line to copy.
+
+**Decision.** `scripts/incident.mjs`, with `status`, `sessions:revoke-all`,
+`sessions:revoke`, `devices:revoke`, `suspend`, `reinstate` and `links:purge`. Every
+destructive command refuses to run without `--yes` and prints the rows it changed. The tool
+runs on the host against the database file, not inside the read-only container: a
+break-glass path shipped inside the running service is a backdoor with a nicer name. It has
+no command that reads a message, a vault or a password hash, and `test/incident.test.ts`
+asserts that no such SQL exists in the file.
+
+**Rejected:** an admin HTTP endpoint (the compromise case is exactly when the application
+cannot be trusted); PostgreSQL support in the same script (it would need the driver, a
+connection string on a command line and a second code path nobody exercises — the tool
+refuses loudly and prints the equivalent SQL instead); a `--dry-run` flag (`status` before
+and after is the honest version, and one fewer mode to get wrong).
+
+**Consequences.** The procedures in `INCIDENT_RESPONSE.md` are executable, and their
+commands are covered by tests rather than by hope. An operator on PostgreSQL still has to
+paste SQL — documented, not pretended away.

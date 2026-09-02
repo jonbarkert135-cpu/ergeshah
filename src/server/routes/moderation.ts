@@ -11,7 +11,15 @@ import { recordAudit } from "../lib/audit.ts";
 import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { dayToIsoDate, today } from "../lib/time.ts";
-import { asEnum, asId, asOptionalString, asString, asUsername, REPORT_REASONS, REPORT_TARGETS } from "../lib/validate.ts";
+import {
+  asEnum,
+  asId,
+  asOptionalText,
+  asString,
+  asUsername,
+  REPORT_REASONS,
+  REPORT_TARGETS,
+} from "../lib/validate.ts";
 import { destroyAllSessions } from "../lib/sessions.ts";
 import { sellerReputation } from "../lib/reputation.ts";
 import { notify, notifyQuietly } from "../lib/notify.ts";
@@ -31,7 +39,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     // checks that the reporter is the buyer; the bare report route must not offer a way
     // to file one against any order id.
     if (reason === "dispute") throw badRequest("open a dispute from the order");
-    const details = asOptionalString(body.details, "details", 2000);
+    const details = asOptionalText(body.details, "details", 2000);
 
     const id = newId();
     await db.run(
@@ -105,7 +113,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     const id = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const decision = asEnum(body.decision, "decision", ["approved", "rejected"] as const);
-    const note = asOptionalString(body.note, "note", 1000);
+    const note = asOptionalText(body.note, "note", 1000);
 
     const application = await db.get<{
       id: string;
@@ -156,7 +164,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     const moderator = await app.requireRole(request, [...staff]);
     await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
-    const note = asOptionalString((request.body as Record<string, unknown>)?.note, "note", 1000);
+    const note = asOptionalText((request.body as Record<string, unknown>)?.note, "note", 1000);
     const listing = await db.get<{ id: string; seller_user_id: string }>(
       "SELECT id, seller_user_id FROM listings WHERE id = ?",
       [id],
@@ -191,7 +199,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     const username = asUsername((request.params as { username: string }).username);
     const body = (request.body ?? {}) as Record<string, unknown>;
     const status = asEnum(body.status, "status", ["active", "suspended"] as const);
-    const reason = asOptionalString(body.reason, "reason", 500);
+    const reason = asOptionalText(body.reason, "reason", 500);
 
     const target = await db.get<{ id: string; role: string }>(
       "SELECT id, role FROM users WHERE username = ?",
@@ -235,7 +243,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     const moderator = await app.requireRole(request, [...staff]);
     await app.limit(request, "moderation");
     const id = asId((request.params as { id: string }).id, "id");
-    const note = asOptionalString((request.body as Record<string, unknown>)?.note, "note", 1000);
+    const note = asOptionalText((request.body as Record<string, unknown>)?.note, "note", 1000);
     const review = await db.get<{ id: string; author_user_id: string }>(
       "SELECT id, author_user_id FROM reviews WHERE id = ?",
       [id],
@@ -265,7 +273,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     const id = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const outcome = asEnum(body.outcome, "outcome", ["actioned", "dismissed"] as const);
-    const note = asOptionalString(body.note, "note", 1000);
+    const note = asOptionalText(body.note, "note", 1000);
     const report = await db.get<{ id: string; status: string }>(
       "SELECT id, status FROM reports WHERE id = ?",
       [id],

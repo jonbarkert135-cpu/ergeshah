@@ -67,6 +67,8 @@ to be a residual risk.
 | Privilege escalation | Roles checked per route; moderators cannot touch admins; nobody can promote themselves |
 | Race conditions | One-time prekey claiming and order transitions run inside transactions |
 | Brute force | Token-bucket limits on login, registration, sending and writes |
+| One-time prekey exhaustion | Claiming a bundle has its own tight bucket (`key_bundle`, ADR-0035), so an account cannot drain someone's prekeys the way an ordinary read allowance would let it. Residual: an attacker with many accounts can still exhaust them, and sessions then open against the signed prekey alone — authenticated, but without the extra forward secrecy of a one-time key |
+| Un-revoking a stolen device | Revocation is final: an identity key that was revoked is refused on re-publication (`409 device_revoked`), so whoever holds the device's private key cannot put it back in the directory. Residual: revoking a device does **not** end sessions signed in on it — the user must also sign out everywhere, which the account view and `INCIDENT_RESPONSE.md` §2 both say |
 | User enumeration | Login is constant-work and returns one message for both cases; registration necessarily reveals a taken username (accepted, documented) |
 | Request smuggling | Single proxy hop, no request rewriting, Node's own HTTP parser in strict mode |
 | Deserialization | JSON only, size-limited, schema-validated field by field |
@@ -102,6 +104,7 @@ to be a residual risk.
 | Delivered files | Stored as ciphertext only, padded to 4 KB, with no filename or type; the key never reaches the server. **The operator learns that an order was delivered, the padded size, and the upload and pickup times**, and can delete or withhold a blob (denial of service, not disclosure) |
 | Client network location | Hidden from the operator only for users who arrive over the onion service (`docs/DEPLOYMENT.md`). On the clearnet the reverse proxy sees an address, uses it as rate-limit input, and does not store it |
 | Browser fingerprinting | Not performed by us; not preventable by us |
+| Recovery-challenge timing | `POST /api/auth/recovery/challenge` answers every username identically, but it writes a row only when the account exists *and* has recovery configured. The difference is a few hundred microseconds of database work — a timing oracle an attacker must average many samples to read, and one the rate limit makes slow. Not closed: doing so needs a nullable `user_id` on `auth_challenges`. Recorded as R-10 in `SECURITY_REVIEW.md` |
 
 ## Hostile uploads (point 49)
 

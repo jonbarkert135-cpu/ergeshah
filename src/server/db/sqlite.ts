@@ -21,7 +21,21 @@ function normalise(params: unknown[]): unknown[] {
   });
 }
 
+/**
+ * One writer at a time, per connection.
+ *
+ * `node:sqlite` is synchronous, but the handlers around it are not: a transaction body
+ * that awaits anything gives the event loop a chance to run another request, and that
+ * request's `BEGIN IMMEDIATE` lands inside the first transaction. SQLite answers
+ * "cannot start a transaction within a transaction" (a 500 under concurrency) and, worse,
+ * the interleaved statements that *do* run share one transaction — a rollback in one
+ * request would discard another request's writes. PostgreSQL does not have this problem
+ * because each transaction checks out its own pooled client; SQLite has one handle, so
+ * transactions are queued on it instead. Nested calls do not queue: they reuse the open
+ * transaction, which is what `inTransaction` already means.
+ */
 function wrap(handle: DatabaseSync, inTransaction: boolean): Db {
+  let queue: Promise<unknown> = Promise.resolve();
   const db: Db = {
     dialect: "sqlite",
     async all<T>(sql: string, params: unknown[] = []): Promise<T[]> {
@@ -36,15 +50,20 @@ function wrap(handle: DatabaseSync, inTransaction: boolean): Db {
     },
     async transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
       if (inTransaction) return fn(db);
-      handle.exec("BEGIN IMMEDIATE");
-      try {
-        const result = await fn(wrap(handle, true));
-        handle.exec("COMMIT");
-        return result;
-      } catch (error) {
-        handle.exec("ROLLBACK");
-        throw error;
-      }
+      const attempt = queue.then(async () => {
+        handle.exec("BEGIN IMMEDIATE");
+        try {
+          const result = await fn(wrap(handle, true));
+          handle.exec("COMMIT");
+          return result;
+        } catch (error) {
+          handle.exec("ROLLBACK");
+          throw error;
+        }
+      });
+      // The queue must survive a failed transaction, so it tracks completion, not success.
+      queue = attempt.catch(() => undefined);
+      return attempt;
     },
     async close(): Promise<void> {
       handle.close();

@@ -114,9 +114,31 @@ describe("the documents point 31 requires are present and not empty", () => {
       ["docs/BACKUPS.md", 40],
       ["docs/LOGGING.md", 60],
       ["docs/DECISIONS.md", 100],
+      ["docs/INCIDENT_RESPONSE.md", 60],
+      ["docs/SECURITY_REVIEW.md", 40],
     ] as const) {
       const lines = read(path).split("\n").length;
       expect(lines, path).toBeGreaterThanOrEqual(minimumLines);
+    }
+  });
+
+  it("has the section index point 62 asks for, and every index points somewhere real", () => {
+    for (const section of [
+      "architecture",
+      "security",
+      "cryptography",
+      "deployment",
+      "database",
+      "api",
+      "testing",
+      "privacy",
+    ]) {
+      const index = read(`docs/${section}/README.md`);
+      expect(index.split("\n").length, section).toBeGreaterThanOrEqual(10);
+      // An index of dead links is worse than no index: every document it names must exist.
+      for (const [, target] of index.matchAll(/\]\((\.\.[^)#]+\.md)[^)]*\)/g)) {
+        expect(() => read(`docs/${section}/${target}`), `${section} -> ${target}`).not.toThrow();
+      }
     }
   });
 
@@ -134,6 +156,11 @@ describe("the documents point 31 requires are present and not empty", () => {
       "docs/PRIVACY.md",
       "docs/API.md",
       "docs/AUDIT.md",
+      "docs/INCIDENT_RESPONSE.md",
+      "docs/SECURITY_REVIEW.md",
+      "docs/security/README.md",
+      "docs/cryptography/README.md",
+      "docs/privacy/README.md",
     ]) {
       // Naming the forbidden phrase in order to *reject* it is exactly what these documents
       // are supposed to do ("Not unbreakable.", "does not claim to be anonymous"). So the

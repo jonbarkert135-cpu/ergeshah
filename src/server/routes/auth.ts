@@ -20,6 +20,7 @@ import {
   asBase64Url,
   asId,
   asOptionalString,
+  asOptionalText,
   asSealedVault,
   asUsername,
 } from "../lib/validate.ts";
@@ -498,9 +499,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const user = await app.authenticate(request);
     const body = (request.body ?? {}) as Record<string, unknown>;
     const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
-    const publicKey = asOptionalString(body.publicKey, "publicKey", 64 * 1024);
+    const publicKey = asOptionalText(body.publicKey, "publicKey", 64 * 1024);
     const challengeId = asId(body.challengeId, "challengeId");
-    const signature = asOptionalString(body.signature, "signature", 64 * 1024);
+    const signature = asOptionalText(body.signature, "signature", 64 * 1024);
     if (!publicKey || !signature) throw badRequest("publicKey and signature are required");
     await app.limit(request, "sensitive");
 
@@ -545,7 +546,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/auth/pgp/complete", async (request, reply) => {
     const body = (request.body ?? {}) as Record<string, unknown>;
     const challengeId = asId(body.challengeId, "challengeId");
-    const signature = asOptionalString(body.signature, "signature", 64 * 1024);
+    const signature = asOptionalText(body.signature, "signature", 64 * 1024);
     const label = asOptionalString(body.label, "label", 40) || null;
     if (!signature) throw badRequest("signature is required");
     await app.limit(request, "sensitive");

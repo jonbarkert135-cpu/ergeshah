@@ -2,7 +2,8 @@
  * Double Ratchet (Signal specification, rev. 1, 2016) over X25519 / HKDF-SHA256 /
  * XChaCha20-Poly1305.
  *
- * Guarantees, inherited from the specification and exercised by `test/ratchet.test.ts`:
+ * Guarantees, inherited from the specification and exercised by `test/protocol.test.ts`
+ * and `test/cryptography.test.ts`:
  *  - a message key is derived, used once and destroyed (forward secrecy inside a chain);
  *  - every DH ratchet step re-keys the session (post-compromise security);
  *  - out-of-order and dropped messages are handled through bounded skipped-key storage;

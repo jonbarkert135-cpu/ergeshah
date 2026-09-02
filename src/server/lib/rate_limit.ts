@@ -60,6 +60,11 @@ export const DEFAULT_LIMITS = {
   moderation: { burst: 30, perMinute: 10 },
   /** Listing search: the one query that scans, so it gets its own, tighter bucket. */
   search: { burst: 30, perMinute: 30 },
+  /**
+   * Claiming a prekey bundle. Separate from `read` because it is the one read that
+   * *consumes* something of somebody else's: one one-time prekey per device, per call.
+   */
+  key_bundle: { burst: 30, perMinute: 10 },
   /** Ordinary reads. */
   read: { burst: 240, perMinute: 240 },
   /** Anything else that writes. */

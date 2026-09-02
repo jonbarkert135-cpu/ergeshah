@@ -25,11 +25,35 @@ about the system is worse than no test, and the cheapest way to lie is to test a
 | `migrations.test.ts` | Integration | Migrations apply to an empty database, twice is a no-op, hot columns are indexed |
 | `client.test.ts` | Unit | The DOM builder escapes, and the router does not trust the fragment |
 | `audit.test.ts` | Unit | The audit scanners themselves — a scanner with a broken regex is a green CI that checks nothing |
+| `security.test.ts` | **Security** | One suite per attack class in point 53: the attacks that cross two other suites, and the sweeps nobody could keep by hand (every unsafe route without a CSRF token, every table checked for a message plaintext) |
+| `cryptography.test.ts` | **Security** | Point 54, per kind: published vectors, negative, malformed input, replay, corrupted ciphertext, wrong key, wrong identity, nonce misuse, session reset |
+| `incident.test.ts` | **Security** | `scripts/incident.mjs` against a real database: a procedure that has never been run is a wish |
 | `docs.test.ts` | Documentation | Every route, table and environment variable is documented, and nothing documented has disappeared |
 
-The three suites marked **Security** are the ones that would catch a regression an attacker
+The suites marked **Security** are the ones that would catch a regression an attacker
 could use directly. They are not separated into a different command on purpose: a security
 check you can skip is a security check that gets skipped.
+
+## The attack classes of point 53, and where each one is covered
+
+| Class | Primary | Also |
+| --- | --- | --- |
+| Authentication | `auth.test.ts` | `security.test.ts` (forged, truncated, expired and orphaned tokens), `pgp.test.ts`, `recovery.test.ts` |
+| Authorization | `authorization.test.ts` | `security.test.ts` (a demotion takes effect on the next request), `moderation.test.ts` |
+| E2EE | `messaging.test.ts`, `protocol.test.ts` | `security.test.ts` (a substituted signed prekey is refused; no column holds a plaintext) |
+| Replay | `protocol.test.ts` | `security.test.ts` (a cookie captured before a password change; a device-link code), `cryptography.test.ts`, `recovery.test.ts` |
+| Key rotation | `protocol.test.ts` | `security.test.ts` (the rotated prekey is served, a revoked identity never returns) |
+| Session invalidation | `auth.test.ts` | `security.test.ts` (revoke one from another, sign out everywhere, suspension) |
+| XSS | `client.test.ts`, `hardening.test.ts` | `security.test.ts` (markup stored as data, CSP on every response including errors) |
+| CSRF | `auth.test.ts` | `security.test.ts` (a sweep of every unsafe route with no token, and a token from another browser) |
+| Injection | `search.test.ts` | `security.test.ts` (SQL as data, prototype pollution, line breaks in single-line fields) |
+| IDOR | `authorization.test.ts` | `security.test.ts` (another pair's order, delivery, notification and envelopes), `notifications.test.ts`, `delivery.test.ts` |
+| Race conditions | `integrity.test.ts` | `security.test.ts` (contested registration, concurrent prekey claims) |
+| Rate limits | `limits.test.ts` | `security.test.ts` (prekey exhaustion) |
+| Privilege escalation | `moderation.test.ts` | `security.test.ts` (role in a registration body, suspended account, staff and messages) |
+
+The nine cryptographic test kinds of point 54 are mapped in the header comment of
+`test/cryptography.test.ts`, next to the file that covers each one.
 
 ## Writing a test
 

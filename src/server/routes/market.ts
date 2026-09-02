@@ -16,7 +16,9 @@ import {
   asId,
   asInteger,
   asOptionalString,
+  asOptionalText,
   asString,
+  asText,
   CURRENCIES,
   LISTING_KINDS,
 } from "../lib/validate.ts";
@@ -66,7 +68,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     await app.limit(request, "seller_application");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const displayName = asString(body.displayName, "displayName", 40, 3);
-    const statement = asString(body.statement, "statement", 2000, 20);
+    const statement = asText(body.statement, "statement", 2000, 20);
 
     const alreadySeller = await db.get("SELECT user_id FROM sellers WHERE user_id = ?", [user.id]);
     if (alreadySeller) throw conflict("you are already a seller", "already_seller");
@@ -131,7 +133,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const listing = {
       id: newId(),
       title: asString(body.title, "title", 120, 3),
-      description: asString(body.description, "description", 8000, 20),
+      description: asText(body.description, "description", 8000, 20),
       category: asString(body.category, "category", 40, 2),
       kind: asEnum(body.kind, "kind", LISTING_KINDS),
       priceMinor: asInteger(body.priceMinor, "priceMinor", 0, 10 ** 12),
@@ -178,7 +180,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const updates: Array<[string, unknown]> = [];
     if (body.title !== undefined) updates.push(["title", asString(body.title, "title", 120, 3)]);
     if (body.description !== undefined) {
-      updates.push(["description", asString(body.description, "description", 8000, 20)]);
+      updates.push(["description", asText(body.description, "description", 8000, 20)]);
     }
     if (body.category !== undefined) {
       updates.push(["category", asString(body.category, "category", 40, 2)]);
@@ -444,7 +446,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     // into `reports`, where every other moderator-facing complaint already lives.
     const reason =
       next === "disputed"
-        ? asString((request.body as { reason?: unknown })?.reason, "reason", 2000, 10)
+        ? asText((request.body as { reason?: unknown })?.reason, "reason", 2000, 10)
         : null;
     const settling = order.status === "disputed" && actorRoles.includes("moderator");
 
@@ -517,7 +519,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const id = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const rating = asInteger(body.rating, "rating", 1, 5);
-    const text = asOptionalString(body.body, "body", 2000);
+    const text = asOptionalText(body.body, "body", 2000);
 
     const order = await db.get<{
       id: string;

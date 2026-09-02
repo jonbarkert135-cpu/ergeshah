@@ -133,11 +133,13 @@ export async function registerMessageRoutes(app: FastifyInstance): Promise<void>
     let deleted = 0;
     await db.transaction(async (tx) => {
       for (const id of ids) {
-        await tx.run("DELETE FROM envelopes WHERE id = ? AND recipient_device_id = ?", [
-          id,
-          device.id,
-        ]);
-        deleted += 1;
+        // RETURNING, so the count is what was actually deleted rather than what was asked
+        // for: an id belonging to another device must not be reported as acknowledged.
+        const gone = await tx.all<{ id: string }>(
+          "DELETE FROM envelopes WHERE id = ? AND recipient_device_id = ? RETURNING id",
+          [id, device.id],
+        );
+        deleted += gone.length;
       }
     });
     return { deleted };

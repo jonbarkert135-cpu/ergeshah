@@ -11,8 +11,11 @@ exist. Drifted API documentation is worse than none, because people trust it.
 - **Authentication.** A `session` cookie: `HttpOnly`, `SameSite=Strict`, `Secure` (except on
   a `.onion` origin, where there is no TLS layer to require — see `docs/ARCHITECTURE.md`).
   There are no bearer tokens and no API keys.
-- **CSRF.** Every `/api/` request must carry `X-Requested-With: symvolon`. A cross-site form
-  post cannot set a header, and `SameSite=Strict` already withholds the cookie.
+- **CSRF.** Three independent layers on every unsafe method (`security.ts`):
+  `SameSite=Strict` on the session cookie, the `Origin` header checked against `Host` when
+  the browser sends one, and a double-submit token — the `csrf` cookie repeated in an
+  `X-CSRF-Token` header, which a cross-site page can neither read nor set. Safe methods
+  need none of it, and a request without a matching token is answered `403`.
 - **Errors.** `{ "error": "code", "message": "human text" }` with a 4xx status. A 500 returns
   `{ "error": "internal_error", "message": "internal error", "ref": "…" }` — the `ref` is the
   only thing shared between the log line and the user (point 29).
@@ -63,10 +66,10 @@ exist. Drifted API documentation is worse than none, because people trust it.
 
 | Method & path | Auth | Limit | Purpose |
 | --- | --- | --- | --- |
-| `POST /api/keys/device` | session | `sensitive` | Publish a device: identity key, signed prekey, signature |
+| `POST /api/keys/device` | session | `sensitive` | Publish a device: identity key, signed prekey, signature. Re-publishing the same identity key rotates its prekeys; an identity key that was **revoked** is refused for good (`409 device_revoked`) |
 | `POST /api/keys/one-time` | session | `write` | Top up one-time prekeys |
 | `GET /api/keys/status` | session | `read` | How many prekeys are left, which devices are active |
-| `GET /api/keys/bundle/:username` | session | `read` | A prekey bundle for starting a session with someone (consumes one one-time key) |
+| `GET /api/keys/bundle/:username` | session | `key_bundle` | A prekey bundle for starting a session with someone (consumes one one-time key per device, which is why this read has its own tight bucket — ADR-0035) |
 | `POST /api/keys/revoke` | session | `sensitive` | Revoke a device |
 | `PUT /api/keys/vault`, `GET /api/keys/vault` | session | `sensitive` / `read` | The sealed vault: private keys encrypted under a key derived from the password. Opaque to the server |
 
