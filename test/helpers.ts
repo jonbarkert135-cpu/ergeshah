@@ -5,6 +5,7 @@ import { createSqliteDb } from "../src/server/db/sqlite.ts";
 import { migrate } from "../src/server/db/migrate.ts";
 import type { Db } from "../src/server/db/index.ts";
 import { sodiumReady } from "../src/shared/crypto/sodium.ts";
+import { createDeviceIdentity } from "../src/shared/crypto/identity.ts";
 import { deriveAccountKeys } from "../src/shared/crypto/vault.ts";
 import { toBase64Url } from "../src/shared/encoding.ts";
 
@@ -101,6 +102,9 @@ export class TestClient {
   post<T = Record<string, unknown>>(url: string, body?: unknown) {
     return this.request<T>("POST", url, body);
   }
+  put<T = Record<string, unknown>>(url: string, body?: unknown) {
+    return this.request<T>("PUT", url, body);
+  }
   patch<T = Record<string, unknown>>(url: string, body?: unknown) {
     return this.request<T>("PATCH", url, body);
   }
@@ -160,4 +164,21 @@ export async function approveSeller(
     { decision: "approved", note: "welcome" },
   );
   if (decision.status !== 200) throw new Error(`approval failed: ${JSON.stringify(decision.body)}`);
+}
+
+/** Publish a fresh device for a signed-in client, the way the browser does on first run. */
+export async function publishDevice(client: TestClient): Promise<string> {
+  const identity = createDeviceIdentity(2);
+  const response = await client.post<{ deviceId: string }>("/api/keys/device", {
+    identityKey: toBase64Url(identity.identity.publicKey),
+    signedPreKeyId: identity.signedPreKey.keyId,
+    signedPreKey: toBase64Url(identity.signedPreKey.keyPair.publicKey),
+    signedPreKeySignature: toBase64Url(identity.signedPreKeySignature),
+    oneTimePreKeys: identity.oneTimePreKeys.map((key) => ({
+      keyId: key.keyId,
+      publicKey: toBase64Url(key.keyPair.publicKey),
+    })),
+  });
+  if (response.status !== 200) throw new Error(`publish failed: ${JSON.stringify(response.body)}`);
+  return response.body.deviceId;
 }

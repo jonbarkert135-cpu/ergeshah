@@ -10,7 +10,14 @@ import type { FastifyInstance } from "fastify";
 import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { today } from "../lib/time.ts";
-import { asArray, asBase64Url, asInteger, asOptionalString, asUsername } from "../lib/validate.ts";
+import {
+  asArray,
+  asBase64Url,
+  asInteger,
+  asOptionalString,
+  asSealedVault,
+  asUsername,
+} from "../lib/validate.ts";
 
 const MAX_ONE_TIME_PREKEYS = 200;
 
@@ -148,11 +155,7 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
     const user = await app.authenticate(request);
     await app.limit(request, "write");
     const body = (request.body ?? {}) as { sealedVault?: unknown };
-    if (!body.sealedVault || typeof body.sealedVault !== "object") {
-      throw badRequest("sealedVault must be an object produced by sealVault()");
-    }
-    const sealed = JSON.stringify(body.sealedVault);
-    if (sealed.length > 256 * 1024) throw badRequest("sealed vault too large");
+    const sealed = asSealedVault(body.sealedVault);
     const existing = await db.get("SELECT user_id FROM vaults WHERE user_id = ?", [user.id]);
     if (existing) {
       await db.run("UPDATE vaults SET sealed = ?, updated_day = ? WHERE user_id = ?", [

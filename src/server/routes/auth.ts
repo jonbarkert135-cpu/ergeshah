@@ -16,7 +16,12 @@ import {
   pruneSessions,
 } from "../lib/sessions.ts";
 import { today, dayToIsoDate } from "../lib/time.ts";
-import { asBase64Url, asOptionalString, asUsername } from "../lib/validate.ts";
+import {
+  asBase64Url,
+  asOptionalString,
+  asSealedVault,
+  asUsername,
+} from "../lib/validate.ts";
 
 interface Credentials {
   username: unknown;
@@ -35,6 +40,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const username = asUsername(body.username);
     const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
     const label = asOptionalString(body.label, "label", 40) || null;
+    const sealedVault = body.sealedVault === undefined ? null : asSealedVault(body.sealedVault);
     await app.limit(request, "register");
 
     const existing = await db.get("SELECT id FROM users WHERE username = ?", [username]);
@@ -54,10 +60,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
          VALUES (?, ?, ?, ?, 'active', ?)`,
         [userId, username, passwordHash, isFirstUser ? "admin" : "user", today()],
       );
-      if (body.sealedVault !== undefined) {
+      if (sealedVault !== null) {
         await tx.run("INSERT INTO vaults (user_id, sealed, updated_day) VALUES (?, ?, ?)", [
           userId,
-          JSON.stringify(body.sealedVault),
+          sealedVault,
           today(),
         ]);
       }
@@ -128,6 +134,110 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/auth/logout-everywhere", async (request, reply) => {
     const user = await app.authenticate(request);
     await destroyAllSessions(db, user.id);
+    reply.header("set-cookie", [sessionCookie(config, "", 0), csrfCookie(config, "", 0)]);
+    return { ok: true };
+  });
+
+  /**
+   * Change the password.
+   *
+   * The password does two jobs: it authenticates to the server and it seals the vault
+   * that holds the user's private keys. Moving one without the other would lock the user
+   * out of their own conversations, so the new hash and the re-sealed vault are written
+   * in one transaction, and every other session is dropped: they were authorised under
+   * a password that no longer exists.
+   */
+  app.post("/api/auth/password", async (request, reply) => {
+    const user = await app.authenticate(request);
+    const body = (request.body ?? {}) as {
+      currentAuthSecret?: unknown;
+      newAuthSecret?: unknown;
+      sealedVault?: unknown;
+    };
+    const currentAuthSecret = asBase64Url(body.currentAuthSecret, "currentAuthSecret", 64);
+    const newAuthSecret = asBase64Url(body.newAuthSecret, "newAuthSecret", 64);
+    await app.limit(request, "auth");
+
+    const row = await db.get<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE id = ?",
+      [user.id],
+    );
+    if (!(await verifyAuthSecret(row?.password_hash ?? null, currentAuthSecret))) {
+      throw unauthorized("current password is wrong");
+    }
+
+    const hasVault = await db.get("SELECT user_id FROM vaults WHERE user_id = ?", [user.id]);
+    if (hasVault && body.sealedVault === undefined) {
+      throw badRequest(
+        "sealedVault is required: the vault must be re-sealed with the new password",
+        "vault_required",
+      );
+    }
+    const sealedVault = body.sealedVault === undefined ? null : asSealedVault(body.sealedVault);
+    const passwordHash = await hashAuthSecret(newAuthSecret);
+
+    await db.transaction(async (tx) => {
+      await tx.run("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, user.id]);
+      if (sealedVault !== null) {
+        await tx.run(
+          hasVault
+            ? "UPDATE vaults SET sealed = ?, updated_day = ? WHERE user_id = ?"
+            : "INSERT INTO vaults (sealed, updated_day, user_id) VALUES (?, ?, ?)",
+          [sealedVault, today(), user.id],
+        );
+      }
+    });
+
+    await destroyAllSessions(db, user.id);
+    const session = await createSession(db, user.id, config.sessionTtlMs, null);
+    return replyWithSession(reply, config, {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      token: session.token,
+      expiresAt: session.expiresAt,
+    });
+  });
+
+  /**
+   * Delete the account, for real.
+   *
+   * Everything that belongs to the account goes: sessions, the sealed vault, devices and
+   * their prekeys, undelivered envelopes, listings, orders, reviews and reports all
+   * cascade from the `users` row. Three kinds of reference do not belong to the account
+   * and are unlinked instead of deleted — moderation decisions, resolved reports and
+   * audit entries stay, minus the identity of who made them, so a deletion cannot erase
+   * the record that a moderator acted.
+   *
+   * The username becomes available again. That is a deliberate reading of "delete": we
+   * keep no tombstone. The cost is that a later account can take the name, which is why
+   * identity is verified by key and not by name — see docs/THREAT_MODEL.md.
+   */
+  app.post("/api/auth/delete", async (request, reply) => {
+    const user = await app.authenticate(request);
+    const body = (request.body ?? {}) as { authSecret?: unknown };
+    const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
+    await app.limit(request, "auth");
+
+    const row = await db.get<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE id = ?",
+      [user.id],
+    );
+    if (!(await verifyAuthSecret(row?.password_hash ?? null, authSecret))) {
+      throw unauthorized("password is wrong");
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.run("UPDATE audit_log SET actor_user_id = NULL WHERE actor_user_id = ?", [user.id]);
+      await tx.run("UPDATE reports SET resolved_by = NULL WHERE resolved_by = ?", [user.id]);
+      await tx.run("UPDATE seller_applications SET decided_by = NULL WHERE decided_by = ?", [
+        user.id,
+      ]);
+      // Order events name the actor and cannot be null; the order keeps its status.
+      await tx.run("DELETE FROM order_events WHERE actor_user_id = ?", [user.id]);
+      await tx.run("DELETE FROM users WHERE id = ?", [user.id]);
+    });
+
     reply.header("set-cookie", [sessionCookie(config, "", 0), csrfCookie(config, "", 0)]);
     return { ok: true };
   });

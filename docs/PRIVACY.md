@@ -87,6 +87,34 @@ an address without the address, and the key rotates daily.
 | Account, listings, orders, reviews | Until deleted by the user or moderation |
 | Audit entry | Indefinitely (it exists to be reviewable) |
 
+## Deleting an account
+
+`POST /api/auth/delete` (password required) removes, in one transaction: the account row,
+the sealed vault, every device and its prekeys, every undelivered envelope addressed to
+those devices, sessions, listings, orders, order events, reviews and reports. There is no
+tombstone and no soft-delete flag, so **the username becomes available to someone else**.
+
+Three references are unlinked rather than deleted, because they are records of what a
+*moderator* did and are not the deleted user's to erase: `audit_log.actor_user_id`,
+`reports.resolved_by` and `seller_applications.decided_by` are set to NULL. The action, its
+subject and its day remain.
+
+Two consequences worth stating plainly:
+
+- A counterparty loses shared history. Deleting an account deletes its orders and reviews,
+  including the other side's copy of them. A marketplace that kept them would be keeping
+  the deleted user's data, and we chose deletion over bookkeeping.
+- Messages already delivered to other people stay with them. The server cannot reach into
+  another user's device, and E2EE means it could not read them to delete them anyway.
+
+## Changing the password
+
+The password derives both the server-side auth secret and the vault key. `POST
+/api/auth/password` therefore takes the current secret, the new secret and the vault
+re-sealed under the new key, and writes the hash and the vault in one transaction: there is
+no window in which the account authenticates but its keys are unreadable. Every other
+session is destroyed, because each was authorised under a password that no longer exists.
+
 ## Cookies and browser storage
 
 | Name | Purpose | Flags |

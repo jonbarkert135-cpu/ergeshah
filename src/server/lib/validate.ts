@@ -62,3 +62,17 @@ export function asArray(value: unknown, field: string, maxLength: number): unkno
 
 export const CURRENCIES = ["USD", "EUR", "XMR", "BTC"] as const;
 export const LISTING_KINDS = ["digital_good", "service"] as const;
+
+/**
+ * The sealed vault is opaque to the server, but it is still checked: it must be an object
+ * of the shape `sealVault()` produces, and it must be small enough that a client cannot
+ * use the key backup as free storage.
+ */
+export function asSealedVault(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    throw badRequest("sealedVault must be an object produced by sealVault()");
+  }
+  const sealed = JSON.stringify(value);
+  if (sealed.length > 256 * 1024) throw badRequest("sealed vault too large");
+  return sealed;
+}
