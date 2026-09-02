@@ -7,8 +7,8 @@ key.
 ## Clearnet deployment
 
 ```bash
-git clone https://github.com/jonbarkert135-cpu/ergeshah.git
-cd ergeshah
+git clone https://github.com/jonbarkert135-cpu/symvolon.git
+cd symvolon
 cp .env.example .env
 
 # One required secret; the server refuses to start in production without it.
@@ -32,7 +32,7 @@ Uncomment the `db` service in `deploy/docker-compose.yml`, then in `.env`:
 
 ```
 DB_DIALECT=postgres
-DATABASE_URL=postgres://ergeshah:STRONG_PASSWORD@db:5432/ergeshah
+DATABASE_URL=postgres://symvolon:STRONG_PASSWORD@db:5432/symvolon
 ```
 
 Same schema, same SQL, same migrations. Use PostgreSQL when you expect concurrent write
@@ -61,7 +61,7 @@ operator can still correlate account activity across both.
 # SQLite: consistent copy without stopping the service
 docker compose exec app node -e "
   const {DatabaseSync}=require('node:sqlite');
-  new DatabaseSync('data/ergeshah.sqlite').exec(\"VACUUM INTO 'data/backup.sqlite'\");
+  new DatabaseSync('data/symvolon.sqlite').exec(\"VACUUM INTO 'data/backup.sqlite'\");
 "
 # then encrypt before it leaves the host
 age -r age1yourkey -o backup-$(date +%F).sqlite.age backup.sqlite

@@ -29,7 +29,7 @@ housekeeping.unref();
 
 await app.listen({ host: config.host, port: config.port });
 process.stdout.write(
-  `ergeshah listening on ${config.host}:${config.port} (${config.dialect}, ${config.env})\n`,
+  `Symvolon listening on ${config.host}:${config.port} (${config.dialect}, ${config.env})\n`,
 );
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

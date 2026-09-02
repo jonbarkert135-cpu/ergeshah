@@ -22,6 +22,9 @@ import { aeadDecrypt, aeadEncrypt } from "./aead.ts";
 import { hkdf } from "./hkdf.ts";
 import { randomBytes, sodium } from "./sodium.ts";
 
+// The `ergeshah-` prefix in these labels is the project's first name. Labels are opaque
+// domain separators: renaming them would invalidate every derived key and buy nothing, so
+// they stay as they are (ADR-0013).
 const SALT_CONTEXT = utf8("ergeshah-password-salt-v1");
 const AUTH_INFO = utf8("ergeshah-auth-secret-v1");
 const VAULT_INFO = utf8("ergeshah-vault-key-v1");

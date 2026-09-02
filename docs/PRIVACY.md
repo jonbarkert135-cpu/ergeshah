@@ -93,6 +93,6 @@ an address without the address, and the key rotates daily.
 | --- | --- | --- |
 | `session` | Opaque session token | HttpOnly, Secure, SameSite=Strict |
 | `csrf` | Double-submit CSRF token | Secure, SameSite=Strict, readable by our own script |
-| `localStorage["ergeshah.vault.v1"]` | Encrypted key vault and message history | Client-side only |
+| `localStorage["symvolon.vault.v2"]` | Encrypted key vault and message history | Client-side only |
 
 No other cookie, no `sessionStorage`, no IndexedDB, no service worker, no web beacon.
