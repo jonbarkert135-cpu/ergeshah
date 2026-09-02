@@ -1,6 +1,6 @@
 import { api } from "../api.ts";
 import { clear, el, notice } from "../ui.ts";
-import { forgetLocalVault, lock, state } from "../state.ts";
+import { forgetLocalVault, lock } from "../state.ts";
 
 export function renderAccount(root: HTMLElement, onSignedOut: () => void): void {
   clear(root);
@@ -112,6 +112,3 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
   }
 }
 
-export function currentRole(): string {
-  return state.account?.role ?? "user";
-}

@@ -19,7 +19,7 @@ export interface Limit {
   perMinute: number;
 }
 
-export const LIMITS = {
+const LIMITS = {
   auth: { burst: 10, perMinute: 1 },
   register: { burst: 5, perMinute: 0.5 },
   send: { burst: 60, perMinute: 60 },
@@ -29,7 +29,7 @@ export const LIMITS = {
 
 export type LimitName = keyof typeof LIMITS;
 
-export function bucketKey(pepper: string, scope: string, address: string): string {
+function bucketKey(pepper: string, scope: string, address: string): string {
   return hmac(`${pepper}:${today()}`, `${scope}:${address}`);
 }
 

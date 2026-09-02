@@ -1,4 +1,4 @@
-export const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Unix day number. Used wherever an exact timestamp would be gratuitous metadata. */
 export function today(now = Date.now()): number {

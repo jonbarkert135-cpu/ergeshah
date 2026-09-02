@@ -39,7 +39,7 @@ function lastAt(conversation: Conversation): number {
   return conversation.messages.at(-1)?.at ?? 0;
 }
 
-export function conversationWith(peer: string): Conversation | null {
+function conversationWith(peer: string): Conversation | null {
   return conversations().find((conversation) => conversation.peer === peer) ?? null;
 }
 

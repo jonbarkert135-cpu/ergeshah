@@ -8,7 +8,7 @@
 import { sodium } from "./sodium.ts";
 
 export const NONCE_BYTES = 24;
-export const KEY_BYTES = 32;
+const KEY_BYTES = 32;
 
 export function aeadEncrypt(
   key: Uint8Array,

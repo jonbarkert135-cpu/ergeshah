@@ -74,7 +74,7 @@ implementation, and the tests exercise that implementation, not a copy of it.
 
 ## Data model in one paragraph
 
-`users` holds a username, an Argon2id hash of an already-stretched secret, a role and a
+`users` holds a username, a scrypt hash of the already-Argon2id-stretched secret, a role and a
 status. `devices` and `one_time_prekeys` hold public key material only. `envelopes` hold
 ciphertext addressed to a device, with a channel id the clients chose and no sender
 column. `vaults` hold a blob the server cannot open. The marketplace tables

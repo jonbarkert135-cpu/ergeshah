@@ -18,7 +18,6 @@
     "audit:deps": "npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
-    "@node-rs/argon2": "^2.0.2",
     "fastify": "^5.2.0",
     "libsodium-wrappers-sumo": "0.7.15",
     "pg": "^8.13.1"

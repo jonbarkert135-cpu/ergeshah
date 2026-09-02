@@ -9,7 +9,7 @@ not in the schema.
 | --- | --- | --- |
 | `users.id` | Primary key | Random UUID, not sequential |
 | `users.username` | You are addressed by it | As chosen, lowercased |
-| `users.password_hash` | Argon2id over the client-derived `authSecret` | — |
+| `users.password_hash` | scrypt over the client-derived `authSecret` (itself Argon2id) | — |
 | `users.role`, `status`, `status_reason` | Moderation | — |
 | `users.created_day` | Account age for anti-abuse | **Day**, not timestamp |
 

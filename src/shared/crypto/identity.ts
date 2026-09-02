@@ -11,7 +11,7 @@
 import { fromBase64Url, toBase64Url, utf8 } from "../encoding.ts";
 import { sodium } from "./sodium.ts";
 
-export const SIGNED_PREKEY_ROTATION_MS = 7 * 24 * 60 * 60 * 1000;
+const SIGNED_PREKEY_ROTATION_MS = 7 * 24 * 60 * 60 * 1000;
 const SPK_SIGNATURE_CONTEXT = utf8("ergeshah-signed-prekey-v1");
 
 export interface KeyPair {

@@ -28,15 +28,15 @@ const VAULT_INFO = utf8("ergeshah-vault-key-v1");
 const ZERO_SALT = new Uint8Array(32);
 
 /** Client-side Argon2id cost. Browser-friendly but far above a bare hash. */
-export const CLIENT_ARGON2_OPS = 3;
-export const CLIENT_ARGON2_MEMORY = 64 * 1024 * 1024;
+const CLIENT_ARGON2_OPS = 3;
+const CLIENT_ARGON2_MEMORY = 64 * 1024 * 1024;
 
 export interface AccountKeys {
   authSecret: Uint8Array;
   vaultKey: Uint8Array;
 }
 
-export function passwordSalt(username: string): Uint8Array {
+function passwordSalt(username: string): Uint8Array {
   const s = sodium();
   return s.crypto_generichash(
     s.crypto_pwhash_SALTBYTES,
@@ -44,7 +44,7 @@ export function passwordSalt(username: string): Uint8Array {
   );
 }
 
-export function normalizeUsername(username: string): string {
+function normalizeUsername(username: string): string {
   return username.normalize("NFKC").trim().toLowerCase();
 }
 
