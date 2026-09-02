@@ -30,6 +30,7 @@ Design philosophy, in priority order:
 | Password change (re-seals the vault) and self-service account deletion | working |
 | Device linking: a second browser gets its own identity, authorised by a signed-in device | working |
 | Recovery phrase (BIP-39, 12/24 words, generated in the browser) restoring account *and* history | working |
+| PGP as a second factor: challenge, detached signature, verification — private key never leaves the user | working |
 | Password handling (client-side Argon2id split → server-side scrypt) | working |
 | Opaque session tokens (hashed at rest, rotating, revocable) | working |
 | Cryptographic identity (Ed25519 identity + X25519 prekeys, per device) | working |

@@ -1,10 +1,18 @@
 import { api } from "../api.ts";
-import { clear, el, notice } from "../ui.ts";
-import { changePassword, deleteAccount, forgetLocalVault, lock } from "../state.ts";
+import { clear, el, field, notice } from "../ui.ts";
+import {
+  changePassword,
+  deleteAccount,
+  deriveKeys,
+  forgetLocalVault,
+  lock,
+  sealedVaultNow,
+  state,
+} from "../state.ts";
 import { authoriseDevice, parseDeviceCode, type ParsedDeviceCode } from "../linking.ts";
 import { setRecoveryPhrase } from "../recovery.ts";
 import { generatePhrase } from "../../shared/crypto/mnemonic.ts";
-import { sealedVaultNow, state } from "../state.ts";
+import { toBase64Url } from "../../shared/encoding.ts";
 
 export function renderAccount(root: HTMLElement, onSignedOut: () => void): void {
   clear(root);
@@ -19,6 +27,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
       role: string;
       memberSince: string | null;
       recoveryConfigured: boolean;
+      pgpFingerprint: string | null;
     }>("/api/auth/me");
     const keys = await api<{
       devices: Array<{
@@ -104,9 +113,130 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
     );
 
     body.append(el("h2", {}, "Recovery phrase"), recoveryCard(me.recoveryConfigured));
+    body.append(el("h2", {}, "PGP key"), pgpCard(me.username, me.pgpFingerprint));
     body.append(el("h2", {}, "Link a device"), linkCard());
     body.append(el("h2", {}, "Password"), passwordCard());
     body.append(el("h2", {}, "Delete account"), deleteCard());
+  }
+
+  /**
+   * A PGP key as a second factor. The private half never comes near this code: the server
+   * issues a challenge, the user signs it with their own `gpg`, and only the signature and
+   * the public key travel back.
+   */
+  function pgpCard(username: string, fingerprint: string | null): HTMLElement {
+    const holder = el("div", {});
+    const message = el("div", {});
+    const action = el("button", {}, fingerprint ? "Replace this key" : "Add a PGP key");
+    const password = () => el("input", { type: "password", placeholder: "Your password" });
+
+    action.addEventListener("click", () => {
+      const publicKey = el("textarea", {
+        rows: "7",
+        class: "mono",
+        placeholder: "-----BEGIN PGP PUBLIC KEY BLOCK-----",
+        spellcheck: "false",
+      });
+      const next = el("button", { class: "primary" }, "Continue");
+      clear(holder).append(
+        field("Your public key", publicKey),
+        notice("Only the public key. If you paste a private key it will be refused, not stored."),
+        el("div", { class: "row" }, next),
+      );
+
+      next.addEventListener("click", () => {
+        next.setAttribute("disabled", "");
+        clear(message);
+        void api<{ challengeId: string; challenge: string }>("/api/auth/pgp/challenge", {
+          method: "POST",
+          body: {},
+        })
+          .then((challenge) => {
+            const signature = el("textarea", {
+              rows: "7",
+              class: "mono",
+              placeholder: "-----BEGIN PGP SIGNATURE-----",
+              spellcheck: "false",
+            });
+            const pw = password();
+            const confirm = el("button", { class: "primary" }, "Enable PGP sign-in");
+            clear(holder).append(
+              el("p", { class: "muted" }, "Sign these bytes with that key:"),
+              el("pre", { class: "mono block" }, challenge.challenge),
+              el("pre", { class: "mono block" },
+                `printf %s '${challenge.challenge}' | gpg --detach-sign --armor`),
+              field("Signature", signature),
+              el("div", { class: "row" }, pw, confirm),
+            );
+            confirm.addEventListener("click", () => {
+              confirm.setAttribute("disabled", "");
+              clear(message);
+              void api<{ fingerprint: string }>("/api/auth/pgp/key", {
+                method: "POST",
+                body: {
+                  authSecret: toBase64Url(
+                    deriveKeys(username, (pw as HTMLInputElement).value).authSecret,
+                  ),
+                  publicKey: (publicKey as HTMLTextAreaElement).value,
+                  challengeId: challenge.challengeId,
+                  signature: (signature as HTMLTextAreaElement).value,
+                },
+              })
+                .then(() => {
+                  clear(holder);
+                  void load();
+                })
+                .catch((error: Error) => {
+                  message.append(notice(error.message, "error"));
+                  confirm.removeAttribute("disabled");
+                });
+            });
+          })
+          .catch((error: Error) => {
+            message.append(notice(error.message, "error"));
+            next.removeAttribute("disabled");
+          });
+      });
+    });
+
+    const off = el("button", { class: "danger" }, "Turn off PGP sign-in");
+    off.addEventListener("click", () => {
+      const pw = password();
+      const confirm = el("button", { class: "danger" }, "Confirm");
+      clear(holder).append(el("div", { class: "row" }, pw, confirm));
+      confirm.addEventListener("click", () => {
+        confirm.setAttribute("disabled", "");
+        void api("/api/auth/pgp/remove", {
+          method: "POST",
+          body: {
+            authSecret: toBase64Url(
+              deriveKeys(username, (pw as HTMLInputElement).value).authSecret,
+            ),
+          },
+        })
+          .then(() => {
+            clear(holder);
+            void load();
+          })
+          .catch((error: Error) => {
+            message.append(notice(error.message, "error"));
+            confirm.removeAttribute("disabled");
+          });
+      });
+    });
+
+    return el(
+      "div",
+      { class: "card" },
+      el("p", { class: "muted", style: "margin-top:0" },
+        fingerprint
+          ? "Signing in to this account needs your password and a signature from this key."
+          : "Add a PGP key to require a signature as well as a password when signing in. The key never leaves your machine — the server sends a challenge and checks the signature."),
+      fingerprint ? el("p", { class: "mono" }, fingerprint) : el("span", {}),
+      el("div", { class: "row" }, action, ...(fingerprint ? [off] : [])),
+      holder,
+      message,
+    );
   }
 
   /**

@@ -24,6 +24,12 @@ import {
   asUsername,
 } from "../lib/validate.ts";
 import { verifyEd25519 } from "../lib/signatures.ts";
+import {
+  inspectPublicKey,
+  PgpError,
+  readableFingerprint,
+  verifyDetachedSignature,
+} from "../lib/pgp.ts";
 
 /** Long enough to walk to the other device, short enough that a photographed screen ages out. */
 const LINK_TTL_MS = 5 * 60 * 1000;
@@ -40,6 +46,27 @@ interface Credentials {
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   const { db, config } = app;
+
+  /**
+   * Take a challenge out of the table, once. Expired rows go with it. The row is deleted
+   * whether or not the signature that follows turns out to be valid, so a challenge
+   * cannot be ground against offline guesses, and a valid signature cannot be replayed.
+   */
+  async function consumeChallenge(
+    id: string,
+    kind: "recovery" | "pgp-enroll" | "pgp-login",
+  ): Promise<{ user_id: string; challenge: string } | null> {
+    return db.transaction(async (tx) => {
+      await tx.run("DELETE FROM auth_challenges WHERE expires_at < ?", [Date.now()]);
+      const row = await tx.get<{ user_id: string; challenge: string }>(
+        "SELECT user_id, challenge FROM auth_challenges WHERE id = ? AND kind = ?",
+        [id, kind],
+      );
+      if (!row) return null;
+      await tx.run("DELETE FROM auth_challenges WHERE id = ?", [id]);
+      return row;
+    });
+  }
 
   app.post("/api/auth/register", async (request, reply) => {
     // Validate before spending a rate-limit token: a malformed request costs the server
@@ -113,8 +140,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       role: "user" | "moderator" | "admin";
       status: "active" | "suspended";
       status_reason: string | null;
+      pgp_fingerprint: string | null;
     }>(
-      "SELECT id, username, password_hash, role, status, status_reason FROM users WHERE username = ?",
+      `SELECT id, username, password_hash, role, status, status_reason, pgp_fingerprint
+       FROM users WHERE username = ?`,
       [username],
     );
 
@@ -123,6 +152,26 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !ok) throw unauthorized("invalid username or password");
     if (user.status !== "active") {
       throw unauthorized(`account suspended: ${user.status_reason ?? "contact moderation"}`);
+    }
+
+    // Second factor: the password was right, but the account asks for a PGP signature
+    // too, so no session is created yet. The challenge row records that the password step
+    // already passed — it is the only thing that lets the next request mint a session.
+    if (user.pgp_fingerprint) {
+      const challenge = randomToken(32);
+      const id = newId();
+      await db.run(
+        `INSERT INTO auth_challenges (id, user_id, kind, challenge, expires_at)
+         VALUES (?, ?, 'pgp-login', ?, ?)`,
+        [id, user.id, challenge, Date.now() + CHALLENGE_TTL_MS],
+      );
+      return {
+        pgpRequired: true,
+        challengeId: id,
+        challenge,
+        fingerprint: readableFingerprint(user.pgp_fingerprint),
+        expiresInSeconds: CHALLENGE_TTL_MS / 1000,
+      };
     }
 
     const session = await createSession(db, user.id, config.sessionTtlMs, label);
@@ -368,18 +417,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const newAuthSecret = asBase64Url(body.newAuthSecret, "newAuthSecret", 64);
     await app.limit(request, "auth");
 
-    const claimed = await db.transaction(async (tx) => {
-      await tx.run("DELETE FROM auth_challenges WHERE expires_at < ?", [Date.now()]);
-      const row = await tx.get<{ user_id: string; challenge: string }>(
-        "SELECT user_id, challenge FROM auth_challenges WHERE id = ? AND kind = 'recovery'",
-        [challengeId],
-      );
-      if (!row) return null;
-      // Single use: consumed whether or not the signature turns out to be valid, so a
-      // stolen challenge cannot be ground against offline guesses.
-      await tx.run("DELETE FROM auth_challenges WHERE id = ?", [challengeId]);
-      return row;
-    });
+    const claimed = await consumeChallenge(challengeId, "recovery");
     if (!claimed) throw unauthorized("that recovery challenge is unknown or expired");
 
     const user = await db.get<{
@@ -406,8 +444,15 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     // unwrap the master key with the phrase and rewrap it under the new password. If that
     // second step fails the account is still reachable and recovery still works, which is
     // why the rewrap is not attempted here with material the server must never hold.
+    // The phrase also clears a PGP factor: someone recovering an account has lost their
+    // password, and there is no reason to assume they still hold the signing key. Leaving
+    // the factor in place would turn a recoverable account into an unreachable one. Stated
+    // as a consequence, not hidden: a recovery phrase outranks the second factor.
     const passwordHash = await hashAuthSecret(newAuthSecret);
-    await db.run("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, user.id]);
+    await db.run(
+      "UPDATE users SET password_hash = ?, pgp_public_key = NULL, pgp_fingerprint = NULL WHERE id = ?",
+      [passwordHash, user.id],
+    );
     await destroyAllSessions(db, user.id);
     const vault = await db.get<{ sealed: string }>("SELECT sealed FROM vaults WHERE user_id = ?", [
       user.id,
@@ -422,6 +467,145 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       expiresAt: session.expiresAt,
       sealedVault: vault ? JSON.parse(vault.sealed) : null,
     });
+  });
+
+  /**
+   * PGP, step one of enrolment: a challenge to sign with the key being added.
+   *
+   * Requires a session, because this is an account setting rather than a way in. The
+   * point is proof of possession: a key whose private half the user cannot actually use
+   * would turn the second factor into a locked door with no key behind it.
+   */
+  app.post("/api/auth/pgp/challenge", async (request) => {
+    const user = await app.authenticate(request);
+    await app.limit(request, "auth");
+    const challenge = randomToken(32);
+    const id = newId();
+    await db.run(
+      `INSERT INTO auth_challenges (id, user_id, kind, challenge, expires_at)
+       VALUES (?, ?, 'pgp-enroll', ?, ?)`,
+      [id, user.id, challenge, Date.now() + CHALLENGE_TTL_MS],
+    );
+    return { challengeId: id, challenge, expiresInSeconds: CHALLENGE_TTL_MS / 1000 };
+  });
+
+  /**
+   * PGP, step two of enrolment: the public key, the current password, and a signature
+   * over the challenge from step one. All three, because adding a second factor is worth
+   * as much as the weakest check that lets you add it.
+   */
+  app.post("/api/auth/pgp/key", async (request) => {
+    const user = await app.authenticate(request);
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
+    const publicKey = asOptionalString(body.publicKey, "publicKey", 64 * 1024);
+    const challengeId = asId(body.challengeId, "challengeId");
+    const signature = asOptionalString(body.signature, "signature", 64 * 1024);
+    if (!publicKey || !signature) throw badRequest("publicKey and signature are required");
+    await app.limit(request, "auth");
+
+    const row = await db.get<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE id = ?",
+      [user.id],
+    );
+    if (!(await verifyAuthSecret(row?.password_hash ?? null, authSecret))) {
+      throw unauthorized("password is wrong");
+    }
+
+    const claimed = await consumeChallenge(challengeId, "pgp-enroll");
+    if (!claimed || claimed.user_id !== user.id) {
+      throw unauthorized("that challenge is unknown or expired");
+    }
+
+    let facts;
+    try {
+      facts = await inspectPublicKey(publicKey);
+    } catch (error) {
+      if (error instanceof PgpError) throw badRequest(error.message);
+      throw error;
+    }
+    if (!(await verifyDetachedSignature(publicKey, claimed.challenge, signature))) {
+      throw badRequest("that signature does not match the challenge and this key");
+    }
+
+    await db.run("UPDATE users SET pgp_public_key = ?, pgp_fingerprint = ? WHERE id = ?", [
+      publicKey.trim(),
+      facts.fingerprint,
+      user.id,
+    ]);
+    return { fingerprint: facts.readable, algorithm: facts.algorithm, identities: facts.identities };
+  });
+
+  /**
+   * PGP, step two of login: the signature that the password alone no longer replaces.
+   *
+   * The challenge row is the proof that the password step passed; consuming it is what
+   * mints the session. It is deleted whether or not the signature verifies.
+   */
+  app.post("/api/auth/pgp/complete", async (request, reply) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const challengeId = asId(body.challengeId, "challengeId");
+    const signature = asOptionalString(body.signature, "signature", 64 * 1024);
+    const label = asOptionalString(body.label, "label", 40) || null;
+    if (!signature) throw badRequest("signature is required");
+    await app.limit(request, "auth");
+
+    const claimed = await consumeChallenge(challengeId, "pgp-login");
+    if (!claimed) throw unauthorized("that challenge is unknown or expired");
+
+    const user = await db.get<{
+      id: string;
+      username: string;
+      role: string;
+      status: string;
+      pgp_public_key: string | null;
+    }>(
+      "SELECT id, username, role, status, pgp_public_key FROM users WHERE id = ?",
+      [claimed.user_id],
+    );
+    if (!user?.pgp_public_key || user.status !== "active") {
+      throw unauthorized("that challenge is unknown or expired");
+    }
+    if (!(await verifyDetachedSignature(user.pgp_public_key, claimed.challenge, signature))) {
+      throw unauthorized("that signature does not match this account's key");
+    }
+
+    const session = await createSession(db, user.id, config.sessionTtlMs, label);
+    await pruneSessions(db);
+    const vault = await db.get<{ sealed: string }>("SELECT sealed FROM vaults WHERE user_id = ?", [
+      user.id,
+    ]);
+    return replyWithSession(reply, config, {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      token: session.token,
+      expiresAt: session.expiresAt,
+      sealedVault: vault ? JSON.parse(vault.sealed) : null,
+    });
+  });
+
+  /**
+   * Turn the second factor off. The current password is required, and every other session
+   * is left alone: this removes a factor from future logins, it does not touch the vault.
+   */
+  app.post("/api/auth/pgp/remove", async (request) => {
+    const user = await app.authenticate(request);
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
+    await app.limit(request, "auth");
+    const row = await db.get<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE id = ?",
+      [user.id],
+    );
+    if (!(await verifyAuthSecret(row?.password_hash ?? null, authSecret))) {
+      throw unauthorized("password is wrong");
+    }
+    await db.run(
+      "UPDATE users SET pgp_public_key = NULL, pgp_fingerprint = NULL WHERE id = ?",
+      [user.id],
+    );
+    return { ok: true };
   });
 
   /** Set or replace the recovery public key. Requires the current password, not a session alone. */
@@ -461,12 +645,12 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/auth/me", async (request) => {
     const user = await app.authenticate(request);
-    const row = await db.get<{ created_day: number }>(
-      "SELECT created_day FROM users WHERE id = ?",
-      [user.id],
-    );
-    const recovery = await db.get<{ recovery_public_key: string | null }>(
-      "SELECT recovery_public_key FROM users WHERE id = ?",
+    const row = await db.get<{
+      created_day: number;
+      recovery_public_key: string | null;
+      pgp_fingerprint: string | null;
+    }>(
+      "SELECT created_day, recovery_public_key, pgp_fingerprint FROM users WHERE id = ?",
       [user.id],
     );
     const seller = await db.get<{ display_name: string; status: string }>(
@@ -477,7 +661,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       id: user.id,
       username: user.username,
       role: user.role,
-      recoveryConfigured: Boolean(recovery?.recovery_public_key),
+      recoveryConfigured: Boolean(row?.recovery_public_key),
+      pgpFingerprint: row?.pgp_fingerprint ? readableFingerprint(row.pgp_fingerprint) : null,
       memberSince: row ? dayToIsoDate(row.created_day) : null,
       seller: seller ? { displayName: seller.display_name, status: seller.status } : null,
     };

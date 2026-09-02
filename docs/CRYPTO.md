@@ -108,6 +108,34 @@ Consequence, stated plainly because it cannot be engineered away: whoever holds 
 can take the account and read its history. There is no email reset and no administrator
 override — see `docs/THREAT_MODEL.md`.
 
+## PGP as a second factor
+
+An OpenPGP key is an *authentication* factor here, never a password and never a way to
+encrypt anything in this system. The flow is challenge–response:
+
+1. The password is verified first. If the account carries a PGP key, no session is created;
+   the response is a 32-byte random challenge with an id and a five-minute life.
+2. The user signs those exact bytes on their own machine — `printf %s '<challenge>' | gpg
+   --detach-sign --armor` — and pastes the armoured detached signature back.
+3. The server verifies it against the stored public key, then mints the session.
+
+Enrolment needs three things at once: a session, the current password, and a signature over
+a challenge made by the key being added. The last one is proof of possession — enabling a
+key whose private half the user cannot actually use would only lock the account out of
+itself. A private key block is refused with an explanation rather than parsed, and nothing
+about the private half is ever requested, transmitted or stored.
+
+Challenges are single-use and deleted the moment they are answered, valid or not, so a
+signature cannot be replayed and a challenge cannot be ground against guesses. Enrolment
+challenges are bound to the account that asked for them.
+
+**Ordering, stated deliberately:** a recovery phrase clears the PGP factor. Someone
+recovering an account has lost their password, and there is no reason to assume they still
+hold the signing key; leaving the factor in place would turn a recoverable account into an
+unreachable one. The phrase is already the strongest secret in the system, so this grants
+it nothing it did not have — but it does mean PGP protects against a stolen password, not
+against a stolen phrase.
+
 ## Message encryption (Double Ratchet)
 
 ```
