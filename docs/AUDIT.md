@@ -48,7 +48,9 @@ key ids, JWTs, and long string literals assigned to a name like `password`, `tok
 `${…}`) are ignored, as are fixture passwords under `test/` — but key material in a
 fixture is still a failure, because a test private key is a real private key.
 
-A line can opt out with an `audit:allow` comment plus a reason. That is deliberately
+It reads *tracked* files only, so run it after `git add` — a new file that has not been
+staged is invisible to it, and to CI it will not be. A line can opt out with an
+`audit:allow` comment plus a reason. That is deliberately
 ugly and shows up in review.
 
 ## What you can verify yourself, for free
