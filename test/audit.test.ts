@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error - plain ESM script, no types needed for two pure functions
 import { scanBundle, scanSource } from "../scripts/audit.mjs";
 
+// This file necessarily contains every string the secret audit looks for, so its own
+// fixture lines carry `audit:allow` — the same escape hatch the audit documents.
 const rules = (findings: Array<{ rule: string }>) => findings.map((f) => f.rule);
 
 describe("bundle audit", () => {
@@ -27,10 +29,10 @@ describe("bundle audit", () => {
 
 describe("secret audit", () => {
   it("catches committed key material", () => {
-    expect(rules(scanSource("-----BEGIN OPENPGP PRIVATE KEY BLOCK-----"))).toContain("private key block");
-    expect(rules(scanSource("-----BEGIN EC PRIVATE KEY-----"))).toContain("private key block");
-    expect(rules(scanSource("aws_key = AKIAIOSFODNN7EXAMPLE"))).toContain("AWS access key id");
-    expect(rules(scanSource("auth: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVP0mB92K"))).toContain(
+    expect(rules(scanSource("-----BEGIN OPENPGP PRIVATE KEY BLOCK-----"))).toContain("private key block"); // audit:allow fixture
+    expect(rules(scanSource("-----BEGIN EC PRIVATE KEY-----"))).toContain("private key block"); // audit:allow fixture
+    expect(rules(scanSource("aws_key = AKIAIOSFODNN7EXAMPLE"))).toContain("AWS access key id"); // audit:allow fixture
+    expect(rules(scanSource("auth: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVP0mB92K"))).toContain( // audit:allow fixture
       "JWT",
     );
     expect(rules(scanSource(`const dbPassword = "hunter2-9f3a-b71c-2210"`))).toContain("credential literal");
@@ -54,7 +56,7 @@ describe("secret audit", () => {
     const fixture = `const PASSWORD = "correct horse battery staple";`;
     expect(scanSource(fixture, "test/helpers.ts")).toEqual([]);
     expect(scanSource(fixture, "src/server/config.ts")).toHaveLength(1);
-    expect(rules(scanSource("-----BEGIN PGP PRIVATE KEY BLOCK-----", "test/pgp.test.ts"))).toContain(
+    expect(rules(scanSource("-----BEGIN PGP PRIVATE KEY BLOCK-----", "test/pgp.test.ts"))).toContain( // audit:allow fixture
       "private key block",
     );
   });
