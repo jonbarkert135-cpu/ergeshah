@@ -103,7 +103,10 @@ to be a residual risk.
 ## Residual risks, stated plainly
 
 1. **Server-served client code.** The operator can ship a malicious bundle to a specific
-   user. Mitigation is procedural (published builds, third-party audit) and partial.
+   user. Mitigation is procedural (published builds, third-party audit) and partial. CI
+   greps the production bundle for external references (`npm run audit:bundle`), which
+   catches an accidental third-party call but *not* a deliberate one — only reproducible
+   builds (roadmap OPS-1) would.
 2. **Metadata.** Who is online, when, how often, and roughly how large their messages
    are (the bucket, not the byte count).
 3. **Classical-only handshake.** Recorded traffic today may be decryptable by a future

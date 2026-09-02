@@ -15,7 +15,10 @@
     "migrate": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/server/db/cli.ts",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "audit:deps": "npm audit --omit=dev --audit-level=high"
+    "audit:deps": "npm audit --omit=dev --audit-level=high",
+    "audit:bundle": "node scripts/audit.mjs bundle",
+    "audit:secrets": "node scripts/audit.mjs secrets",
+    "audit": "npm run audit:deps && npm run audit:bundle && npm run audit:secrets"
   },
   "dependencies": {
     "fastify": "^5.2.0",
