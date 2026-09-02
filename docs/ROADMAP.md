@@ -46,8 +46,15 @@ wrapped master key (PR #7), and AUTH-7 PGP challenge–response as a second fact
 *Shipped: MKT-2, client-encrypted digital delivery with blind server-side storage. MKT-4,
 physical orders whose delivery details are a message rather than a database column.*
 
-- **MKT-1 — Escrow and dispute evidence.** Evidence exchanged in the encrypted channel,
-  with only a hash committed server-side.
+*Shipped (points 45–46): deliveries that are not files (`manual: true`, and any encrypted
+bytes with the kind carried in the channel), disputes filed with a reason into the moderation
+queue with the order's public facts and the seller's record, per-buyer ratings with the buyer
+count published, and an audited `order.settled` action.*
+
+- **MKT-1 — Escrow and dispute evidence.** Today a moderator reads the buyer's stated reason
+  and the public facts; evidence stays in the encrypted channel, described in words. What
+  remains: a hash of exchanged evidence committed server-side, so a party cannot later
+  claim a different file was sent. Escrow is blocked on PAY-1.
 - **MKT-3 — Categories, pagination and search quality.** Currently a `LIKE` query.
 
 ## Operations

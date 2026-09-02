@@ -128,6 +128,12 @@ to be a residual risk.
    nobody outside this project — and with the source closed, the usual fallback (anyone
    curious can read it) is gone. A paid review under NDA is the only remaining path.
 6. **Availability.** A single VPS is a single point of failure, deliberately.
+7. **Reputation can be bought at the price of accounts.** A review needs a completed order,
+   one account counts once per seller however often it buys, and the number of distinct
+   buyers is shown next to every average — so the cheap manipulation (one puppet buying on
+   repeat) is worth nothing. Ten puppets still work. Stopping them needs identity or
+   payment history, and this project collects neither; the counter-signal a reader has is
+   the buyer count, the completed-order count and the seller's dispute count, all public.
 
 If any of these is unacceptable for your use case, the honest answer is that this
 platform is not yet suitable for it.

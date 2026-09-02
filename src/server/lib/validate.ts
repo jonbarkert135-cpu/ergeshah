@@ -83,6 +83,18 @@ export const CURRENCIES = ["USD", "EUR", "XMR", "BTC"] as const;
  */
 export const LISTING_KINDS = ["digital_good", "service", "physical_good"] as const;
 
+/** What can be reported, and why. `dispute` is written by the order route, not by users directly. */
+export const REPORT_TARGETS = ["listing", "user", "review", "order"] as const;
+export const REPORT_REASONS = [
+  "prohibited_goods",
+  "fraud",
+  "impersonation",
+  "spam",
+  "harassment",
+  "dispute",
+  "other",
+] as const;
+
 /**
  * The sealed vault is opaque to the server, but it is still checked: it must be an object
  * of the shape `sealVault()` produces, and it must be small enough that a client cannot

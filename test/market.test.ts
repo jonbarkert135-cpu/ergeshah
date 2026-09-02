@@ -156,7 +156,13 @@ describe("orders and reviews", () => {
     const buyer = await register(server, "buyer");
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
     await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
-    await buyer.post(`/api/market/orders/${order.body.id}/status`, { status: "disputed" });
+    // A dispute without a reason is not a dispute a moderator can act on.
+    expect((await buyer.post(`/api/market/orders/${order.body.id}/status`, { status: "disputed" })).status).toBe(400);
+    const disputed = await buyer.post(`/api/market/orders/${order.body.id}/status`, {
+      status: "disputed",
+      reason: "Nothing was delivered after two weeks of waiting.",
+    });
+    expect(disputed.status).toBe(200);
 
     expect((await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "completed" })).status).toBe(403);
     const moderator = await register(server, "referee");

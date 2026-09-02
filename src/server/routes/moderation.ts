@@ -11,18 +11,9 @@ import { recordAudit } from "../lib/audit.ts";
 import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { dayToIsoDate, today } from "../lib/time.ts";
-import { asEnum, asId, asOptionalString, asString, asUsername } from "../lib/validate.ts";
+import { asEnum, asId, asOptionalString, asString, asUsername, REPORT_REASONS, REPORT_TARGETS } from "../lib/validate.ts";
 import { destroyAllSessions } from "../lib/sessions.ts";
-
-const REPORT_TARGETS = ["listing", "user", "review", "order"] as const;
-const REPORT_REASONS = [
-  "prohibited_goods",
-  "fraud",
-  "impersonation",
-  "spam",
-  "harassment",
-  "other",
-] as const;
+import { sellerReputation } from "../lib/reputation.ts";
 
 export async function registerModerationRoutes(app: FastifyInstance): Promise<void> {
   const { db } = app;
@@ -35,6 +26,10 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     const targetType = asEnum(body.targetType, "targetType", REPORT_TARGETS);
     const targetId = asString(body.targetId, "targetId", 64);
     const reason = asEnum(body.reason, "reason", REPORT_REASONS);
+    // A dispute is opened on the order itself (POST /api/market/orders/:id/status), which
+    // checks that the reporter is the buyer; the bare report route must not offer a way
+    // to file one against any order id.
+    if (reason === "dispute") throw badRequest("open a dispute from the order");
     const details = asOptionalString(body.details, "details", 2000);
 
     const id = newId();
@@ -73,6 +68,15 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
          FROM seller_applications a JOIN users u ON u.id = a.user_id
         WHERE a.status = 'pending' ORDER BY a.created_day, a.id LIMIT 100`,
     );
+    // A report about an order is a dispute (or a complaint) a moderator has to settle, and
+    // settling needs the public facts of the order: what, who, where it stands, and how the
+    // seller has fared before. Never the channel: the conversation stays unreadable.
+    const orderIds = reports.filter((row) => row.target_type === "order").map((row) => row.target_id);
+    const orders = new Map<string, Awaited<ReturnType<typeof orderSummary>>>();
+    for (const id of orderIds) {
+      const summary = await orderSummary(app, id);
+      if (summary) orders.set(id, summary);
+    }
     return {
       reports: reports.map((row) => ({
         id: row.id,
@@ -82,6 +86,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
         details: row.details,
         reporter: row.reporter,
         reportedOn: dayToIsoDate(row.created_day),
+        order: orders.get(row.target_id) ?? null,
       })),
       sellerApplications: applications.map((row) => ({
         id: row.id,
@@ -300,4 +305,42 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
       })),
     };
   });
+}
+
+/** The public facts of one order, for a moderator settling a report about it. */
+async function orderSummary(app: FastifyInstance, id: string) {
+  const row = await app.db.get<{
+    id: string;
+    status: string;
+    title: string;
+    kind: string;
+    price_minor: number;
+    currency: string;
+    buyer: string;
+    seller: string;
+    seller_user_id: string;
+    updated_at: number;
+  }>(
+    `SELECT o.id, o.status, l.title, l.kind, o.price_minor, o.currency, o.updated_at, o.seller_user_id,
+            b.username AS buyer, s.username AS seller
+       FROM orders o
+       JOIN listings l ON l.id = o.listing_id
+       JOIN users b ON b.id = o.buyer_user_id
+       JOIN users s ON s.id = o.seller_user_id
+      WHERE o.id = ?`,
+    [id],
+  );
+  if (!row) return null;
+  return {
+    id: row.id,
+    status: row.status,
+    title: row.title,
+    kind: row.kind,
+    priceMinor: row.price_minor,
+    currency: row.currency,
+    buyer: row.buyer,
+    seller: row.seller,
+    updatedOn: dayToIsoDate(Math.floor(row.updated_at / 86_400_000)),
+    sellerRecord: await sellerReputation(app.db, row.seller_user_id),
+  };
 }

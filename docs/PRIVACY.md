@@ -88,6 +88,16 @@ anything to anyone.
 `order_events` keeps millisecond timestamps: a dispute needs an ordered record of who did
 what, and both parties already know it.
 
+Opening a dispute stores one thing in the clear that the order otherwise never does: the
+buyer's **reason**, as a row in `reports`. It is written by the buyer knowingly, for the
+moderator, and is the only order text a moderator can read — the order's channel stays
+encrypted and there is no route that opens it. Evidence, if either side wants to show it, is
+exchanged in that channel and described to the moderator in words.
+
+Ratings are published as an average over distinct buyers with the number of buyers beside
+it, so a profile discloses "3 buyers" rather than a review timeline; the per-author
+calculation happens in SQL over rows that already exist and adds no column.
+
 ## Moderation
 
 `reports` (target, reason, free text from the reporter, day) and `audit_log` (actor,

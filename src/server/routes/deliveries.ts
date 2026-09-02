@@ -11,7 +11,7 @@
  * acknowledges it, when the order reaches a terminal status, or when it expires.
  */
 import type { FastifyInstance } from "fastify";
-import { conflict, forbidden, notFound } from "../lib/errors.ts";
+import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { asBase64Url, asId } from "../lib/validate.ts";
 
@@ -25,7 +25,16 @@ interface OrderParties {
 export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void> {
   const { db, config } = app;
 
-  /** Seller uploads the ciphertext; the order moves to `delivered` in the same commit. */
+  /**
+   * Seller delivers; the order moves to `delivered` in the same commit.
+   *
+   * Two shapes, because goods are not all files (point 45). `{ ciphertext }` is a blob the
+   * seller encrypted in the browser — a file, a licence key, credentials, a link, any
+   * bytes; the server never learns which, and the kind travels with the key in the
+   * encrypted channel. `{ manual: true }` is a delivery that happened outside the
+   * platform — a service rendered, a parcel posted, a key typed into the chat — and
+   * stores nothing but the status change. The buyer confirms or disputes either way.
+   */
   app.post("/api/market/orders/:id/delivery", async (request) => {
     const user = await app.authenticate(request);
     await app.limit(request, "message_send");
@@ -34,21 +43,26 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     if (order.status !== "accepted") {
       throw forbidden(`an order can only be delivered from 'accepted', not '${order.status}'`);
     }
-    const ciphertext = asBase64Url(
-      (request.body as { ciphertext?: unknown })?.ciphertext,
-      "ciphertext",
-      config.maxDeliveryBytes,
-    );
-    const existing = await db.get("SELECT id FROM deliveries WHERE order_id = ?", [order.id]);
-    if (existing) throw conflict("this order already has a delivery", "already_delivered");
+    const body = (request.body ?? {}) as { ciphertext?: unknown; manual?: unknown };
+    const manual = body.manual === true;
+    if (manual === (body.ciphertext !== undefined)) {
+      throw badRequest("send either ciphertext or manual: true");
+    }
+    const ciphertext = manual
+      ? null
+      : asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
 
     const now = Date.now();
     await db.transaction(async (tx) => {
-      await tx.run(
-        `INSERT INTO deliveries (id, order_id, ciphertext, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        [newId(), order.id, ciphertext, now, now + config.deliveryTtlMs],
-      );
+      if (ciphertext) {
+        // `deliveries.order_id` is UNIQUE: a second blob for one order is refused by the
+        // schema, and surfaces as 409 through the constraint handler.
+        await tx.run(
+          `INSERT INTO deliveries (id, order_id, ciphertext, created_at, expires_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [newId(), order.id, ciphertext, now, now + config.deliveryTtlMs],
+        );
+      }
       // Delivering *is* the status change: an order can never be "delivered" with no file,
       // or hold a file the buyer was never told about. The UPDATE is conditional on the
       // status checked above, so a cancellation that lands in between wins and the file
@@ -64,7 +78,7 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
         [newId(), order.id, user.id, order.status, now],
       );
     });
-    return { status: "delivered", expiresAt: now + config.deliveryTtlMs };
+    return { status: "delivered", expiresAt: ciphertext ? now + config.deliveryTtlMs : null };
   });
 
   /** Buyer downloads the ciphertext. The seller has the file already and is not served it. */

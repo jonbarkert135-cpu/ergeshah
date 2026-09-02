@@ -751,3 +751,44 @@ start.
 `500` (confusing). Tests for concurrency are cheap to write (`test/integrity.test.ts`) and
 run on SQLite, whose single writer serialises the handlers — so the tests also accept the
 role check refusing the loser, and the compare-and-swap SQL is asserted directly.
+
+## ADR-0029 — Goods that are not files, and reputation that is hard to buy
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Point 45 asks that delivery not assume a type of good — text, files,
+credentials, licence keys, links, manual — while keeping anything sensitive safe. Point 46
+asks for ratings, reviews, history, disputes, moderation, verification state, fraud
+indicators and abuse reporting, and that ratings not be easy to manipulate. Before this
+change a service order could never be completed (the only path to `delivered` was a file
+upload), a dispute was a status with no reason and no moderator view, moderators' order
+decisions were unaudited, and one account with ten completed orders was ten five-star
+reviews.
+
+**Decision.**
+
+- *One blob path for every kind of bytes.* The seller's browser already encrypts a file with
+  a one-time key and sends the key through the order's channel. A licence key, a credential
+  or a link is the same bytes with a different `kind` in that message; the server learns
+  neither the kind nor the content. Sensitive goods are therefore stored the only way this
+  project stores anything sensitive: as ciphertext the server cannot open, deleted on
+  collection.
+- *`manual: true`* for a delivery that happened elsewhere — a service rendered, a parcel
+  posted. It stores nothing but the status change; the buyer still confirms or disputes.
+- *A dispute is a report.* `disputed` requires a reason (10–2000 characters), which becomes
+  a `reports` row with `reason = 'dispute'` — the queue moderators already work. The plain
+  report route refuses that reason, so a dispute can be opened only by the buyer of the
+  order. The queue enriches order reports with the order's public facts and the seller's
+  record; it never touches the channel. A moderator settling the order closes the report in
+  the same transaction and writes an `order.settled` audit entry.
+- *Per-buyer ratings.* Averages are over each author's latest visible review per seller (and
+  per listing), the distinct-buyer count is published, and disputes are counted from
+  `order_events`, so settling one does not erase it.
+
+**Rejected:** a separate `disputes` table (a report with a target already is one; a second
+queue is a second place to forget), and any reputation heuristic on timing or IP (the data
+does not exist here, by design).
+
+**Consequences.** Every listing kind now has a path to `completed`. Reputation is now an
+average over people rather than over receipts, which is the metric a reader thinks they are
+looking at anyway. The residual — many accounts — is stated as risk #7 in the threat model.

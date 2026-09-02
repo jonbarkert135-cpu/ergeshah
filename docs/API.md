@@ -91,9 +91,9 @@ exist. Drifted API documentation is worse than none, because people trust it.
 | `PATCH /api/market/listings/:id` | session (owner) | `listing_write` | Edit or pause a listing |
 | `POST /api/market/orders` | session | `order_write` | Place an order; opens an encrypted channel with the seller |
 | `GET /api/market/orders` | session (party) | `read` | My orders, as buyer or as seller |
-| `POST /api/market/orders/:id/status` | session (party) | `order_write` | Advance the order state machine; illegal transitions are refused server-side |
+| `POST /api/market/orders/:id/status` | session (party) | `order_write` | Advance the order state machine; illegal and stale transitions are refused server-side (`409 stale_status`). `disputed` requires a `reason` (10–2000 chars), which is filed as a report for moderation; a moderator settling a dispute closes that report and is audited |
 | `POST /api/market/orders/:id/review` | session (buyer) | `review` | Review a completed order, once |
-| `POST /api/market/orders/:id/delivery` | session (seller) | `message_send` | Upload the encrypted digital goods for this order |
+| `POST /api/market/orders/:id/delivery` | session (seller) | `message_send` | Deliver: `{ ciphertext }` for anything the seller encrypted in the browser (file, licence key, credentials, link — the server does not know which), or `{ manual: true }` for a delivery that happened outside the platform. Either moves the order to `delivered` |
 | `GET /api/market/orders/:id/delivery` | session (buyer) | `read` | Download that ciphertext |
 | `DELETE /api/market/orders/:id/delivery` | session (seller) | `write` | Withdraw it before collection |
 
@@ -107,8 +107,8 @@ result, including refusals (`docs/PRIVACY.md`, ADR-0024).
 
 | Method & path | Auth | Limit | Purpose |
 | --- | --- | --- | --- |
-| `GET /api/moderation/queue` | staff | `moderation` | Open reports and pending applications |
-| `POST /api/moderation/reports` | session | `moderation` | Report a listing, review or user |
+| `GET /api/moderation/queue` | staff | `moderation` | Open reports and pending applications. A report about an order carries the order's public facts and the seller's record (completed and disputed orders, distinct reviewers) — never its channel |
+| `POST /api/moderation/reports` | session | `moderation` | Report a listing, review, user or order. `reason: dispute` is refused here — disputes are opened on the order by its buyer |
 | `POST /api/moderation/reports/:id/resolve` | staff | `moderation` | Close a report with a note |
 | `POST /api/moderation/seller-applications/:id/decide` | staff | `moderation` | Approve or reject an application |
 | `POST /api/moderation/listings/:id/remove` | staff | `moderation` | Remove a listing |

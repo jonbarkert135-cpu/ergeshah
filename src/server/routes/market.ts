@@ -20,6 +20,8 @@ import {
   CURRENCIES,
   LISTING_KINDS,
 } from "../lib/validate.ts";
+import { recordAudit } from "../lib/audit.ts";
+import { listingRating, sellerReputation } from "../lib/reputation.ts";
 
 type OrderStatus =
   | "placed"
@@ -326,6 +328,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       id: string;
       listing_id: string;
       title: string;
+      kind: string;
       status: OrderStatus;
       price_minor: number;
       currency: string;
@@ -333,7 +336,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       created_at: number;
       counterparty: string;
     }>(
-      `SELECT o.id, o.listing_id, l.title, o.status, o.price_minor, o.currency, o.channel, o.created_at,
+      `SELECT o.id, o.listing_id, l.title, l.kind, o.status, o.price_minor, o.currency, o.channel, o.created_at,
               cu.username AS counterparty
          FROM orders o
          JOIN listings l ON l.id = o.listing_id
@@ -347,6 +350,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
         id: row.id,
         listingId: row.listing_id,
         title: row.title,
+        kind: row.kind,
         status: row.status,
         priceMinor: row.price_minor,
         currency: row.currency,
@@ -388,6 +392,14 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     if (!allowed.some((role) => actorRoles.includes(role))) {
       throw forbidden(`cannot move an order from ${order.status} to ${next} in your role`);
     }
+    // A dispute needs a reason a moderator can act on. It is the one piece of order text
+    // the server stores in the clear, written by the buyer *for* the moderator: it goes
+    // into `reports`, where every other moderator-facing complaint already lives.
+    const reason =
+      next === "disputed"
+        ? asString((request.body as { reason?: unknown })?.reason, "reason", 2000, 10)
+        : null;
+    const settling = order.status === "disputed" && actorRoles.includes("moderator");
 
     const now = Date.now();
     await db.transaction(async (tx) => {
@@ -409,7 +421,32 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
          VALUES (?, ?, ?, ?, ?, ?)`,
         [newId(), id, user.id, order.status, next, now],
       );
+      if (reason) {
+        await tx.run(
+          `INSERT INTO reports (id, target_type, target_id, reporter_user_id, reason, details, status, created_day)
+           VALUES (?, 'order', ?, ?, 'dispute', ?, 'open', ?)`,
+          [newId(), id, user.id, reason, today()],
+        );
+      }
+      if (settling) {
+        // The order's outcome *is* the report's resolution; leaving the report open would
+        // show a moderator work that is already done.
+        await tx.run(
+          `UPDATE reports SET status = 'actioned', resolution_note = ?, resolved_by = ?, resolved_day = ?
+            WHERE target_type = 'order' AND target_id = ? AND status = 'open'`,
+          [next, user.id, today(), id],
+        );
+      }
     });
+    if (settling) {
+      await recordAudit(db, {
+        actorUserId: user.id,
+        action: "order.settled",
+        subjectType: "order",
+        subjectId: id,
+        note: next,
+      });
+    }
     return { id, status: next };
   });
 
@@ -465,7 +502,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       [username],
     );
     if (!seller || seller.status !== "active") throw notFound("no such seller");
-    const reputation = await sellerReputation(app, seller.user_id);
+    const reputation = await sellerReputation(app.db, seller.user_id);
     const listings = await db.all<ListingRow>(
       `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_minor, l.currency,
               l.created_day, s.display_name, u.username
@@ -503,10 +540,6 @@ interface ListingRow {
 }
 
 async function presentListing(app: FastifyInstance, row: ListingRow) {
-  const stats = await app.db.get<{ count: number; average: number | null }>(
-    "SELECT COUNT(*) AS count, AVG(rating) AS average FROM reviews WHERE listing_id = ? AND status = 'visible'",
-    [row.id],
-  );
   return {
     id: row.id,
     title: row.title,
@@ -517,27 +550,7 @@ async function presentListing(app: FastifyInstance, row: ListingRow) {
     currency: row.currency,
     seller: { username: row.username, displayName: row.display_name },
     listedOn: dayToIsoDate(row.created_day),
-    reviewCount: Number(stats?.count ?? 0),
-    averageRating: stats?.average === null || stats?.average === undefined ? null : Number(Number(stats.average).toFixed(2)),
-  };
-}
-
-async function sellerReputation(app: FastifyInstance, sellerUserId: string) {
-  const stats = await app.db.get<{ count: number; average: number | null }>(
-    "SELECT COUNT(*) AS count, AVG(rating) AS average FROM reviews WHERE seller_user_id = ? AND status = 'visible'",
-    [sellerUserId],
-  );
-  const completed = await app.db.get<{ count: number }>(
-    "SELECT COUNT(*) AS count FROM orders WHERE seller_user_id = ? AND status = 'completed'",
-    [sellerUserId],
-  );
-  return {
-    reviewCount: Number(stats?.count ?? 0),
-    averageRating:
-      stats?.average === null || stats?.average === undefined
-        ? null
-        : Number(Number(stats.average).toFixed(2)),
-    completedOrders: Number(completed?.count ?? 0),
+    ...(await listingRating(app.db, row.id)),
   };
 }
 

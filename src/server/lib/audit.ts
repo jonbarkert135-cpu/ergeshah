@@ -28,6 +28,8 @@ export type AuditAction =
   | "user.reinstated"
   | "user.role_changed"
   | "report.resolved"
+  /** A moderator settled a disputed order: the one order transition staff can make. */
+  | "order.settled"
   | "review.hidden"
   /** An authenticated account was refused a privileged route: recorded, not silent. */
   | "privileged.denied";
