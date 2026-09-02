@@ -15,7 +15,8 @@ published specifications rather than invention.
 | AEAD | XChaCha20-Poly1305-IETF | libsodium |
 | Hash | BLAKE2b (`crypto_generichash`) | libsodium |
 | MAC / KDF | HMAC-SHA256, HKDF-SHA256 (RFC 5869) | libsodium HMAC + our RFC-verified HKDF |
-| Password hashing | Argon2id (`crypto_pwhash`, `@node-rs/argon2`) | libsodium / Rust argon2 |
+| Password stretching (client) | Argon2id (`crypto_pwhash`) | libsodium |
+| Password hash at rest (server) | scrypt, N=2¹⁵ r=8 p=1 (RFC 7914) | Node standard library |
 | Randomness | `randombytes_buf` | libsodium (OS CSPRNG) |
 
 HKDF is the one composed construction. libsodium's JavaScript wrapper does not export
@@ -27,7 +28,7 @@ libsodium's HMAC-SHA256 and is checked against the RFC's own test vectors (A.1�
 ```
 password
   └── Argon2id(salt = BLAKE2b("ergeshah-password-salt-v1" ‖ username))
-        ├── HKDF(info="ergeshah-auth-secret-v1")  → authSecret → server: Argon2id → DB
+        ├── HKDF(info="ergeshah-auth-secret-v1")  → authSecret → server: scrypt → DB
         └── HKDF(info="ergeshah-vault-key-v1")    → vaultKey   → never leaves the device
                                                         │
                                                         ▼ XChaCha20-Poly1305

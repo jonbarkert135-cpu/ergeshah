@@ -39,7 +39,7 @@ const CHAIN_NEXT_CONSTANT = Uint8Array.of(0x02);
 const HEADER_BYTES = 40;
 
 export const MAX_SKIP_PER_CHAIN = 1000;
-export const MAX_STORED_SKIPPED_KEYS = 2000;
+const MAX_STORED_SKIPPED_KEYS = 2000;
 
 export interface MessageHeader {
   /** Sender's current ratchet public key. */
@@ -111,7 +111,7 @@ function messageKeyMaterial(messageKey: Uint8Array): { key: Uint8Array; nonce: U
   return { key: derived.slice(0, 32), nonce: derived.slice(32, 56) };
 }
 
-export function serializeHeader(header: MessageHeader): Uint8Array {
+function serializeHeader(header: MessageHeader): Uint8Array {
   const meta = new Uint8Array(8);
   const view = new DataView(meta.buffer);
   view.setUint32(0, header.pn, false);

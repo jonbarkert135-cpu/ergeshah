@@ -13,8 +13,8 @@ import { registerMarketRoutes } from "./routes/market.ts";
 import { registerModerationRoutes } from "./routes/moderation.ts";
 import { registerStaticRoutes } from "./routes/static.ts";
 
-export const SESSION_COOKIE = "session";
-export const CSRF_COOKIE = "csrf";
+const SESSION_COOKIE = "session";
+const CSRF_COOKIE = "csrf";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -104,7 +104,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
 }
 
 /** Address used only as rate-limit input; it is HMACed and never stored. */
-export function clientAddress(request: FastifyRequest): string {
+function clientAddress(request: FastifyRequest): string {
   return request.ip ?? "unknown";
 }
 

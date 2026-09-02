@@ -112,7 +112,6 @@ Production dependencies, and why each one is justified:
 | --- | --- | --- |
 | `fastify` | HTTP server with explicit, opt-in behaviour | MIT |
 | `libsodium-wrappers-sumo` | Audited primitives, identical in browser and Node | ISC |
-| `@node-rs/argon2` | Argon2id at server-side cost parameters, prebuilt binaries | MIT |
 | `pg` | Optional PostgreSQL driver | MIT |
 
 Everything else — cookies, CSRF, validation, rate limiting, static file serving, the
@@ -144,3 +143,27 @@ costs bandwidth (a one-word message occupies 64 bytes of plaintext), skipped mes
 must store their header key, and out-of-order receipt now needs trial decryption over the
 distinct stored header keys — bounded by the skipped-key limits, so still cheap. Timing
 and message volume remain visible; padding was never going to fix those.
+
+## ADR-0012 — Hash the auth secret with standard-library scrypt, not a native Argon2 dependency
+
+**Status:** accepted (2026-09-02)
+
+**Context.** The server stored `Argon2id(authSecret)` using `@node-rs/argon2`, a native
+dependency whose only job was that one call. The value being hashed is not a password: it
+is 32 bytes the client already derived from the password with Argon2id. The work factor
+that resists password guessing therefore lives in the browser, and this hash is defence in
+depth for a leaked `users` table. Meanwhile every dependency here has to justify itself,
+and libsodium's Argon2id — already present — is synchronous WASM, so using it would block
+the event loop on every login.
+
+**Decision.** Use `crypto.scrypt` from Node's standard library (RFC 7914, N=2¹⁵, r=8,
+p=1): memory-hard, asynchronous, native, audited, and already installed by definition.
+Store the parameters in the hash string so they can be raised later. The client-side
+Argon2id is untouched.
+
+**Consequences.** One fewer dependency and one fewer native binary in the runtime image.
+scrypt is a weaker choice than Argon2id for hashing a low-entropy secret — irrelevant for
+a 256-bit input, and stated here so the trade-off is not rediscovered as a finding. If the
+client KDF is ever weakened, this decision must be revisited first. Existing hashes are
+not portable across the change; there was no deployment, so no migration path exists.
+

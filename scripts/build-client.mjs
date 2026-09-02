@@ -4,7 +4,7 @@
  * configure here because there is nothing external to configure.
  */
 import { build } from "esbuild";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,7 +24,6 @@ await build({
   minify: production,
   sourcemap: production ? false : "inline",
   legalComments: "none",
-  define: { "process.env.NODE_ENV": JSON.stringify(production ? "production" : "development") },
 });
 
 copyFileSync(join(root, "src/client/styles/app.css"), join(out, "app.css"));
@@ -32,5 +31,4 @@ copyFileSync(join(root, "src/client/index.html"), join(out, "index.html"));
 copyFileSync(join(root, "src/client/favicon.svg"), join(out, "favicon.svg"));
 
 const size = readFileSync(join(out, "app.js")).length;
-writeFileSync(join(out, ".build-info"), `${new Date().toISOString()} ${size} bytes\n`);
 console.log(`client built: public/app.js (${(size / 1024).toFixed(0)} kB)`);

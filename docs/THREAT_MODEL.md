@@ -46,7 +46,7 @@ to be a residual risk.
 | Attack | Mitigation | Residual |
 | --- | --- | --- |
 | Read stored messages | Server stores ciphertext only; keys never reach it | Server sees the size bucket and the arrival time |
-| Crack passwords from a dump | Client-side Argon2id, then server-side Argon2id over the derived half | A weak password is still a weak password |
+| Crack passwords from a dump | Client-side Argon2id (the work factor that matters), then server-side scrypt over the derived 256-bit half | A weak password is still a weak password |
 | Steal sessions from a dump | Only SHA-256 hashes of tokens are stored | A live attacker can steal cookies in transit on a compromised server |
 | Reconstruct a user's activity | Coarse (day) timestamps on long-lived rows; no access log; no read receipts | `envelopes.created_at` is millisecond-precise while undelivered |
 | Learn who talks to whom | No sender column; sender identity is inside the ciphertext | Timing correlation of send/fetch, and the recipient device is necessarily known |

@@ -20,7 +20,7 @@ Design philosophy, in priority order:
 | Area | Status |
 | --- | --- |
 | Account identity (username + password, no email/phone required) | working |
-| Password handling (client-side Argon2id split → server-side Argon2id) | working |
+| Password handling (client-side Argon2id split → server-side scrypt) | working |
 | Opaque session tokens (hashed at rest, rotating, revocable) | working |
 | Cryptographic identity (Ed25519 identity + X25519 prekeys, per device) | working |
 | E2EE messaging: X3DH-style handshake + Double Ratchet (forward secrecy, PCS) | working |
@@ -54,6 +54,19 @@ marketplace, moderation). `npm run check` runs TypeScript in strict mode.
 One VPS, one container, one database, one reverse proxy — no Kubernetes, no managed
 cloud services, no third-party API keys required for any core feature. See
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), including the Tor onion-service variant.
+
+## For AI agents (and humans) working on this code
+
+**Every change to this repository is made with `skills/ponytail/SKILL.md` applied.** It is
+committed here for exactly that reason: the laziest solution that actually works, standard
+library before dependencies, native platform features before libraries, deletion before
+addition, no abstraction with a single implementation. If an agent (Claude, Codex, Cursor,
+anything else) is asked to work on this project, that skill is part of the brief, not a
+suggestion — see `AGENTS.md`.
+
+The single exception is the one the skill itself states: input validation at trust
+boundaries, error handling that prevents data loss, and security or privacy measures are
+never simplified away. In this codebase they *are* the product.
 
 ## Documentation
 

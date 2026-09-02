@@ -1,41 +1,49 @@
 /**
  * Server-side password handling.
  *
- * The server receives `authSecret` — already stretched by the client with Argon2id — and
- * hashes it *again* with Argon2id before storage. Two reasons:
- *  1. a database leak yields no offline-crackable password material beyond a full
- *     Argon2id-over-Argon2id chain;
- *  2. a hostile server never sees the password itself, so it can never derive the vault
- *     key that protects the user's private keys.
+ * The server never sees a password. It receives `authSecret` — 32 bytes the client
+ * derived from the password with Argon2id — and hashes *that* before storage, so a
+ * database leak yields no password material and a hostile server can never derive the
+ * vault key protecting the user's private keys.
+ *
+ * The stored hash uses scrypt from Node's standard library (RFC 7914, N=2^15, r=8, p=1).
+ * Argon2id would be the better choice for hashing a *password*; the input here is already
+ * a 256-bit Argon2id-derived secret, so the work factor that actually resists password
+ * guessing is the client's, and this layer is defence in depth against a leaked table.
+ * Standard-library scrypt buys that with no native dependency and without blocking the
+ * event loop, which a WASM Argon2id call would do on every login.
  */
-import { hash, verify } from "@node-rs/argon2";
+import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 
-/** OWASP-recommended Argon2id baseline (19 MiB, t=2, p=1), applied to a 32-byte secret. */
-const PARAMS = {
-  algorithm: 2, // Algorithm.Argon2id — numeric literal keeps the import type-only
-  memoryCost: 19_456,
-  timeCost: 2,
-  parallelism: 1,
-} as const;
+const COST = { N: 32_768, r: 8, p: 1, keyLength: 32 } as const;
+const PREFIX = "scrypt";
 
-/**
- * Hash of a constant, used when the username does not exist so that login spends the
- * same work either way and cannot be used as a user-enumeration oracle.
- */
-let dummyHash: string | null = null;
-
-export async function hashAuthSecret(authSecret: string): Promise<string> {
-  return hash(authSecret, PARAMS);
+function derive(secret: string, salt: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    // maxmem must be raised explicitly: the default rejects N above 2^14.
+    scrypt(secret, salt, COST.keyLength, { ...COST, maxmem: 256 * COST.N * COST.r }, (error, key) =>
+      error ? reject(error) : resolve(key),
+    );
+  });
 }
 
+export async function hashAuthSecret(authSecret: string): Promise<string> {
+  const salt = randomBytes(16);
+  const key = await derive(authSecret, salt);
+  return `${PREFIX}$${COST.N}$${COST.r}$${COST.p}$${salt.toString("base64url")}$${key.toString("base64url")}`;
+}
+
+/**
+ * A missing account still spends the derivation, so login timing cannot be used as a
+ * user-enumeration oracle.
+ */
 export async function verifyAuthSecret(
   storedHash: string | null,
   authSecret: string,
 ): Promise<boolean> {
-  if (!storedHash) {
-    dummyHash ??= await hash("account-does-not-exist", PARAMS);
-    await verify(dummyHash, authSecret).catch(() => false);
-    return false;
-  }
-  return verify(storedHash, authSecret).catch(() => false);
+  const parts = (storedHash ?? "").split("$");
+  const salt = parts.length === 6 && parts[0] === PREFIX ? Buffer.from(parts[4]!, "base64url") : randomBytes(16);
+  const expected = parts.length === 6 ? Buffer.from(parts[5]!, "base64url") : randomBytes(32);
+  const actual = await derive(authSecret, salt);
+  return actual.length === expected.length && timingSafeEqual(actual, expected) && parts[0] === PREFIX;
 }

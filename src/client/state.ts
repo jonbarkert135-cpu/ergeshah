@@ -123,7 +123,7 @@ export function unlockVault(vaultKey: Uint8Array, sealed: SealedVault): VaultCon
   return JSON.parse(fromUtf8(openVault(vaultKey, sealed))) as VaultContents;
 }
 
-export function sealCurrentVault(): SealedVault {
+function sealCurrentVault(): SealedVault {
   if (!state.vaultKey || !state.vault) throw new Error("vault is locked");
   return sealVault(state.vaultKey, utf8(JSON.stringify(state.vault)));
 }

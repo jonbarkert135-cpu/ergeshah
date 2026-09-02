@@ -43,14 +43,4 @@ export function concat(...parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-/** Constant-time comparison; length is not secret. */
-export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) diff |= (a[i] as number) ^ (b[i] as number);
-  return diff === 0;
-}
 
-export function wipe(bytes: Uint8Array | undefined): void {
-  if (bytes) bytes.fill(0);
-}

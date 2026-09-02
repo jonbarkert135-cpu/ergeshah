@@ -40,7 +40,7 @@ describe("registration and login", () => {
       "created_day",
     ]);
     // No email, no phone, no address, no IP, and the stored hash is not the client secret.
-    expect(String(stored?.password_hash)).toMatch(/^\$argon2id\$/);
+    expect(String(stored?.password_hash)).toMatch(/^scrypt\$32768\$8\$1\$/);
     expect(String(stored?.password_hash)).not.toContain(authSecretFor("alice", "correct horse battery staple"));
   });
 
