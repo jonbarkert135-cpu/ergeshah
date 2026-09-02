@@ -23,8 +23,9 @@ timing and volume, which padding cannot touch.*
 
 ## Accounts
 
-*Shipped: AUTH-2 password change with atomic vault re-sealing, AUTH-4 self-service
-deletion (PR #5), and AUTH-3 device linking with a per-device identity (PR #6).*
+*Shipped: AUTH-2 password change (now a 32-byte rewrap), AUTH-4 self-service deletion
+(PR #5), AUTH-3 device linking with a per-device identity (PR #6), and recovery phrases
+over a wrapped master key (PR #7).*
 
 - **AUTH-5 — Camera capture for the device code.** Linking works by reading a code across
   devices; scanning it needs either the browser's own `BarcodeDetector` (Chromium only) or
@@ -34,6 +35,8 @@ deletion (PR #5), and AUTH-3 device linking with a per-device identity (PR #6).*
   again by someone else. The defence is a client that notices a peer's identity key
   changed and says so, rather than a tombstone in the database.
 
+- **AUTH-7 — PGP as an authentication factor.** Challenge, detached signature, verified
+  against a stored public key. Next.
 - **AUTH-1 — PAKE login (OPAQUE).** Removes the last theoretical benefit a hostile server
   gets from observing login.
 

@@ -37,6 +37,20 @@ Rules, in order of how badly breaking them hurts:
 | Ink | `#0B0D10` | The mark, text, dark surfaces. Not pure black — pure black reads as a hole on OLED. |
 | Paper | `#F5F4F0` | Light surfaces, the mark on dark. Slightly warm, so long reading sessions do not glare. |
 
+Interface tints, all derived from the two, so the product can be dark without being loud:
+
+| Token | Value | Use |
+| --- | --- | --- |
+| Surface | `#14171C` | Cards and panels on ink |
+| Surface raised | `#1A1E24` | Inputs, secondary buttons |
+| Line | `#272C34` | Borders and dividers |
+| Muted text | `#9AA1AB` | Secondary copy |
+| Danger | `#E0837A` | Destructive actions only |
+
+Paper is the only bright surface in the interface, and it is reserved for the single
+primary action on a screen. No neon, no glow, no terminal green: a security product that
+dresses as one is asking to be doubted.
+
 Two colours are the whole palette. A privacy product that shouts in five accent colours is
 lying about what it is. Anything else needed later (a state colour for an error, a muted
 grey for secondary text) is a tint of these two, added to this file first.

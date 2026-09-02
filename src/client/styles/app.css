@@ -1,14 +1,17 @@
 /* Self-hosted, system fonts only: no font request can identify a reader. */
 :root {
-  --bg: #0b0f14;
-  --panel: #121821;
-  --panel-2: #182130;
-  --line: #24303f;
-  --text: #e6edf3;
-  --muted: #93a4b8;
-  --accent: #4ade80;
-  --accent-dim: #1c8f52;
-  --danger: #f87171;
+  /* Ink and paper from brand/BRAND.md; everything else is a tint of those two. A
+     privacy product that shouts in neon looks like a costume, so the only bright
+     surface in the interface is paper, and it is reserved for the primary action. */
+  --bg: #0b0d10;
+  --panel: #14171c;
+  --panel-2: #1a1e24;
+  --line: #272c34;
+  --text: #f5f4f0;
+  --muted: #9aa1ab;
+  --accent: #f5f4f0;
+  --accent-dim: #eceae4;
+  --danger: #e0837a;
   --radius: 10px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -43,8 +46,8 @@ button, .btn {
   border: 1px solid var(--line); border-radius: var(--radius);
   padding: 7px 13px; cursor: pointer;
 }
-button:hover { border-color: var(--accent-dim); }
-button.primary { background: var(--accent-dim); border-color: var(--accent-dim); color: #04140a; font-weight: 600; }
+button:hover { border-color: #3a414b; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #0b0d10; font-weight: 600; }
 button.ghost { background: transparent; }
 button.danger { color: var(--danger); }
 button[aria-current="page"] { border-color: var(--accent); color: var(--accent); }
@@ -59,7 +62,7 @@ input, textarea, select {
   font: inherit; width: 100%; color: var(--text); background: var(--bg);
   border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 11px;
 }
-input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-dim); outline-offset: 1px; }
+input:focus, textarea:focus, select:focus { outline: 1px solid #6b7280; outline-offset: 1px; }
 label { display: block; margin: 12px 0 5px; font-size: 13px; color: var(--muted); }
 form.card { max-width: 460px; }
 
@@ -99,3 +102,24 @@ footer.legal { color: var(--muted); font-size: 12px; padding: 20px; text-align: 
   .chat { grid-template-columns: 1fr; }
   .chat .list { border-right: none; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
 }
+
+/* The recovery phrase: numbered, monospaced, generously spaced, and quiet. Twenty-four
+   words have to be copied by hand without a mistake, which is a typography problem. */
+.phrase {
+  display: grid; gap: 8px; margin: 4px 0 16px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.phrase-word {
+  display: flex; align-items: baseline; gap: 9px;
+  padding: 9px 11px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--radius);
+}
+.phrase-index {
+  min-width: 18px; font-family: var(--mono); font-size: 11px; color: var(--muted);
+  text-align: right;
+}
+.phrase-word .mono { font-size: 14px; letter-spacing: 0.01em; }
+
+/* Three word checks, side by side, so the confirmation reads as one step. */
+.confirm { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.confirm label { margin-top: 0; }

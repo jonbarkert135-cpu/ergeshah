@@ -2,6 +2,9 @@ import { api } from "../api.ts";
 import { clear, el, notice } from "../ui.ts";
 import { changePassword, deleteAccount, forgetLocalVault, lock } from "../state.ts";
 import { authoriseDevice, parseDeviceCode, type ParsedDeviceCode } from "../linking.ts";
+import { setRecoveryPhrase } from "../recovery.ts";
+import { generatePhrase } from "../../shared/crypto/mnemonic.ts";
+import { sealedVaultNow, state } from "../state.ts";
 
 export function renderAccount(root: HTMLElement, onSignedOut: () => void): void {
   clear(root);
@@ -11,7 +14,12 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
 
   async function load() {
     clear(body).append(el("p", { class: "muted" }, "Loading…"));
-    const me = await api<{ username: string; role: string; memberSince: string | null }>("/api/auth/me");
+    const me = await api<{
+      username: string;
+      role: string;
+      memberSince: string | null;
+      recoveryConfigured: boolean;
+    }>("/api/auth/me");
     const keys = await api<{
       devices: Array<{
         deviceId: string;
@@ -95,9 +103,87 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
       ),
     );
 
+    body.append(el("h2", {}, "Recovery phrase"), recoveryCard(me.recoveryConfigured));
     body.append(el("h2", {}, "Link a device"), linkCard());
     body.append(el("h2", {}, "Password"), passwordCard());
     body.append(el("h2", {}, "Delete account"), deleteCard());
+  }
+
+  /**
+   * Recovery status, and a way to attach a phrase to an account that has none. The phrase
+   * is generated here, shown once, confirmed here, and never sent to the server — only a
+   * public key derived from it, plus a copy of the master key wrapped with it.
+   */
+  function recoveryCard(configured: boolean): HTMLElement {
+    const message = el("div", { class: "muted" });
+    const holder = el("div", {});
+    const add = el("button", {}, configured ? "Replace the recovery phrase" : "Create a recovery phrase");
+
+    add.addEventListener("click", () => {
+      const phrase = generatePhrase(24);
+      const words = phrase.split(" ");
+      const grid = el("div", { class: "phrase" });
+      words.forEach((word, index) =>
+        grid.append(el("div", { class: "phrase-word" },
+          el("span", { class: "phrase-index" }, String(index + 1)),
+          el("span", { class: "mono" }, word)),
+        ),
+      );
+      const password = el("input", { type: "password", placeholder: "Your password" });
+      const confirm = el("button", { class: "primary" }, "I have written it down");
+
+      confirm.addEventListener("click", () => {
+        if (!state.account || !state.masterKey || !state.envelopes) {
+          message.textContent = "Unlock the vault first.";
+          return;
+        }
+        confirm.setAttribute("disabled", "");
+        message.textContent = "Deriving keys from the phrase…";
+        const backup = {
+          v: 3 as const,
+          vault: sealedVaultNow(),
+          password: state.envelopes.password,
+          recovery: state.envelopes.recovery ?? null,
+        };
+        void setRecoveryPhrase(
+          state.account.username,
+          (password as HTMLInputElement).value,
+          phrase,
+          state.masterKey,
+          backup,
+        )
+          .then((updated) => {
+            state.envelopes = { password: updated.password, recovery: updated.recovery };
+            clear(holder);
+            message.textContent = "Recovery phrase active. It will not be shown again.";
+            void load();
+          })
+          .catch((error: Error) => {
+            message.textContent = error.message;
+            confirm.removeAttribute("disabled");
+          });
+      });
+
+      clear(holder).append(
+        grid,
+        notice(
+          "Written on paper, kept private. Anyone with these words can take this account and read its history; if you lose them together with your password, nobody can restore access.",
+        ),
+        el("div", { class: "row" }, password, confirm),
+      );
+    });
+
+    return el(
+      "div",
+      { class: "card" },
+      el("p", { class: "muted", style: "margin-top:0" },
+        configured
+          ? "A recovery phrase is active on this account. The words themselves were shown once and are not stored anywhere — replacing them invalidates the old phrase."
+          : "This account has no recovery phrase. Without one, a forgotten password cannot be recovered: there is no email reset and no administrator override."),
+      el("div", { class: "row" }, add),
+      holder,
+      message,
+    );
   }
 
   /** Read a code from a new device, check its fingerprint, then vouch for its keys. */

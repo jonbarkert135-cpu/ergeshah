@@ -66,6 +66,48 @@ rather than being stored as separate keys; the "F ‖ DH…" prefix uses 32 byte
 curve is X25519; there is no server-side one-time prekey signature. This is not an
 interoperable Signal implementation and does not claim to be.
 
+## Key separation
+
+Five kinds of secret, so that losing one does not lose the rest:
+
+| Secret | Derived from | Where it lives | What it unlocks |
+| --- | --- | --- | --- |
+| `authSecret` | password (Argon2id → HKDF) | server, hashed again with scrypt | a session |
+| password wrap key | password (Argon2id → HKDF) | the browser, in memory | one wrapped copy of the master key |
+| recovery wrap key | phrase (Argon2id → HKDF) | derived on demand, never stored | the other wrapped copy |
+| recovery signing key | phrase (Argon2id → HKDF → Ed25519) | derived on demand | proof of ownership to the server |
+| master key | 32 random bytes | in the backup, wrapped twice | the vault, and nothing else |
+| identity + ratchet keys | inside the vault | the device | messages |
+
+```
+phrase   --Argon2id--> HKDF --> recovery wrap key ---\
+                            \-> Ed25519 signing pair  \
+                                                       +-> master key -> vault -> identity keys
+password --Argon2id--> HKDF --> password wrap key ----/
+                            \-> authSecret --> (server) scrypt --> session
+```
+
+The master key is the only thing that encrypts the vault, and it is never derived from
+anything a human types. Changing a password rewraps 32 bytes; a recovery phrase opens the
+second wrap, which is why recovery restores conversations rather than only access. The
+server holds both wrapped blobs and no key to either.
+
+## Recovery phrases
+
+12 or 24 words in the BIP-39 encoding (24 by default), generated from the OS CSPRNG in the
+browser. Only the encoding is borrowed: the phrase's *entropy* — not its text — feeds
+Argon2id at the same cost as the password path, instead of BIP-39's PBKDF2-SHA512, which is
+far too weak for a secret that must survive an offline attack on a leaked backup.
+
+The checksum bits mean a mistyped or reordered phrase is rejected rather than silently
+deriving the wrong key. The words are shown once, confirmed locally (three positions,
+checked in the browser), and never transmitted: the server receives an Ed25519 public key
+derived from the phrase and, later, signatures over its own challenges.
+
+Consequence, stated plainly because it cannot be engineered away: whoever holds the phrase
+can take the account and read its history. There is no email reset and no administrator
+override — see `docs/THREAT_MODEL.md`.
+
 ## Message encryption (Double Ratchet)
 
 ```

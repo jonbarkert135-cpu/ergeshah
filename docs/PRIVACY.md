@@ -107,6 +107,18 @@ Two consequences worth stating plainly:
 - Messages already delivered to other people stay with them. The server cannot reach into
   another user's device, and E2EE means it could not read them to delete them anyway.
 
+## Recovery material
+
+| Field | What it is | What it is not |
+| --- | --- | --- |
+| `users.recovery_public_key` | Ed25519 public key derived from the phrase | not the phrase, not the private half, not reversible |
+| `vaults.sealed.recovery` | the master key wrapped with a phrase-derived key | not openable by the server |
+| `auth_challenges` | a random challenge, its account, an expiry | deleted on use; no signature, no phrase |
+
+The phrase itself never reaches the server — not in a request body, not in a log, not in a
+backup. Nothing in the database can be turned back into it, which is also why nobody here
+can restore an account whose phrase and password are both gone.
+
 ## Linked devices
 
 `device_links` holds, per pending authorisation: SHA-256 of the secret, the account id, an

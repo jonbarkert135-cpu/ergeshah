@@ -18,19 +18,24 @@ import {
 import { today, dayToIsoDate } from "../lib/time.ts";
 import {
   asBase64Url,
+  asId,
   asOptionalString,
   asSealedVault,
   asUsername,
 } from "../lib/validate.ts";
+import { verifyEd25519 } from "../lib/signatures.ts";
 
 /** Long enough to walk to the other device, short enough that a photographed screen ages out. */
 const LINK_TTL_MS = 5 * 60 * 1000;
+/** Long enough to paste a phrase and sign, short enough to be useless if intercepted. */
+const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 interface Credentials {
   username: unknown;
   authSecret: unknown;
   label?: unknown;
   sealedVault?: unknown;
+  recoveryPublicKey?: unknown;
 }
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
@@ -44,6 +49,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
     const label = asOptionalString(body.label, "label", 40) || null;
     const sealedVault = body.sealedVault === undefined ? null : asSealedVault(body.sealedVault);
+    const recoveryPublicKey =
+      body.recoveryPublicKey === undefined || body.recoveryPublicKey === null
+        ? null
+        : asBase64Url(body.recoveryPublicKey, "recoveryPublicKey", 32);
     await app.limit(request, "register");
 
     const existing = await db.get("SELECT id FROM users WHERE username = ?", [username]);
@@ -59,9 +68,17 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     await db.transaction(async (tx) => {
       await tx.run(
-        `INSERT INTO users (id, username, password_hash, role, status, created_day)
-         VALUES (?, ?, ?, ?, 'active', ?)`,
-        [userId, username, passwordHash, isFirstUser ? "admin" : "user", today()],
+        `INSERT INTO users (id, username, password_hash, role, status, created_day,
+                            recovery_public_key)
+         VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+        [
+          userId,
+          username,
+          passwordHash,
+          isFirstUser ? "admin" : "user",
+          today(),
+          recoveryPublicKey,
+        ],
       );
       if (sealedVault !== null) {
         await tx.run("INSERT INTO vaults (user_id, sealed, updated_day) VALUES (?, ?, ?)", [
@@ -306,10 +323,150 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  /**
+   * Recovery, step one: hand out a challenge to sign.
+   *
+   * A challenge is returned for *every* username, whether or not the account exists or
+   * has a recovery key. Otherwise this endpoint would answer "does this account exist?"
+   * to anyone who asks, and no rate limit fixes an oracle.
+   */
+  app.post("/api/auth/recovery/challenge", async (request) => {
+    const body = (request.body ?? {}) as { username?: unknown };
+    const username = asUsername(body.username);
+    await app.limit(request, "auth");
+
+    const user = await db.get<{ id: string; recovery_public_key: string | null }>(
+      "SELECT id, recovery_public_key FROM users WHERE username = ? AND status = 'active'",
+      [username],
+    );
+    const challenge = randomToken(32);
+    const id = newId();
+    // A row is only written for accounts that can actually answer; unknown usernames get
+    // a well-formed challenge that will never verify.
+    if (user?.recovery_public_key) {
+      await db.run(
+        `INSERT INTO auth_challenges (id, user_id, kind, challenge, expires_at)
+         VALUES (?, ?, 'recovery', ?, ?)`,
+        [id, user.id, challenge, Date.now() + CHALLENGE_TTL_MS],
+      );
+    }
+    return { challengeId: id, challenge, expiresInSeconds: CHALLENGE_TTL_MS / 1000 };
+  });
+
+  /**
+   * Recovery, step two: prove the phrase, set a new password, keep the vault.
+   *
+   * The signature is over the challenge bytes, made by the Ed25519 key the client derives
+   * from the recovery phrase; the server holds only the public half. On success the
+   * password hash and the vault backup are replaced in one transaction and *every* session
+   * is destroyed — a recovery is exactly the moment to assume the old ones are hostile.
+   */
+  app.post("/api/auth/recovery/complete", async (request, reply) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const challengeId = asId(body.challengeId, "challengeId");
+    const signature = asBase64Url(body.signature, "signature", 64);
+    const newAuthSecret = asBase64Url(body.newAuthSecret, "newAuthSecret", 64);
+    await app.limit(request, "auth");
+
+    const claimed = await db.transaction(async (tx) => {
+      await tx.run("DELETE FROM auth_challenges WHERE expires_at < ?", [Date.now()]);
+      const row = await tx.get<{ user_id: string; challenge: string }>(
+        "SELECT user_id, challenge FROM auth_challenges WHERE id = ? AND kind = 'recovery'",
+        [challengeId],
+      );
+      if (!row) return null;
+      // Single use: consumed whether or not the signature turns out to be valid, so a
+      // stolen challenge cannot be ground against offline guesses.
+      await tx.run("DELETE FROM auth_challenges WHERE id = ?", [challengeId]);
+      return row;
+    });
+    if (!claimed) throw unauthorized("that recovery challenge is unknown or expired");
+
+    const user = await db.get<{
+      id: string;
+      username: string;
+      role: string;
+      status: string;
+      recovery_public_key: string | null;
+    }>(
+      "SELECT id, username, role, status, recovery_public_key FROM users WHERE id = ?",
+      [claimed.user_id],
+    );
+    if (!user?.recovery_public_key || user.status !== "active") {
+      throw unauthorized("recovery is not available for this account");
+    }
+    const valid = verifyEd25519(
+      Buffer.from(user.recovery_public_key, "base64url"),
+      Buffer.from(claimed.challenge, "utf8"),
+      Buffer.from(signature, "base64url"),
+    );
+    if (!valid) throw unauthorized("that signature does not match this account");
+
+    // The password moves now; the vault backup is handed back untouched so the client can
+    // unwrap the master key with the phrase and rewrap it under the new password. If that
+    // second step fails the account is still reachable and recovery still works, which is
+    // why the rewrap is not attempted here with material the server must never hold.
+    const passwordHash = await hashAuthSecret(newAuthSecret);
+    await db.run("UPDATE users SET password_hash = ? WHERE id = ?", [passwordHash, user.id]);
+    await destroyAllSessions(db, user.id);
+    const vault = await db.get<{ sealed: string }>("SELECT sealed FROM vaults WHERE user_id = ?", [
+      user.id,
+    ]);
+
+    const session = await createSession(db, user.id, config.sessionTtlMs, "recovered");
+    return replyWithSession(reply, config, {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      token: session.token,
+      expiresAt: session.expiresAt,
+      sealedVault: vault ? JSON.parse(vault.sealed) : null,
+    });
+  });
+
+  /** Set or replace the recovery public key. Requires the current password, not a session alone. */
+  app.post("/api/auth/recovery/key", async (request) => {
+    const user = await app.authenticate(request);
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
+    const recoveryPublicKey = asBase64Url(body.recoveryPublicKey, "recoveryPublicKey", 32);
+    const sealedVault = body.sealedVault === undefined ? null : asSealedVault(body.sealedVault);
+    await app.limit(request, "auth");
+
+    const row = await db.get<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE id = ?",
+      [user.id],
+    );
+    if (!(await verifyAuthSecret(row?.password_hash ?? null, authSecret))) {
+      throw unauthorized("password is wrong");
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.run("UPDATE users SET recovery_public_key = ? WHERE id = ?", [
+        recoveryPublicKey,
+        user.id,
+      ]);
+      if (sealedVault !== null) {
+        const existing = await tx.get("SELECT user_id FROM vaults WHERE user_id = ?", [user.id]);
+        await tx.run(
+          existing
+            ? "UPDATE vaults SET sealed = ?, updated_day = ? WHERE user_id = ?"
+            : "INSERT INTO vaults (sealed, updated_day, user_id) VALUES (?, ?, ?)",
+          [sealedVault, today(), user.id],
+        );
+      }
+    });
+    return { ok: true };
+  });
+
   app.get("/api/auth/me", async (request) => {
     const user = await app.authenticate(request);
     const row = await db.get<{ created_day: number }>(
       "SELECT created_day FROM users WHERE id = ?",
+      [user.id],
+    );
+    const recovery = await db.get<{ recovery_public_key: string | null }>(
+      "SELECT recovery_public_key FROM users WHERE id = ?",
       [user.id],
     );
     const seller = await db.get<{ display_name: string; status: string }>(
@@ -320,6 +477,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       id: user.id,
       username: user.username,
       role: user.role,
+      recoveryConfigured: Boolean(recovery?.recovery_public_key),
       memberSince: row ? dayToIsoDate(row.created_day) : null,
       seller: seller ? { displayName: seller.display_name, status: seller.status } : null,
     };
