@@ -53,7 +53,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
       ),
       field("Username", username, "3–32 characters: a–z, 0–9, dot, dash, underscore"),
       field("Password", password, "At least 12 characters. There is no reset: forgetting it destroys your keys."),
-      el("div", { class: "row", style: "margin-top:16px" }, submit,
+      el("div", { class: "row spaced" }, submit,
         el("button", { type: "button", class: "ghost", onclick: () => { mode = mode === "login" ? "register" : "login"; draw(); } },
           mode === "login" ? "Create an account instead" : "I already have an account"),
         el("button", { type: "button", class: "ghost", onclick: () => { mode = "link"; draw(); } },
@@ -92,7 +92,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
     const status = el("div", {});
     let polling = false;
 
-    const codeBox = el("textarea", { readonly: "", rows: "4", class: "mono", style: "width:100%" });
+    const codeBox = el("textarea", { readonly: "", rows: "4", class: "mono" });
     (codeBox as HTMLTextAreaElement).value = code;
 
     const start = el("button", { class: "primary" }, "Waiting for the other device…");
@@ -139,7 +139,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
         "Check that the other device shows the same fingerprint before you authorise it. Linking does not copy your message history — this browser starts empty and receives what arrives from now on.",
       ),
       field("Password for this device", password, "Protects this browser's keys. Never sent anywhere; it does not have to match your account password."),
-      el("div", { class: "row", style: "margin-top:16px" }, start,
+      el("div", { class: "row spaced" }, start,
         el("button", { type: "button", class: "ghost", onclick: () => { mode = localSealedVault() ? "login" : "register"; draw(); } }, "Back"),
       ),
       status,
@@ -332,7 +332,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
           el("p", { class: "lede" },
             "This is the only way back into your account if you forget your password. It is shown once, here, and never again — not by us, not by anyone."),
           grid,
-          el("div", { class: "row", style: "margin-top:12px" }, copy, download, swap),
+          el("div", { class: "row spaced" }, copy, download, swap),
           notice(
             "Write it on paper and keep it somewhere private. Anyone who has these words can take the account and read its history; if you lose them along with your password, nobody can restore access — there is no email reset and no administrator override.",
           ),
@@ -341,7 +341,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
           el("div", { class: "confirm" },
             ...positions.map((position, index) => field(`Word ${position}`, answers[index]!)),
           ),
-          el("div", { class: "row", style: "margin-top:16px" }, finish,
+          el("div", { class: "row spaced" }, finish,
             el("button", { class: "ghost", type: "button", onclick: () => { mode = "register"; draw(); } }, "Back"),
           ),
           status,
@@ -380,7 +380,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
   /** Recovery: phrase in, new password out, every old session gone. */
   function drawRecover(message?: HTMLElement) {
     const username = input("username", { autocomplete: "username" });
-    const phrase = el("textarea", { rows: "3", class: "mono", placeholder: "twelve or twenty-four words", style: "width:100%" });
+    const phrase = el("textarea", { rows: "3", class: "mono", placeholder: "twelve or twenty-four words" });
     const password = input("new password", { type: "password", minlength: "12" });
     const status = el("div", {});
     const submit = el("button", { class: "primary" }, "Recover the account");
@@ -435,7 +435,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
         field("Recovery phrase", phrase, "Order matters. Case and spacing do not."),
         field("New password", password, "At least 12 characters."),
         notice("Recovering signs out every other session, and sets this password everywhere."),
-        el("div", { class: "row", style: "margin-top:16px" }, submit,
+        el("div", { class: "row spaced" }, submit,
           el("button", { class: "ghost", type: "button", onclick: () => { mode = "login"; draw(); } }, "Back"),
         ),
         status,

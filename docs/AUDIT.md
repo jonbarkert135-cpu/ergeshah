@@ -36,6 +36,17 @@ floor of verifiability for any web application, and closing the source does not 
 They all live in `scripts/audit.mjs` and `scripts/lint.mjs`, are `String.matchAll` and
 `git` plumbing, and add no dependency.
 
+### What subresource integrity does and does not cover
+
+`index.html` pins the entry script and the stylesheet with `integrity=`, and a browser
+refuses either if the bytes do not match. It cannot do the same for the lazily imported
+cryptography chunk: there is no browser-enforced integrity for a dynamic `import()`. That
+chunk is instead protected by three weaker things — a content-addressed filename (its name
+*is* the hash of its bytes), its digest in `/build.txt`, and `default-src 'self'`, which
+means it can only come from this origin. Weaker in kind, and worth stating rather than
+glossing: an operator who swaps the chunk and the page together defeats all of it, exactly
+as they would defeat SRI by editing the page (ADR-0027).
+
 ### `audit:history` — nothing secret was *ever* committed
 
 `audit:secrets` reads the working tree, which answers the wrong question: a key committed

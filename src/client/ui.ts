@@ -53,8 +53,124 @@ export function clear(node: HTMLElement): HTMLElement {
   return node;
 }
 
-export function notice(message: string, kind: "info" | "error" = "info"): HTMLElement {
-  return el("div", { class: kind === "error" ? "notice error" : "notice" }, message);
+export function notice(message: string, kind: "info" | "error" | "ok" = "info"): HTMLElement {
+  return el("div", { class: kind === "info" ? "notice" : `notice ${kind}` }, message);
+}
+
+/**
+ * The three states every asynchronous surface needs. They exist as functions rather than
+ * as advice in a style guide because the alternative — each view improvising — is how an
+ * interface ends up with a blank rectangle where a list should be, and a raw error string
+ * where an explanation should be.
+ */
+
+/** Loading: the shape of what is coming, not a spinner over a void. */
+export function skeleton(kind: "line" | "card" = "line", count = 1): HTMLElement {
+  const wrap = el("div", { "aria-busy": "true", "aria-label": "Loading" });
+  for (let i = 0; i < count; i += 1) {
+    wrap.append(el("div", { class: `skeleton ${kind}`, style: kind === "line" ? `width: ${90 - i * 12}%` : "" }));
+  }
+  return wrap;
+}
+
+export function skeletonCards(count = 6): HTMLElement {
+  const grid = el("div", { class: "grid", "aria-busy": "true", "aria-label": "Loading" });
+  for (let i = 0; i < count; i += 1) grid.append(el("div", { class: "skeleton card" }));
+  return grid;
+}
+
+/** Empty: says what would be here, and offers the one action that changes that. */
+export function emptyState(title: string, explanation: string, action?: HTMLElement): HTMLElement {
+  return el(
+    "div",
+    { class: "state" },
+    el("h3", {}, title),
+    el("p", {}, explanation),
+    action ? el("div", { class: "actions" }, action) : null,
+  );
+}
+
+/** Error: what failed, and what the reader can do — never a stack trace, never a code. */
+export function errorState(explanation: string, retry?: () => void): HTMLElement {
+  return el(
+    "div",
+    { class: "state error" },
+    el("h3", {}, "That did not load"),
+    el("p", {}, explanation),
+    retry ? el("div", { class: "actions" }, el("button", { onclick: retry }, "Try again")) : null,
+  );
+}
+
+/**
+ * A transient message. Used for confirmations that do not deserve a place on the page;
+ * anything the reader must act on is a `notice` in the flow instead, where it stays.
+ */
+export function toast(message: string, kind: "info" | "error" = "info"): void {
+  let host = document.querySelector(".toasts");
+  if (!host) {
+    host = el("div", { class: "toasts", role: "status", "aria-live": "polite" });
+    document.body.append(host);
+  }
+  const node = el("div", { class: kind === "error" ? "toast error" : "toast" }, message);
+  host.append(node);
+  window.setTimeout(() => node.remove(), kind === "error" ? 6000 : 3500);
+}
+
+/**
+ * A modal question. Native `<dialog>`: focus trapping, Escape and the backdrop are the
+ * platform's job, and every line of that we do not write is a line that cannot be wrong.
+ */
+export function confirmDialog(options: {
+  title: string;
+  body: string;
+  confirmLabel?: string;
+  danger?: boolean;
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    const cancel = el("button", { class: "ghost" }, "Cancel");
+    const confirm = el(
+      "button",
+      { class: options.danger ? "danger" : "primary" },
+      options.confirmLabel ?? "Confirm",
+    );
+    const dialog = el(
+      "dialog",
+      {},
+      el("h2", {}, options.title),
+      el("p", { class: "muted" }, options.body),
+      el("div", { class: "actions" }, cancel, confirm),
+    ) as HTMLDialogElement;
+
+    const close = (answer: boolean) => {
+      dialog.close();
+      dialog.remove();
+      resolve(answer);
+    };
+    cancel.addEventListener("click", () => close(false));
+    confirm.addEventListener("click", () => close(true));
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      close(false);
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    confirm.focus();
+  });
+}
+
+/**
+ * Runs an async action with the button showing it: disabled, spinner, restored afterwards.
+ * Without this, every handler reinvents it, and half of them forget the `finally`.
+ */
+export async function withBusy<T>(button: HTMLButtonElement, action: () => Promise<T>): Promise<T> {
+  button.disabled = true;
+  button.classList.add("loading");
+  try {
+    return await action();
+  } finally {
+    button.disabled = false;
+    button.classList.remove("loading");
+  }
 }
 
 export function money(minor: number, currency: string): string {
@@ -62,12 +178,14 @@ export function money(minor: number, currency: string): string {
   return `${major} ${currency}`;
 }
 
-export function field(
-  label: string,
-  input: HTMLElement,
-  hint?: string,
-): HTMLElement {
-  return el("div", {}, el("label", {}, label), input, hint ? el("div", { class: "muted mono" }, hint) : null);
+export function field(label: string, input: HTMLElement, hint?: string): HTMLElement {
+  return el(
+    "div",
+    { class: "field" },
+    el("label", {}, label),
+    input,
+    hint ? el("div", { class: "hint" }, hint) : null,
+  );
 }
 
 export function input(

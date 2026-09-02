@@ -23,7 +23,12 @@ describe("security headers", () => {
     const csp = String(response.headers["content-security-policy"]);
 
     // A decorative CSP is one with 'unsafe-inline', 'unsafe-eval' or a wildcard in it.
-    expect(csp).not.toMatch(/unsafe-inline|unsafe-eval|\*/);
+    // 'wasm-unsafe-eval' is a different keyword with a different meaning — it permits
+    // compiling WebAssembly and nothing else — and the client does not run without it in
+    // Chromium, because the cryptography *is* WebAssembly (ADR-0027).
+    expect(csp).not.toMatch(/unsafe-inline|\*/);
+    expect(csp).not.toMatch(/(?<!wasm-)unsafe-eval/);
+    expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'");
     for (const directive of [
       "default-src 'self'",
       "object-src 'none'",

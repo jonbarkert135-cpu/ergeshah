@@ -26,7 +26,7 @@ exist. Drifted API documentation is worse than none, because people trust it.
 | Method & path | Auth | Purpose |
 | --- | --- | --- |
 | `GET /` | — | The application shell, with SRI digests for the bundle |
-| `GET /assets/app.js`, `GET /assets/app.css` | — | The client bundle. Immutable, digest-addressed |
+| `GET /assets/*` | — | The built client: `app-<hash>.js`, its lazily loaded crypto chunk, `app-<hash>.css`. Content-addressed names, pre-compressed, `Cache-Control: immutable` |
 | `GET /favicon.svg` | — | Icon |
 | `GET /build.txt` | — | Digests of exactly these files, so a visitor can verify the build (`npm run audit:deployment`) |
 | `GET /healthz` | — | Liveness for the container healthcheck. Reveals nothing |

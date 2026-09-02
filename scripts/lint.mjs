@@ -65,6 +65,13 @@ const RULES = [
     message: "use @ts-expect-error with a reason, so the suppression fails when it stops being needed",
   },
   {
+    name: "inline-style",
+    pattern: /\bstyle:\s*["'`]/,
+    files: /^src\/client\//,
+    message:
+      "style-src 'self' has no 'unsafe-inline', so the browser drops inline styles: use a class",
+  },
+  {
     name: "focused-test",
     pattern: /\b(?:describe|it|test)\.only\s*\(/,
     files: /^test\//,

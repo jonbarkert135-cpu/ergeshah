@@ -25,7 +25,9 @@ describe("docs/API.md matches the routes that exist", () => {
     const doc = read("docs/API.md");
     const undocumented = server.app.routeInventory
       .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS")
-      .map((route) => `${route.method} ${route.url}`)
+      // Built assets are content-addressed: their names change with every build, so the
+      // documentation describes the pattern rather than today's hashes.
+      .map((route) => `${route.method} ${route.url.replace(/^\/assets\/.*/, "/assets/*")}`)
       .filter((signature) => !doc.includes(`\`${signature}\``))
       .sort();
     expect(undocumented, "add these to docs/API.md").toEqual([]);
@@ -33,7 +35,11 @@ describe("docs/API.md matches the routes that exist", () => {
 
   it("documents nothing that has been removed", () => {
     const doc = read("docs/API.md");
-    const live = new Set(server.app.routeInventory.map((route) => `${route.method} ${route.url}`));
+    const live = new Set(
+      server.app.routeInventory.map(
+        (route) => `${route.method} ${route.url.replace(/^\/assets\/.*/, "/assets/*")}`,
+      ),
+    );
     const stale = [...doc.matchAll(/`(GET|POST|PUT|PATCH|DELETE) (\/[^`]*)`/g)]
       .map((match) => `${match[1]} ${match[2]}`)
       .filter((signature) => !live.has(signature))
@@ -98,6 +104,8 @@ describe("the documents point 31 requires are present and not empty", () => {
       ["docs/DEPLOYMENT.md", 60],
       ["docs/ENVIRONMENT.md", 40],
       ["docs/TESTING.md", 30],
+      ["docs/DESIGN.md", 40],
+      ["docs/PERFORMANCE.md", 40],
       ["docs/AUDIT.md", 40],
       ["docs/DECISIONS.md", 100],
     ] as const) {

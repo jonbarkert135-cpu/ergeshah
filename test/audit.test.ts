@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { startTestServer } from "./helpers.ts";
 // @ts-expect-error - plain ESM script, no types needed for two pure functions
@@ -93,19 +93,56 @@ describe("reproducible build", () => {
       env: { ...process.env, NODE_ENV: "production" },
     });
     const listed = readFileSync(new URL("public/BUILD.txt", root), "utf8").trim().split("\n");
-    expect(listed).toHaveLength(4);
+    // Entry, the lazily loaded crypto chunk (plus esbuild's shared stub), stylesheet,
+    // icon and shell: every byte the server will serve, and nothing that it will not.
+    expect(listed.length).toBeGreaterThanOrEqual(5);
     for (const line of listed) {
       const [hash, file] = line.split("  ");
-      expect(digest(readFileSync(new URL(`public/${file}`, root)))).toBe(hash);
+      expect(digest(readFileSync(new URL(`public/${file}`, root))), file).toBe(hash);
     }
   });
 
   it("pins the script and stylesheet in the page, so a swapped bundle is refused", () => {
     const shell = readFileSync(new URL("public/index.html", root), "utf8");
-    const js = digest(readFileSync(new URL("public/app.js", root)));
-    const css = digest(readFileSync(new URL("public/app.css", root)));
-    expect(shell).toContain(`src="/assets/app.js" integrity="${js}"`);
-    expect(shell).toContain(`href="/assets/app.css" integrity="${css}"`);
+    const script = shell.match(/src="\/assets\/(app-[A-Z0-9]+\.js)" integrity="([^"]+)"/i);
+    const style = shell.match(/href="\/assets\/(app-[A-Z0-9]+\.css)" integrity="([^"]+)"/i);
+    expect(script, "the shell must pin its entry script").not.toBeNull();
+    expect(style, "the shell must pin its stylesheet").not.toBeNull();
+    expect(digest(readFileSync(new URL(`public/assets/${script![1]}`, root)))).toBe(script![2]);
+    expect(digest(readFileSync(new URL(`public/assets/${style![1]}`, root)))).toBe(style![2]);
+  });
+
+  it("keeps the first load small, and the cryptography out of it", () => {
+    // A budget, not a measurement: the shell is what a visitor waits for before anything
+    // appears, and libsodium is a megabyte that they do not need until they sign in.
+    const listed = readFileSync(new URL("public/BUILD.txt", root), "utf8").trim().split("\n");
+    const files = listed.map((line) => line.split("  ")[1]!);
+    const entry = files.find((file) => /^assets\/app-[A-Z0-9]+\.js$/i.test(file))!;
+    const entryBytes = readFileSync(new URL(`public/${entry}`, root));
+    expect(entryBytes.length, `${entry} is the first-load budget`).toBeLessThan(150 * 1024);
+
+    // The library itself — the megabyte of WebAssembly — must be in a lazily imported
+    // chunk, not in the entry. (Call sites like `s.crypto_pwhash(...)` stay in the entry;
+    // what must not be there is the payload.)
+    const chunks = files.filter((file) => /^assets\/chunk-/.test(file));
+    const heaviest = Math.max(
+      ...chunks.map((file) => readFileSync(new URL(`public/${file}`, root)).length),
+    );
+    expect(heaviest, "the crypto chunk").toBeGreaterThan(500 * 1024);
+    expect(entryBytes.length).toBeLessThan(heaviest / 5);
+
+    const shellBytes = readFileSync(new URL("public/index.html", root));
+    expect(shellBytes.length).toBeLessThan(4 * 1024);
+    const css = files.find((file) => file.endsWith(".css"))!;
+    expect(readFileSync(new URL(`public/${css}`, root)).length).toBeLessThan(48 * 1024);
+
+    // Everything worth compressing is pre-compressed, so the server spends no CPU per
+    // request. (Below a kilobyte, compression costs more headers than it saves bytes.)
+    for (const file of files.filter((name) => /\.(js|css)$/.test(name))) {
+      const size = readFileSync(new URL(`public/${file}`, root)).length;
+      if (size < 1024) continue;
+      expect(existsSync(new URL(`public/${file}.br`, root)), `${file}.br`).toBe(true);
+    }
   });
 
   it("serves the digests, so a deployment can be compared with a local build", async () => {

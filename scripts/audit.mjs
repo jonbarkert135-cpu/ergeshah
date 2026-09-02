@@ -126,7 +126,12 @@ function bundle() {
     console.error("expected:\n" + first);
     process.exit(1);
   }
-  const files = ["public/app.js", "public/app.css", "public/index.html"];
+  // Every file the build produced, whatever this build's content hashes turned out to be.
+  const files = readFileSync(join(root, "public/BUILD.txt"), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => `public/${line.split("  ")[1]}`)
+    .filter((file) => /\.(js|css|html)$/.test(file));
   const findings = [];
   for (const file of files) {
     const path = join(root, file);
@@ -151,16 +156,20 @@ async function deployment(origin) {
       .map((line) => line.split("  "))
       .map(([hash, file]) => [file, hash]),
   );
+  // Names are content-addressed, so the local build decides which URLs to compare; a
+  // deployment serving a *different* set of names is itself the finding.
   const routes = [
-    ["app.js", "/assets/app.js"],
-    ["app.css", "/assets/app.css"],
+    ...[...expected.keys()]
+      .filter((file) => file.startsWith("assets/"))
+      .map((file) => [file, `/${file}`]),
     ["favicon.svg", "/favicon.svg"],
     ["index.html", "/"],
   ];
   let mismatched = 0;
   for (const [file, path] of routes) {
     const url = new URL(path, origin);
-    const response = await fetch(url, { redirect: "error" });
+    // `identity`: compare the bytes the build produced, not a compressed transfer form.
+    const response = await fetch(url, { redirect: "error", headers: { "accept-encoding": "identity" } });
     if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
     const actual = sha256(new Uint8Array(await response.arrayBuffer()));
     const ok = actual === expected.get(file);

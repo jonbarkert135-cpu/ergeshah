@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, field, notice } from "../ui.ts";
+import { clear, confirmDialog, el, field, notice, skeleton, toast } from "../ui.ts";
 import {
   changePassword,
   deleteAccount,
@@ -21,7 +21,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
   void load();
 
   async function load() {
-    clear(body).append(el("p", { class: "muted" }, "Loading…"));
+    clear(body).append(skeleton("line", 5));
     const me = await api<{
       username: string;
       role: string;
@@ -46,7 +46,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
       el(
         "div",
         { class: "card" },
-        el("h2", { style: "margin-top:0" }, `@${me.username}`),
+        el("h2", { class: "tight" }, `@${me.username}`),
         el("div", { class: "muted mono" }, `role: ${me.role} · member since ${me.memberSince ?? "—"}`),
         el(
           "p",
@@ -103,7 +103,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
     body.append(
       el(
         "div",
-        { class: "row", style: "margin-top:20px" },
+        { class: "row spaced" },
         el("button", { onclick: () => void signOut(false) }, "Sign out"),
         el("button", { class: "danger", onclick: () => void signOut(true) }, "Sign out and wipe this device"),
       ),
@@ -228,7 +228,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
     return el(
       "div",
       { class: "card" },
-      el("p", { class: "muted", style: "margin-top:0" },
+      el("p", { class: "muted tight" },
         fingerprint
           ? "Signing in to this account needs your password and a signature from this key."
           : "Add a PGP key to require a signature as well as a password when signing in. The key never leaves your machine — the server sends a challenge and checks the signature."),
@@ -306,7 +306,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
     return el(
       "div",
       { class: "card" },
-      el("p", { class: "muted", style: "margin-top:0" },
+      el("p", { class: "muted tight" },
         configured
           ? "A recovery phrase is active on this account. The words themselves were shown once and are not stored anywhere — replacing them invalidates the old phrase."
           : "This account has no recovery phrase. Without one, a forgotten password cannot be recovered: there is no email reset and no administrator override."),
@@ -318,7 +318,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
 
   /** Read a code from a new device, check its fingerprint, then vouch for its keys. */
   function linkCard(): HTMLElement {
-    const codeBox = el("textarea", { rows: "4", class: "mono", placeholder: "symvolon-link.v1…", style: "width:100%" });
+    const codeBox = el("textarea", { rows: "4", class: "mono", placeholder: "symvolon-link.v1…" });
     const label = el("input", { placeholder: "Label, e.g. laptop", maxlength: "40" });
     const message = el("div", { class: "muted" });
     const authorise = el("button", {}, "Authorise this device");
@@ -345,7 +345,18 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
         message.textContent = "Paste the code from the new device first.";
         return;
       }
-      if (!window.confirm(`Authorise the device with fingerprint ${parsed.fingerprint}? It will receive every message sent to you from now on.`)) return;
+      const fingerprint = parsed.fingerprint;
+      void confirmDialog({
+        title: "Authorise this device?",
+        body: `Fingerprint ${fingerprint}. From now on it receives every message sent to you. Compare the fingerprint on the other screen before you agree.`,
+        confirmLabel: "Authorise",
+      }).then((agreed) => {
+        if (agreed) authoriseNow();
+      });
+    });
+
+    function authoriseNow(): void {
+      if (!parsed) return;
       authorise.setAttribute("disabled", "");
       void authoriseDevice(parsed, (label as HTMLInputElement).value.trim() || "linked device")
         .then(() => {
@@ -358,15 +369,15 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
           message.textContent = error.message;
         })
         .finally(() => authorise.removeAttribute("disabled"));
-    });
+    }
 
     return el(
       "div",
       { class: "card" },
-      el("p", { class: "muted", style: "margin-top:0" },
+      el("p", { class: "muted tight" },
         "A second browser gets its own keys rather than a copy of these — two devices sharing one identity would break your conversations. On the new device choose \"Link this browser\", then paste its code here."),
       codeBox,
-      el("div", { class: "row", style: "margin-top:12px" }, label, authorise),
+      el("div", { class: "row spaced" }, label, authorise),
       message,
     );
   }
@@ -404,10 +415,10 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
     return el(
       "div",
       { class: "card" },
-      el("p", { class: "muted", style: "margin-top:0" },
+      el("p", { class: "muted tight" },
         "Your password unlocks the vault holding your private keys, so changing it re-encrypts the vault in this browser and replaces the sealed backup. Every other session is signed out."),
       el("div", { class: "row" }, current, next, again),
-      el("div", { class: "row", style: "margin-top:12px" }, button, message),
+      el("div", { class: "row spaced" }, button, message),
     );
   }
 
@@ -417,7 +428,17 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
     const button = el("button", { class: "danger" }, "Delete my account");
 
     button.addEventListener("click", () => {
-      if (!window.confirm("Delete the account for good? Messages, listings, orders and reviews go with it, and the username becomes available to someone else.")) return;
+      void confirmDialog({
+        title: "Delete this account for good?",
+        body: "Messages, listings, orders and reviews go with it, the username becomes available to someone else, and none of it is recoverable.",
+        confirmLabel: "Delete everything",
+        danger: true,
+      }).then((agreed) => {
+        if (agreed) remove();
+      });
+    });
+
+    function remove(): void {
       button.setAttribute("disabled", "");
       void deleteAccount((password as HTMLInputElement).value)
         .then(() => onSignedOut())
@@ -425,12 +446,12 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
           message.textContent = error.message;
           button.removeAttribute("disabled");
         });
-    });
+    }
 
     return el(
       "div",
       { class: "card" },
-      el("p", { class: "muted", style: "margin-top:0" },
+      el("p", { class: "muted tight" },
         "This removes the account, the sealed vault, every device and prekey, undelivered messages, listings, orders and reviews. Moderation records stay, without your identity attached. Nothing here is recoverable."),
       el("div", { class: "row" }, password, button),
       message,
@@ -440,8 +461,17 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
   function revokeButton(deviceId: string): HTMLElement {
     const button = el("button", { class: "danger" }, "Revoke device");
     button.addEventListener("click", () => {
-      if (!window.confirm("Revoke this device? Undelivered messages to it are deleted.")) return;
-      void api("/api/keys/revoke", { method: "POST", body: { deviceId } }).then(() => void load());
+      void confirmDialog({
+        title: "Revoke this device?",
+        body: "It stops receiving messages immediately, and anything already waiting for it is deleted.",
+        confirmLabel: "Revoke",
+        danger: true,
+      }).then(async (agreed) => {
+        if (!agreed) return;
+        await api("/api/keys/revoke", { method: "POST", body: { deviceId } });
+        toast("Device revoked");
+        void load();
+      });
     });
     return button;
   }

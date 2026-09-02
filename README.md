@@ -115,6 +115,8 @@ never simplified away. In this codebase they *are* the product.
 | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) | every configuration variable and its default |
 | [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) | why each dependency exists, and what was refused |
 | [`docs/TESTING.md`](docs/TESTING.md) | how the suites are organised and what is not covered |
+| [`docs/DESIGN.md`](docs/DESIGN.md) | the design system: tokens, components, dark and light |
+| [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) | what a first visit costs, and every lever pulled to get there |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | the working loop, and what every change is held to |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | ADRs: tech choices, dependency + license justification |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | what is deliberately not built yet, and in which order |

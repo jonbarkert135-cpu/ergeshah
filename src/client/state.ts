@@ -93,8 +93,13 @@ export const state: {
   envelopes: { password: KeyEnvelope; recovery?: KeyEnvelope | null } | null;
 } = { account: null, masterKey: null, vault: null, envelopes: null };
 
-export async function ready(): Promise<void> {
-  await sodiumReady();
+/**
+ * Everything that must exist before the first real render. Takes the crypto load already
+ * in flight (started by the entry module before painting) so the two overlap instead of
+ * queueing.
+ */
+export async function ready(crypto: Promise<unknown> = sodiumReady()): Promise<void> {
+  await crypto;
 }
 
 export function encodeIdentity(identity: DeviceIdentity): VaultContents["identity"] {

@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, notice } from "../ui.ts";
+import { clear, el, emptyState, errorState, notice, skeleton } from "../ui.ts";
 
 interface Queue {
   reports: Array<{
@@ -35,15 +35,30 @@ export function renderModeration(root: HTMLElement): void {
   void load();
 
   async function load() {
-    clear(body).append(el("p", { class: "muted" }, "Loading…"));
-    const queue = await api<Queue>("/api/moderation/queue");
-    const audit = await api<{
+    clear(body).append(skeleton("line", 4));
+    let queue: Queue;
+    let audit: {
       entries: Array<{ actor: string | null; action: string; subjectId: string; note: string; at: string }>;
-    }>("/api/moderation/audit");
+    };
+    try {
+      // Two independent reads: in parallel, because a moderator waiting twice for one
+      // screen is a latency bug that nobody reports and everybody feels.
+      [queue, audit] = await Promise.all([
+        api<Queue>("/api/moderation/queue"),
+        api<{
+          entries: Array<{ actor: string | null; action: string; subjectId: string; note: string; at: string }>;
+        }>("/api/moderation/audit"),
+      ]);
+    } catch {
+      clear(body).append(errorState("The moderation queue did not load.", () => void load()));
+      return;
+    }
     clear(body);
 
     body.append(el("h2", {}, "Seller applications"));
-    if (queue.sellerApplications.length === 0) body.append(el("p", { class: "muted" }, "Queue is empty."));
+    if (queue.sellerApplications.length === 0) {
+      body.append(emptyState("No applications waiting", "Nobody has asked to sell since the last review."));
+    }
     for (const application of queue.sellerApplications) {
       body.append(
         el(
@@ -63,7 +78,9 @@ export function renderModeration(root: HTMLElement): void {
     }
 
     body.append(el("h2", {}, "Reports"));
-    if (queue.reports.length === 0) body.append(el("p", { class: "muted" }, "No open reports."));
+    if (queue.reports.length === 0) {
+      body.append(emptyState("No open reports", "Nothing has been reported that is still unresolved."));
+    }
     for (const report of queue.reports) {
       body.append(
         el(

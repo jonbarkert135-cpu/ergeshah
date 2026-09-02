@@ -1,0 +1,96 @@
+# Design system
+
+## The position
+
+A quiet, dense, typographic interface — the register of a well-made tool. No terminal green,
+no Matrix rain, no glow, no gradient buttons, no decorative motion. The reasoning is not
+taste: a product that asks people to trust it with private conversations and then dresses as
+a hacker film is telling them it is a costume. Restraint is the argument.
+
+What was studied and deliberately *not* copied: Apple's typographic calm and generous
+leading; Linear's density and keyboard-first restraint; Stripe's hierarchy in dense data;
+Vercel's monochrome discipline; the plain, document-like layouts of the serious privacy
+tools. What we took from them is a *standard*, not a look. Symvolon's own signature is
+narrower: two brand colours and their tints, hairline borders instead of shadows,
+monospace reserved for things that are literally machine data, and a single bright surface
+per screen — the primary action.
+
+Everything below is enforced by `test/design.test.ts`, not just described here.
+
+## Tokens
+
+All tokens live at the top of `src/client/styles/app.css`. Component CSS references
+**semantic** tokens only (`--surface`, `--text-muted`, `--border-strong`); the palette
+(`--ink-600`, `--paper-200`) appears nowhere below the token block, and view code contains
+no colour at all.
+
+| Group | Tokens |
+| --- | --- |
+| Palette | `--ink-900…200`, `--paper-100…400`, `--grey-500…700`, `--state-*` |
+| Surfaces | `--bg`, `--bg-sunken`, `--surface`, `--surface-raised`, `--surface-hover`, `--input-bg` |
+| Text | `--text`, `--text-muted`, `--text-faint`, `--accent`, `--accent-text` |
+| Lines | `--border`, `--border-strong`, `--border-width` |
+| State | `--danger`, `--danger-surface`, `--warn`, `--ok`, `--focus` |
+| Depth | `--shadow-sm`, `--shadow-md`, `--shadow-lg`, `--scrim` |
+| Type | `--font-sans`, `--font-mono`, `--text-xs…2xl`, `--leading-*`, `--tracking-*` |
+| Space | `--space-1…8` (4 px grid) |
+| Radius | `--radius-sm` 6, `--radius-md` 10, `--radius-lg` 14, `--radius-pill` |
+| Controls | `--control-height` 34, `--control-pad-*`, `--input-pad-*` |
+| Motion | `--ease`, `--duration-fast` 90 ms, `--duration` 160 ms |
+
+**Typography.** System faces only — SF, Segoe, Roboto, whatever the machine renders best.
+A web font is a request that identifies a reader, and there is no third-party request in
+this client at all. The scale is a 1.200 minor third from 15 px, rounded to whole pixels.
+Monospace is not decoration: it means *this is machine data* — a key, a fingerprint, a
+price, an identifier, a recovery word.
+
+**Spacing.** One 4 px grid. The only values off it are the control paddings, which are
+tokens of their own because a 34 px control with 8 px of vertical padding reads soft.
+
+## Components
+
+`button` (`primary`, `ghost`, `danger`, `small`, `icon`, `loading`), `input` / `textarea` /
+`select` with `.field` + label + hint, `.card` (`.interactive`), `.panel`, `.tag`
+(`ok`/`warn`/`danger`), `.notice` (`error`/`ok`), `.toast`, `.state` (empty and error),
+`.skeleton`, `.spinner`, `table` inside `.table-wrap`, native `dialog`, `header.top` with
+inline brand mark and theme control, `.chat`, `.messages`, `.phrase`, `pre.block`.
+
+Three rules that keep it consistent:
+
+1. **Every asynchronous surface has three states.** `skeleton()` while loading — the shape
+   of what is coming, not a spinner over a void — `emptyState()` when there is nothing,
+   with the one action that changes that, and `errorState()` with a retry. They are
+   functions in `src/client/ui.ts`, so no view improvises its own blank rectangle.
+2. **Destructive questions use `confirmDialog()`**, a native `<dialog>`: focus trapping,
+   Escape and the backdrop are the platform's, and every line we do not write cannot be
+   wrong. `window.confirm` is gone from the client.
+3. **No inline styles.** `style-src 'self'` carries no `'unsafe-inline'`, so the browser
+   *silently drops* a `style` attribute — a real bug this rewrite found and fixed. Utility
+   classes replaced them, and the linter (`inline-style`) rejects new ones.
+
+## Dark and light
+
+One system, two token sets — not two designs. `:root` is dark; `[data-theme="light"]` swaps
+the semantic tokens; `@media (prefers-color-scheme: light)` applies the same light set to
+anyone who has expressed no preference. The header control cycles **system → dark → light**,
+and system is the default, because a reader who set their machine to light at sunrise did
+not mean "except this one site". The choice is stored in `localStorage` and never on the
+server: a theme preference server-side is one more column that describes a person.
+
+The test asserts that all three blocks define exactly the same token names. A token missing
+from one of them is a component that keeps its dark value on a light desktop.
+
+## Motion
+
+Two durations, one easing curve, five animations in the whole stylesheet: the button
+spinner, the skeleton shimmer, the toast entrance, the dialog entrance, and the shared
+spin. Each explains a state change. `prefers-reduced-motion: reduce` removes all of them —
+there is nothing in this interface that is worth overriding that request for.
+
+## Accessibility, briefly
+
+Focus is always visible (`:focus-visible`, a 2 px ring in a token colour, never removed).
+Every interactive element is a real button or input, so keyboard and screen readers work
+without ARIA patching. Toasts live in a `role="status"` region; loading regions carry
+`aria-busy`. Colour never carries meaning alone — a status is a word in a tag, and the tag's
+colour is a second signal.

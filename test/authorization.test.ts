@@ -20,9 +20,6 @@ import { approveSeller, register, startTestServer, TestClient, type TestServer }
 const PUBLIC: Array<{ method: string; url: string; why: string }> = [
   { method: "GET", url: "/", why: "the app shell" },
   { method: "GET", url: "/healthz", why: "liveness probe for the proxy" },
-  { method: "GET", url: "/assets/app.js", why: "static asset" },
-  { method: "GET", url: "/assets/app.css", why: "static asset" },
-  { method: "GET", url: "/assets/sodium.js", why: "static asset" },
   { method: "GET", url: "/favicon.svg", why: "static asset" },
   { method: "GET", url: "/build.txt", why: "published build digests (docs/AUDIT.md)" },
   { method: "POST", url: "/api/auth/register", why: "creating the first account" },
@@ -34,6 +31,9 @@ const PUBLIC: Array<{ method: string; url: string; why: string }> = [
 ];
 
 const isPublic = (method: string, url: string) =>
+  // Built assets are content-addressed, so their names change with every build; the
+  // pattern is the allowlist entry, and everything under it is a public static file.
+  (method === "GET" && /^\/assets\/[A-Za-z0-9._-]+$/.test(url)) ||
   PUBLIC.some((route) => route.method === method && route.url === url);
 
 /** A concrete value for every `:param`, so the request reaches the auth check. */

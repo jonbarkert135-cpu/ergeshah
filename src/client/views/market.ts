@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, field, input, money, notice } from "../ui.ts";
+import { clear, el, emptyState, errorState, field, input, money, notice, skeletonCards, toast, withBusy } from "../ui.ts";
 import { state } from "../state.ts";
 import { sendShippingDetails, startConversation } from "../messaging.ts";
 
@@ -32,8 +32,8 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
     ),
     el(
       "div",
-      { class: "row" },
-      search,
+      { class: "row toolbar" },
+      el("div", { class: "grow" }, search),
       el("button", { onclick: () => void load() }, "Search"),
       el("button", { class: "ghost", onclick: () => navigate("#/sell") }, "Sell here"),
     ),
@@ -46,13 +46,37 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
   void load();
 
   async function load() {
-    clear(status).append(el("p", { class: "muted" }, "Loading…"));
-    const query = search.value.trim() ? `?q=${encodeURIComponent(search.value.trim())}` : "";
-    const { listings } = await api<{ listings: Listing[] }>(`/api/market/listings${query}`);
+    const term = search.value.trim();
     clear(status);
-    clear(results);
-    if (listings.length === 0) results.append(el("p", { class: "muted" }, "Nothing listed yet."));
-    for (const listing of listings) results.append(card(listing));
+    clear(results).append(skeletonCards(6));
+    try {
+      const query = term ? `?q=${encodeURIComponent(term)}` : "";
+      const { listings } = await api<{ listings: Listing[] }>(`/api/market/listings${query}`);
+      clear(results);
+      if (listings.length === 0) {
+        status.append(
+          term
+            ? emptyState(
+                "No listings match that",
+                `Nothing here matches “${term}”. Try a shorter word, or clear the search to see everything.`,
+                el("button", { onclick: () => { search.value = ""; void load(); } }, "Clear search"),
+              )
+            : emptyState(
+                "Nothing listed yet",
+                "This marketplace is new. The first listing can be yours — applications are reviewed by a moderator.",
+                el("button", { class: "primary", onclick: () => navigate("#/sell") }, "Sell here"),
+              ),
+        );
+        return;
+      }
+      for (const listing of listings) results.append(card(listing));
+    } catch {
+      // The reader gets a cause they can act on; the reference for the real one is in the
+      // response the API layer already surfaced (docs/API.md).
+      clear(results).append(
+        errorState("The listings did not load. Your connection, or ours.", () => void load()),
+      );
+    }
   }
 
   function card(listing: Listing): HTMLElement {
@@ -67,22 +91,21 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
           ? window.prompt("Delivery address (encrypted for the seller; the server never sees it)")
           : null;
       if (listing.kind === "physical_good" && !details?.trim()) return;
-      buy.disabled = true;
-      void api<{ id: string; channel: string }>("/api/market/orders", {
-        method: "POST",
-        body: { listingId: listing.id },
-      })
+      void withBusy(buy, () =>
+        api<{ id: string; channel: string }>("/api/market/orders", {
+          method: "POST",
+          body: { listingId: listing.id },
+        }),
+      )
         .then(async (order) => {
           await startConversation(listing.seller.username);
           if (details?.trim()) {
             await sendShippingDetails(listing.seller.username, order.channel, order.id, details.trim());
           }
-          clear(local).append(notice(`Order ${order.id.slice(0, 8)} placed — see Orders.`));
+          toast(`Order ${order.id.slice(0, 8)} placed`);
+          clear(local).append(notice(`Order ${order.id.slice(0, 8)} placed — see Orders.`, "ok"));
         })
-        .catch((error: Error) => clear(local).append(notice(error.message, "error")))
-        .finally(() => {
-          buy.disabled = false;
-        });
+        .catch((error: Error) => clear(local).append(notice(error.message, "error")));
     });
     message.addEventListener("click", () => {
       void startConversation(listing.seller.username).then(() => navigate("#/chat"));
@@ -90,8 +113,8 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
 
     return el(
       "article",
-      { class: "card" },
-      el("h2", { style: "margin-top:0" }, listing.title),
+      { class: "card interactive" },
+      el("h2", { class: "tight" }, listing.title),
       el(
         "div",
         { class: "row" },
@@ -160,7 +183,7 @@ export function renderSell(root: HTMLElement): void {
     const form = el(
       "form",
       { class: "card" },
-      el("h2", { style: "margin-top:0" }, "Apply to sell"),
+      el("h2", { class: "tight" }, "Apply to sell"),
       el(
         "p",
         { class: "muted" },
@@ -206,12 +229,12 @@ export function renderSell(root: HTMLElement): void {
     const form = el(
       "form",
       { class: "card" },
-      el("h2", { style: "margin-top:0" }, `Selling as ${displayName}`),
+      el("h2", { class: "tight" }, `Selling as ${displayName}`),
       field("Title", title),
       field("Description", description),
       field("Category", category),
       el("div", { class: "row" }, field("Price", price), field("Currency", currency), field("Kind", kind)),
-      el("button", { class: "primary", type: "submit", style: "margin-top:14px" }, "Publish listing"),
+      el("button", { class: "primary spaced", type: "submit" }, "Publish listing"),
       result,
     );
     form.addEventListener("submit", (event) => {

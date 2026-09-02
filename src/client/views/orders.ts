@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, money, notice } from "../ui.ts";
+import { clear, el, emptyState, errorState, money, notice, skeleton, toast } from "../ui.ts";
 import { receiveMessages, sendDeliveryKey } from "../messaging.ts";
 import { persistVault, state } from "../state.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
@@ -73,14 +73,24 @@ export function renderOrders(root: HTMLElement): void {
   }
 
   async function load() {
-    clear(body).append(el("p", { class: "muted" }, "Loading…"));
+    clear(body).append(skeleton("line", 4));
     // Delivery keys arrive as ordinary encrypted messages, so collect any waiting ones
     // before drawing: otherwise a buyer would see "delivered" with no way to open it.
     await receiveMessages().catch(() => 0);
-    const { orders } = await api<{ orders: Order[] }>(`/api/market/orders?role=${role}`);
+    let orders: Order[];
+    try {
+      ({ orders } = await api<{ orders: Order[] }>(`/api/market/orders?role=${role}`));
+    } catch {
+      clear(body).append(errorState("Your orders did not load.", () => void load()));
+      return;
+    }
     clear(body);
     if (orders.length === 0) {
-      body.append(el("p", { class: "muted" }, "No orders yet."));
+      body.append(
+        role === "buyer"
+          ? emptyState("No orders yet", "Anything you order from the marketplace appears here, with its encrypted channel.")
+          : emptyState("Nothing sold yet", "Orders placed against your listings appear here, newest first."),
+      );
       return;
     }
     const table = el(
@@ -138,7 +148,7 @@ export function renderOrders(root: HTMLElement): void {
 
   /** Seller side: pick a file, encrypt it here, upload ciphertext, send the key. */
   function uploadControl(order: Order): HTMLElement {
-    const picker = el("input", { type: "file", style: "display:none" }) as HTMLInputElement;
+    const picker = el("input", { type: "file", class: "hidden" }) as HTMLInputElement;
     const button = el("button", { class: "primary" }, "Encrypt & deliver");
     button.addEventListener("click", () => picker.click());
     picker.addEventListener("change", () => {
@@ -221,6 +231,7 @@ export function renderOrders(root: HTMLElement): void {
       fromBase64Url(ciphertext),
     );
     save(plaintext, held.name);
+    toast(`Saved ${held.name}`);
     // The buyer has the file; the server has no reason to keep a copy of the ciphertext.
     await api(`/api/market/orders/${order.id}/delivery`, { method: "DELETE" });
     await persistVault();

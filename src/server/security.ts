@@ -16,7 +16,13 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 const CSP_DIRECTIVES = [
   "default-src 'self'",
-  "script-src 'self'",
+  // 'wasm-unsafe-eval' is required, not optional: the cryptography is libsodium compiled
+  // to WebAssembly, and Chromium refuses to instantiate *any* WASM module under a bare
+  // `script-src 'self'` — the whole client fails at the first key derivation, which is
+  // exactly how this was found (a real browser run, ADR-0027). The keyword permits
+  // compiling WebAssembly and nothing else: `eval`, `new Function` and inline scripts stay
+  // forbidden, which is the property that matters against injected script.
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self'",
   "img-src 'self' data:",
   "font-src 'self'",
@@ -84,8 +90,12 @@ export function registerSecurity(app: FastifyInstance, config: Config): void {
     reply.header("cross-origin-opener-policy", "same-origin");
     reply.header("cross-origin-resource-policy", "same-origin");
     reply.header("origin-agent-cluster", "?1");
-    // No caching of anything that could contain user data; assets are hashed instead.
-    reply.header("cache-control", "no-store");
+    // No caching of anything that could contain user data. The single exception is a
+    // content-addressed asset: its URL contains the hash of its bytes, so a cached copy
+    // can never be the wrong copy, and the route sets its own header (routes/static.ts).
+    if (!request.url.startsWith("/assets/") && request.url !== "/favicon.svg") {
+      reply.header("cache-control", "no-store");
+    }
     // HSTS on an onion address would pin it to HTTPS, which no onion service speaks.
     if (config.behindTls && !onion) {
       reply.header("strict-transport-security", "max-age=63072000; includeSubDomains");

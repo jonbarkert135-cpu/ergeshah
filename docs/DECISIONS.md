@@ -657,3 +657,54 @@ ruleset in the GitHub UI, which only the repository owner can create; until then
 costs a written justification. That friction is the point. The risk is a check that annoys
 more than it protects — the waiver mechanism (`audit:allow` with a reason, visible in review)
 exists so the answer to a false positive is never to delete the rule.
+
+## ADR-0027 — A design system, and the megabyte that was in front of it
+
+**Status:** accepted (2026-09-02)
+
+**Context.** Points 36–39 asked for a premium, restrained interface with a real design
+system, complete dark and light modes on shared semantic tokens, and a fast product. The
+existing client was honest but thin: one 150-line stylesheet, dark only, colours as literal
+hex values, `window.confirm` for destructive questions, "Loading…" as a loading state, and
+a 1 164 kB JavaScript bundle in front of the first paint.
+
+**Decision, and the two bugs it uncovered.**
+
+*The system.* `src/client/styles/app.css` is now tokens plus components: a palette derived
+from the two brand colours, semantic tokens on top of it, a 4 px spacing grid, a 1.200 type
+scale on system faces, three radii, hairline borders instead of shadows, two motion
+durations. Dark is the default set; `[data-theme="light"]` and the
+`prefers-color-scheme: light` fallback redefine *the same token names*, which is the whole
+of "one system, two themes". `test/design.test.ts` fails if the three blocks disagree, if
+component CSS names a colour instead of a token, if view code contains a hex value, or if
+anything reaches for the hacker-film register the brief rules out.
+
+*Loading, empty and error states* are three functions in `ui.ts` rather than advice, and
+`confirmDialog()` (native `<dialog>`) replaced `window.confirm`.
+
+**Bug one, found by running the real browser instead of trusting the tests: the client did
+not work in Chromium at all.** `script-src 'self'` forbids WebAssembly compilation, and the
+cryptography *is* WebAssembly, so registration died at the first key derivation with
+`CompileError: … 'unsafe-eval' is not an allowed source`. The fix is
+`'wasm-unsafe-eval'` — a keyword that permits compiling WASM and nothing else; `eval`,
+`new Function` and inline script stay forbidden, and `test/hardening.test.ts` now asserts
+exactly that distinction. No test caught this because every test drives the server, and the
+CSP is a *browser* behaviour. Screenshot-driven review is now part of front-end work here.
+
+**Bug two, from the same session: inline `style` attributes were being silently dropped.**
+`style-src 'self'` has no `'unsafe-inline'`, so two dozen `style: "margin-top:0"` attributes
+in the views did nothing at all. They are utility classes now, and a linter rule
+(`inline-style`) rejects new ones.
+
+*Performance.* The bundle is split: the entry is 88 kB (25 kB brotli), libsodium is a lazily
+imported chunk, and the shell paints before the cryptography arrives. Assets are
+content-addressed and served `immutable`, pre-compressed with brotli and gzip at build time,
+from memory. Budgets live in `test/audit.test.ts`. Details and the remaining lever are in
+`docs/PERFORMANCE.md`.
+
+**Consequences.** The one guarantee that weakened: subresource integrity covers the entry
+script and the stylesheet, but a browser cannot enforce SRI on a dynamically imported chunk.
+The crypto chunk is instead verified by its content-addressed name, its digest in
+`/build.txt`, and `default-src 'self'` — weaker in kind, and said so in `docs/AUDIT.md`
+rather than glossed over. The gain is that a first visit is thirteen times lighter, which on
+Tor is the difference between usable and not.

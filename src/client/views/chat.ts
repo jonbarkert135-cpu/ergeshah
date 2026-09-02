@@ -1,4 +1,4 @@
-import { clear, el, notice } from "../ui.ts";
+import { clear, el, emptyState, notice } from "../ui.ts";
 import { conversations, receiveMessages, sendMessage, startConversation } from "../messaging.ts";
 import { state } from "../state.ts";
 import type { Conversation } from "../state.ts";
@@ -33,7 +33,9 @@ export function renderChat(root: HTMLElement): void {
       ),
     );
     const items = conversations();
-    if (items.length === 0) list.append(el("p", { class: "muted" }, "No conversations yet."));
+    if (items.length === 0) {
+      list.append(el("p", { class: "muted" }, "No conversations yet."));
+    }
     for (const conversation of items) {
       const last = conversation.messages.at(-1);
       list.append(
@@ -58,8 +60,21 @@ export function renderChat(root: HTMLElement): void {
     clear(panel);
     const conversation = conversations().find((item) => item.channel === selectedChannel);
     if (!conversation) {
-      panel.append(el("p", { class: "muted" }, "Select or start a conversation."));
+      panel.append(
+        emptyState(
+          "No conversation selected",
+          "Pick a conversation on the left, or start one by username. Nothing here is stored in readable form on the server.",
+        ),
+      );
       return;
+    }
+    if (conversation.messages.length === 0) {
+      panel.append(
+        emptyState(
+          `Nothing said yet with ${conversation.peer}`,
+          "The first message establishes the encrypted session. Until then there is nothing for the server to hold.",
+        ),
+      );
     }
     const messages = el("div", { class: "messages" });
     for (const message of conversation.messages) {
@@ -101,7 +116,7 @@ export function renderChat(root: HTMLElement): void {
       el(
         "div",
         { class: "row" },
-        el("h2", { style: "margin:0" }, conversation.peer),
+        el("h2", { class: "flush" }, conversation.peer),
         el("span", { class: "tag" }, "end-to-end encrypted"),
         verification === "verified" ? el("span", { class: "tag" }, "verified ✓") : null,
         el("button", { class: "ghost", onclick: () => drawVerification(conversation) }, "Safety number"),
@@ -135,7 +150,7 @@ export function renderChat(root: HTMLElement): void {
       el(
         "div",
         { class: "row" },
-        el("h2", { style: "margin:0" }, `Verify ${conversation.peer}`),
+        el("h2", { class: "flush" }, `Verify ${conversation.peer}`),
         el("button", { class: "ghost", onclick: () => drawPanel() }, "Back to messages"),
       ),
       el(
@@ -165,7 +180,7 @@ export function renderChat(root: HTMLElement): void {
           "div",
           { class: "verify" },
           image,
-          el("div", { class: "mono", style: "font-size:1.1rem" }, device.safetyNumber),
+          el("div", { class: "safety-number" }, device.safetyNumber),
           device.verifiedAt
             ? el(
                 "p",
