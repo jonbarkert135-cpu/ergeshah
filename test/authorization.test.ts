@@ -36,6 +36,7 @@ const PUBLIC: Array<{ method: string; url: string; why: string }> = [
   { method: "POST", url: "/api/auth/pgp/complete", why: "the PGP signature is the second factor of a login" },
   { method: "GET", url: "/api/market/listings", why: "browsing is public by design" },
   { method: "GET", url: "/api/market/listings/:id", why: "browsing is public by design" },
+  { method: "GET", url: "/api/market/categories", why: "browsing is public by design" },
   { method: "GET", url: "/api/market/sellers/:username", why: "a public seller profile" },
 ];
 

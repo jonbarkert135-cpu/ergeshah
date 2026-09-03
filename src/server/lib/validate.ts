@@ -227,6 +227,33 @@ export function asMoneroAddress(value: unknown, field: string): string {
  */
 export const LISTING_KINDS = ["digital_good", "service", "physical_good"] as const;
 
+/**
+ * A category, normalised (ADR-0082).
+ *
+ * Categories are the sellers' own words rather than a fixed list — a marketplace that ships
+ * an enum ships an argument about what belongs in it — but "Consulting", "consulting " and
+ * "CONSULTING" are one category, and left alone they became three, each with its own page of
+ * results and none of them complete. So the string is folded here, at the door: lowercased,
+ * accent-normalised the same way the search tokeniser does it, inner runs of whitespace
+ * collapsed to one space, and anything that is not a letter, a digit, a space or a hyphen
+ * dropped. What comes back is what is stored, what is filtered on, and what
+ * `GET /api/market/categories` publishes.
+ */
+export function asCategory(value: unknown, field = "category"): string {
+  const raw = asString(value, field, 40, 2);
+  const folded = raw
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N} -]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (folded.length < 2) {
+    throw badRequest(`${field} must contain at least two letters or digits`, "bad_category");
+  }
+  return folded.slice(0, 40);
+}
+
 /** What can be reported, and why. `dispute` is written by the order route, not by users directly. */
 export const REPORT_TARGETS = ["listing", "user", "review", "order"] as const;
 export const REPORT_REASONS = [

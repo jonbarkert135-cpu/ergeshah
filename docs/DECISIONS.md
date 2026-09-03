@@ -2639,3 +2639,42 @@ a third party about every order).
 platform nothing. What is genuinely missing for that audience is a **scoped, revocable
 read-only token** so a script does not need a full browser session — a real feature, in
 `docs/ROADMAP.md` as MKT-5 rather than pretended at here.
+
+## ADR-0082 — Categories are folded seller words, not an enum
+
+**Status:** accepted (2026-09-03)
+
+**Context.** A listing carries a free-text category. Two things were wrong with that. Sellers
+wrote "Consulting", "consulting " and "CONSULTING", which the database stored as three
+categories with three partial pages of results; and a buyer had no way to learn which
+categories existed at all, so `?category=` was a guessing game and the search box was the only
+real entrance to the catalogue.
+
+**Decision.** Keep the sellers' own words, fold them, and publish the list.
+
+- `asCategory` (`lib/validate.ts`) folds on write and on filter: NFKD, combining marks
+  dropped, lowercase, everything that is not a letter, digit, space or hyphen replaced by a
+  space, runs of whitespace collapsed, 40 characters. Fewer than two characters survive → 400
+  `bad_category`. The same folding on the query parameter means an old link with
+  `?category=Consulting` still works.
+- `GET /api/market/categories` returns the categories that have something in them, with
+  counts, most populated first, capped at 50 — counting only active listings of unsuspended
+  sellers, so the number beside a category is the number of listings a stranger will actually
+  see. `listings_category_idx` on `(status, category)` serves it.
+- The client shows the top twelve as chips beside the search box; clicking the chosen one
+  clears it.
+- Migration 021 lowercases and trims the rows written before the folding existed. Accents and
+  inner punctuation need Unicode normalisation, which is not SQL: those fold the next time
+  their listing is edited, and until then they show as their own row in the list — visible,
+  which is the right failure.
+
+**Rejected:** a fixed enum of categories (an argument with every seller about what belongs in
+it, and a migration every time the answer changes); a moderated vocabulary (moderator time
+spent on taxonomy instead of on fraud); folding only on read (every query pays for it, and the
+index cannot help); a `categories` table with foreign keys (a second write path, a second
+thing to garbage-collect, for a string).
+
+**Consequences.** Categories are cheap, self-organising and slightly untidy: nothing stops two
+sellers from choosing "software" and "software tools", and the counts make that visible rather
+than fixing it. If the untidiness ever matters more than the freedom, the fix is a merge tool
+for moderators, not an enum.

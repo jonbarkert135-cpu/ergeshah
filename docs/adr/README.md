@@ -153,3 +153,4 @@ or if a record is missing a section.
 | [ADR-0079](../DECISIONS.md#adr-0079--background-work-ordered-by-importance-isolated-from-each-other) | Background work: ordered by importance, isolated from each other |
 | [ADR-0080](../DECISIONS.md#adr-0080--lockdown-not-self-destruct) | Lockdown, not self-destruct |
 | [ADR-0081](../DECISIONS.md#adr-0081--no-outbound-webhooks-a-seller-polls-the-server-never-calls-out) | No outbound webhooks: a seller polls, the server never calls out |
+| [ADR-0082](../DECISIONS.md#adr-0082--categories-are-folded-seller-words-not-an-enum) | Categories are folded seller words, not an enum |

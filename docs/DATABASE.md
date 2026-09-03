@@ -152,6 +152,10 @@ boundary by `asEnum`, the only path a request has to a status column; tables cre
 
 ## Search index (008)
 
+`listings_category_idx` on `(status, category)` serves `GET /api/market/categories`, which is
+a grouped count over the active catalogue; category values are folded on write, so the index
+holds one entry per category rather than one per spelling of it (ADR-0082).
+
 `listing_terms` is an inverted index: one row per (word, listing), primary key
 `(term, listing_id)`. Words come from `tokenize()` in `src/server/lib/search.ts` — NFKD,
 accents dropped, lowercased, letters and digits only, 2–32 characters, at most 200 distinct

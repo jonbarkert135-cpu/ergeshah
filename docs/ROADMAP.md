@@ -106,7 +106,13 @@ whether it was published before the dispute. The moderation queue shows both sid
 with a caption saying exactly what they prove: that a story has not changed, and nothing more.
 The file never leaves the encrypted channel. Escrow shipped earlier with ADR-0066.*
 
-- **MKT-3 — Categories, pagination and search quality.** Currently a `LIKE` query.
+- **MKT-3 — Search quality.** Pagination and the index are done (ADR-0030: an inverted index,
+  prefix-matched terms, keyset pages), and categories are folded and browsable (ADR-0082).
+  What is left is relevance: results come back in catalogue order — seller level, then age —
+  so a listing whose *title* is the search term sits below an older one that merely mentions
+  it. Ranking by match quality conflicts with the keyset cursor, which is the listing's stored
+  rank key; doing both needs either a second sort key computed per query or an accepted limit
+  on how deep a relevance-ordered search can page.
 - **MKT-5 — A scoped, revocable read token for a seller's own scripts.** Sellers automate by
   polling (ADR-0081: this server makes no outbound requests), and today that means a script
   holding a full browser session. What is wanted: a token a seller creates and revokes

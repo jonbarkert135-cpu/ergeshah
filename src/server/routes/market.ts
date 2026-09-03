@@ -12,6 +12,7 @@ import { badRequest, conflict, forbidden, notFound, orConflict } from "../lib/er
 import { newId, randomToken } from "../lib/ids.ts";
 import { dayToIsoDate, today } from "../lib/time.ts";
 import {
+  asCategory,
   asEnum,
   asId,
   asInteger,
@@ -146,7 +147,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       // place the escrow rule can be enforced (ADR-0069). The chat stays unread.
       title: assertOnPlatform(asString(body.title, "title", 120, 3), "title"),
       description: assertOnPlatform(asText(body.description, "description", 8000, 20), "description"),
-      category: asString(body.category, "category", 40, 2),
+      category: asCategory(body.category),
       kind: asEnum(body.kind, "kind", LISTING_KINDS),
       pricePico: asXmrPrice(body.priceXmr, "priceXmr"),
     };
@@ -199,7 +200,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       ]);
     }
     if (body.category !== undefined) {
-      updates.push(["category", asString(body.category, "category", 40, 2)]);
+      updates.push(["category", asCategory(body.category)]);
     }
     if (body.priceXmr !== undefined) {
       updates.push(["price_pico", asXmrPrice(body.priceXmr, "priceXmr")]);
@@ -239,7 +240,8 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     await app.limit(request, "search");
     const query = request.query as Record<string, string | undefined>;
     const search = asOptionalString(query.q, "q", 80);
-    const category = asOptionalString(query.category, "category", 40);
+    // Folded the same way it was stored, so a link with "Consulting" in it still works.
+    const category = query.category ? asCategory(query.category) : null;
     const kind = query.kind ? asEnum(query.kind, "kind", LISTING_KINDS) : null;
     const limit = query.limit ? asInteger(query.limit, "limit", 1, 50) : 20;
     const cursor = parseCursor(query.cursor);
@@ -290,6 +292,29 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     return {
       listings: await Promise.all(page.map((row) => presentListing(app, row))),
       nextCursor: rows.length > limit && last ? cursorFor(last) : null,
+    };
+  });
+
+  /**
+   * The categories that actually have something in them, with counts (ADR-0082).
+   *
+   * A buyer could always filter by category and had no way to learn which categories exist,
+   * which made the filter a guessing game and the free-text field the only real entrance.
+   * This is the index page: one grouped query over the same index the catalogue pages by,
+   * counting only what a stranger can see — an active listing of an unsuspended seller.
+   */
+  app.get("/api/market/categories", async (request) => {
+    await app.limit(request, "read");
+    const rows = await db.all<{ category: string; count: number }>(
+      `SELECT l.category AS category, COUNT(*) AS count
+         FROM listings l JOIN sellers s ON s.user_id = l.seller_user_id
+        WHERE l.status = 'active' AND s.status = 'active'
+        GROUP BY l.category
+        ORDER BY COUNT(*) DESC, l.category ASC
+        LIMIT 50`,
+    );
+    return {
+      categories: rows.map((row) => ({ category: row.category, listings: Number(row.count) })),
     };
   });
 

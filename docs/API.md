@@ -145,6 +145,7 @@ the client.
 | --- | --- | --- | --- |
 | `GET /api/market/listings` | — | `search` | Browse and search. `?q=` (words, 2+ characters each, ANDed, prefix-matched against the `listing_terms` index), `?category=`, `?kind=`, `?limit=` (1–50, default 20), `?cursor=` from the previous page's `nextCursor`. Returns `{ listings, nextCursor }`; `nextCursor` is `null` on the last page. No offsets and no total count — see ADR-0030 |
 | `GET /api/market/listings/:id` | — | `read` | One listing |
+| `GET /api/market/categories` | — | `read` | The categories that have something in them, `{ categories: [{ category, listings }] }`, most populated first, at most 50. Counts only active listings of unsuspended sellers, so a category page never promises more than it shows. Category names are folded (ADR-0082): lowercase, accent-normalised, one space between words |
 | `GET /api/market/sellers/:username` | — | `read` | A seller's public profile and reviews |
 | `POST /api/market/seller-applications` | session | `seller_application` | Apply to sell |
 | `GET /api/market/seller-applications/mine` | session | `read` | The state of my own application |
@@ -252,6 +253,7 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `invalid_digest` | 400 | An evidence commitment was not 64 lower-case hex characters. The shape is the only thing this server can check about a digest — whether it is the digest of anything is between the two parties, who both have the file |
 | `already_committed` | 409 | The same digest is already on the record for this party and this order. Committing twice is one commitment |
 | `evidence_full` | 409 | Ten commitments from one party on one order is the limit: enough for any honest dispute, too few to use this as storage or as a channel |
+| `bad_category` | 400 | A listing's category folded away to fewer than two letters or digits — it was punctuation, or emoji |
 | `locked_down` | 503 | The operator has frozen the deployment (ADR-0080): every write is refused and every read still works. Nothing has been deleted; the message says so, because a bare 503 on a marketplace reads as "they have taken my money" |
 | `nothing_to_refund` | 409 | A refund was asked for and this account has no uncredited top-up — already refunded, already settled by an operator, or never there |
 | `refund_too_small` | 400 | The uncredited total is under `MIN_REFUND_XMR`, which is less than the network fee to return it is worth. It stays on the account, visible, until there is more of it |

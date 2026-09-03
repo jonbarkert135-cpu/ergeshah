@@ -35,6 +35,11 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
     event.preventDefault();
     void load();
   });
+  // Categories are the sellers' own words, so the only honest list is the one the catalogue
+  // actually contains (ADR-0082). Loaded once, beside the search box, as the entrance for
+  // somebody who does not know what to type.
+  const categories = el("div", { class: "row wrap" });
+  let chosen: string | null = null;
   root.append(
     el("h1", {}, "Marketplace"),
     el(
@@ -43,9 +48,11 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
       "Digital goods and online services. Orders carry no address and no payment identity — terms are agreed in the encrypted channel attached to each order.",
     ),
     toolbar,
+    categories,
     status,
     results,
   );
+  void loadCategories();
   // The server pages by cursor, so the client keeps one: "more" asks for what comes after
   // the last row it has, never for page N (point 47).
   const more = el("button", { type: "button", class: "ghost" }, "Show more");
@@ -58,6 +65,37 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
   });
   void load();
 
+  async function loadCategories() {
+    try {
+      const { categories: rows } = await api<{
+        categories: Array<{ category: string; listings: number }>;
+      }>("/api/market/categories");
+      clear(categories);
+      if (rows.length === 0) return;
+      for (const row of rows.slice(0, 12)) {
+        const chip = el(
+          "button",
+          {
+            type: "button",
+            class: chosen === row.category ? "" : "ghost small",
+            "aria-pressed": chosen === row.category ? "true" : "false",
+          },
+          `${row.category} (${row.listings})`,
+        );
+        chip.addEventListener("click", () => {
+          // Clicking the chosen one clears it: a filter with no way off is a trap.
+          chosen = chosen === row.category ? null : row.category;
+          void loadCategories();
+          void load();
+        });
+        categories.append(chip);
+      }
+    } catch {
+      // A missing category list is a missing convenience, not a broken page.
+      clear(categories);
+    }
+  }
+
   async function load(after: string | null = null) {
     const term = search.value.trim();
     clear(status);
@@ -66,6 +104,7 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
     try {
       const query = new URLSearchParams();
       if (term) query.set("q", term);
+      if (chosen) query.set("category", chosen);
       if (after) query.set("cursor", after);
       const suffix = query.size > 0 ? `?${query}` : "";
       const { listings, nextCursor } = await api<{ listings: Listing[]; nextCursor: string | null }>(
