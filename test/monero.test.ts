@@ -323,6 +323,163 @@ describe("the payout queue belongs to the worker and to nobody else", () => {
   });
 });
 
+describe("a payout the worker never reported back on (ADR-0073)", () => {
+  /** One payout, claimed by the worker and then abandoned — the state nothing retries. */
+  async function abandonedPayout(): Promise<{ id: string; userId: string }> {
+    const user = await register(server, "abandoned");
+    await user.get("/api/wallet");
+    const address = await server.db.get<{ subaddress_index: number }>(
+      "SELECT subaddress_index FROM deposit_addresses ORDER BY created_at DESC",
+    );
+    wallet.transfers.push({
+      txid: "a".repeat(64),
+      amount: xmr("1"),
+      minor: address!.subaddress_index,
+      confirmations: 6,
+    });
+    await scanDeposits(server.db, walletRpc(wallet.url), {
+      minConfirmations: 3,
+      minPico: server.config.minDepositPico,
+    });
+    const account = await server.db.get<{ id: string }>(
+      "SELECT id FROM users WHERE username = 'abandoned'",
+    );
+    const created = await requestWithdrawal(server.db, {
+      userId: account!.id,
+      amountPico: xmr("0.5"),
+      address: OTHER_ADDRESS,
+      limitPico: xmr("2"),
+    });
+    const claimed = await asWorker("/api/payouts/claim");
+    expect(claimed.statusCode).toBe(200);
+    return { id: created.id, userId: account!.id };
+  }
+
+  async function staff(username: string, role: "moderator" | "admin") {
+    const client = await register(server, username);
+    await promote(server, username, role);
+    return client;
+  }
+
+  it("shows an operator how long it has been gone, and flags it once that is too long", async () => {
+    const { id } = await abandonedPayout();
+    const moderator = await staff("payoutwatcher", "moderator");
+    const fresh = await moderator.get<{
+      withdrawals: Array<{ id: string; status: string; sendingForMinutes: number | null; stuck: boolean }>;
+    }>("/api/moderation/withdrawals");
+    const row = fresh.body.withdrawals.find((entry) => entry.id === id);
+    expect(row).toMatchObject({ status: "sending", stuck: false });
+    expect(row?.sendingForMinutes).toBe(0);
+
+    // Three hours later the same row is a job for a human, not a payout in flight.
+    await server.db.run("UPDATE withdrawals SET claimed_at = ? WHERE id = ?", [
+      Date.now() - 3 * 60 * 60 * 1000,
+      id,
+    ]);
+    const stale = await moderator.get<{
+      withdrawals: Array<{ id: string; stuck: boolean; sendingForMinutes: number | null }>;
+    }>("/api/moderation/withdrawals");
+    const stuck = stale.body.withdrawals.find((entry) => entry.id === id);
+    expect(stuck?.stuck).toBe(true);
+    expect(stuck?.sendingForMinutes).toBe(180);
+  });
+
+  it("lets an admin say it was sent, with the transaction id and nothing less", async () => {
+    const { id, userId } = await abandonedPayout();
+    const admin = await staff("payoutresolver", "admin");
+
+    const guessing = await admin.post<{ error: string }>(`/api/moderation/withdrawals/${id}/resolve`, {
+      outcome: "sent",
+      txid: "probably-fine",
+    });
+    expect(guessing.status).toBe(400);
+    expect(guessing.body.error).toBe("invalid_txid");
+
+    const txid = "b".repeat(64);
+    const resolved = await admin.post(`/api/moderation/withdrawals/${id}/resolve`, {
+      outcome: "sent",
+      txid,
+      networkFeeXmr: "0.0002",
+    });
+    expect(resolved.status).toBe(200);
+    const row = await server.db.get<{ status: string; txid: string; address: string | null }>(
+      "SELECT status, txid, address FROM withdrawals WHERE id = ?",
+      [id],
+    );
+    // Settled, receipt kept, destination forgotten — exactly as if the worker had reported.
+    expect(row).toMatchObject({ status: "sent", txid, address: null });
+    const balance = await server.db.get<{ available_pico: number; held_pico: number }>(
+      "SELECT available_pico, held_pico FROM balances WHERE account_id = ?",
+      [userId],
+    );
+    expect(xmrString(balance!.available_pico)).toBe("0.5");
+    expect(balance!.held_pico).toBe(0);
+
+    // The judgement is in the audit log, because nothing automatic could have made it.
+    const audit = await admin.get<{ entries: Array<{ action: string; note: string; subjectId: string }> }>(
+      "/api/moderation/audit",
+    );
+    expect(audit.body.entries.some((entry) => entry.action === "withdrawal.resolved" && entry.note === "sent")).toBe(true);
+  });
+
+  it("lets an admin return the money when nothing left the wallet", async () => {
+    const { id, userId } = await abandonedPayout();
+    const admin = await staff("payoutreturner", "admin");
+    const resolved = await admin.post(`/api/moderation/withdrawals/${id}/resolve`, {
+      outcome: "failed",
+    });
+    expect(resolved.status).toBe(200);
+    const balance = await server.db.get<{ available_pico: number; held_pico: number }>(
+      "SELECT available_pico, held_pico FROM balances WHERE account_id = ?",
+      [userId],
+    );
+    expect(xmrString(balance!.available_pico)).toBe("1");
+    expect(balance!.held_pico).toBe(0);
+
+    // And it is not a second lever on the same row: the payout is settled now.
+    const again = await admin.post<{ error: string }>(`/api/moderation/withdrawals/${id}/resolve`, {
+      outcome: "failed",
+    });
+    expect(again.status).toBe(409);
+    expect(again.body.error).toBe("stale_status");
+  });
+
+  it("refuses a moderator, and refuses a payout the worker has not taken", async () => {
+    const { id } = await abandonedPayout();
+    const moderator = await staff("payoutmoderator", "moderator");
+    // Reading the queue is staff work; moving money is not (docs/MODERATION.md).
+    const denied = await moderator.post(`/api/moderation/withdrawals/${id}/resolve`, {
+      outcome: "failed",
+    });
+    expect(denied.status).toBe(403);
+
+    const admin = await staff("payoutadmin2", "admin");
+    const queuedUser = await register(server, "stillqueued");
+    const account = await server.db.get<{ id: string }>(
+      "SELECT id FROM users WHERE username = 'stillqueued'",
+    );
+    await server.db.run(
+      "INSERT INTO balances (account_id, user_id, available_pico, held_pico, updated_at) VALUES (?, ?, ?, 0, ?)",
+      [account!.id, account!.id, xmr("1"), Date.now()],
+    );
+    expect(queuedUser).toBeTruthy();
+    const queued = await requestWithdrawal(server.db, {
+      userId: account!.id,
+      amountPico: xmr("0.2"),
+      address: OTHER_ADDRESS,
+      limitPico: xmr("2"),
+    });
+    // A queued payout belongs to the worker. Marking it sent by hand would strand money
+    // that never left, so the route refuses to be that lever.
+    const early = await admin.post<{ error: string }>(
+      `/api/moderation/withdrawals/${queued.id}/resolve`,
+      { outcome: "sent", txid: "c".repeat(64) },
+    );
+    expect(early.status).toBe(409);
+    expect(early.body.error).toBe("stale_status");
+  });
+});
+
 describe("the application tier cannot spend, and this is what says so", () => {
   it("uses three read-only wallet calls and no fourth", () => {
     const source = readFileSync(new URL("../src/server/lib/monero.ts", import.meta.url), "utf8");

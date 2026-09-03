@@ -8,6 +8,7 @@ with each other, and then lists what actually stops abuse here.
 
 | Lane | What a moderator can see | What they can do | Where it lives |
 | --- | --- | --- | --- |
+| **Money oversight (admin only)** | The payout queue, per-account payout ceilings, the treasury totals, and a payout the worker took and never reported | Approve or refuse a payout, resolve a stuck one as sent (with its transaction id) or failed, set a ceiling | `routes/moderation.ts` |
 | **Marketplace moderation** | Listings, prices, categories, seller applications and their statements, seller records | Remove a listing, approve or reject an application, suspend a seller | `routes/moderation.ts` |
 | **Public content moderation** | Reviews and their text — published content, visible to everyone already | Hide a review | `routes/moderation.ts` |
 | **User reports and disputes** | The report: target, reason, and **the words the reporter chose to write** | Resolve, action, dismiss; settle a disputed order | `reports`, `routes/moderation.ts` |

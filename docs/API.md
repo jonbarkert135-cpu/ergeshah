@@ -194,7 +194,10 @@ tier (ADR-0070).
 | `POST /api/payouts/:id/failed` | worker token | The payout was not sent: the money returns to the owner's spendable balance. No reason is stored |
 
 Nothing re-queues a payout automatically. A row left in `sending` because the worker died is
-an operator reading their own wallet history — the alternative pays somebody twice.
+an operator reading their own wallet history — the alternative pays somebody twice. Since
+ADR-0073 the row carries `claimed_at`, so `GET /api/moderation/withdrawals` reports
+`sendingForMinutes` and a `stuck` flag (over two hours), and an admin resolves it with
+`POST /api/moderation/withdrawals/:id/resolve`.
 
 The deposit minimum is enforced (ADR-0067). A transfer smaller than `MIN_DEPOSIT_XMR` is
 recorded as a `below_minimum` deposit and not credited — it is not kept quietly either: the
@@ -220,6 +223,7 @@ result, including refusals (`docs/PRIVACY.md`, ADR-0024).
 | `GET /api/moderation/withdrawals` | session (staff) | `moderation` | Payouts awaiting approval or waiting to be sent, oldest first, destinations as hints |
 | `POST /api/moderation/withdrawals/:id/decide` | session (admin) | `moderation` | `{ decision: "approved" \| "rejected" }`. Approving queues it — this process cannot send. Refusing returns the money to the owner. Audited |
 | `POST /api/admin/users/:username/payout-limit` | session (admin) | `moderation` | `{ limitXmr }` or `{ limitXmr: "default" }`: how much this account may withdraw without approval, per request and per 24 hours. Audited with the amount |
+| `POST /api/moderation/withdrawals/:id/resolve` | session (admin) | `moderation` | Resolve by hand a payout the worker took and never reported: `{ outcome: "sent" \| "failed", txid?, networkFeeXmr? }`. `sent` requires the 64-hex transaction id (`invalid_txid`); only a `sending` row can be resolved (`stale_status`). Sends nothing — it records which of the two things happened, and is audited as `withdrawal.resolved` (ADR-0073) |
 | `GET /api/admin/treasury` | session (admin) | `moderation` | The books as five totals (uncredited top-ups among them) plus liabilities, and — when a wallet tier exists — what the wallet actually holds and the shortfall between them (`null` otherwise). Names nobody |
 | `GET /api/moderation/audit` | staff | `moderation` | Read the administrative log |
 | `POST /api/admin/users/:username/role` | admin | `moderation` | Grant or remove staff roles |

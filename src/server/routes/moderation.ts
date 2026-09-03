@@ -19,16 +19,28 @@ import {
   asString,
   asUsername,
   asXmrAmount,
+  onlyKeys,
   REPORT_REASONS,
   REPORT_TARGETS,
 } from "../lib/validate.ts";
 import { destroyAllSessions } from "../lib/sessions.ts";
-import { sellerReputation } from "../lib/reputation.ts";
+
 import { notify, notifyQuietly } from "../lib/notify.ts";
-import { decideWithdrawal, PLATFORM_ACCOUNT, setPayoutLimit } from "../lib/ledger.ts";
+import {
+  decideWithdrawal,
+  markWithdrawalFailed,
+  markWithdrawalSent,
+  PAYOUT_STUCK_MS,
+  PLATFORM_ACCOUNT,
+  setPayoutLimit,
+} from "../lib/ledger.ts";
 import { solvency } from "../lib/deposits.ts";
 import { belowMinimumLiability } from "../lib/refunds.ts";
-import { penaliseSellerStanding, restoreSellerStanding } from "../lib/reputation.ts";
+import {
+  penaliseSellerStanding,
+  restoreSellerStanding,
+  sellerReputation,
+} from "../lib/reputation.ts";
 import { quietly } from "../lib/monero.ts";
 
 export async function registerModerationRoutes(app: FastifyInstance): Promise<void> {
@@ -402,13 +414,16 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
       address_hint: string;
       status: string;
       requested_at: number;
+      claimed_at: number | null;
       username: string;
     }>(
-      `SELECT w.id, w.amount_pico, w.address_hint, w.status, w.requested_at, u.username
+      `SELECT w.id, w.amount_pico, w.address_hint, w.status, w.requested_at, w.claimed_at,
+              u.username
          FROM withdrawals w JOIN users u ON u.id = w.user_id
         WHERE w.status IN ('approval_required', 'queued', 'sending')
         ORDER BY w.requested_at ASC LIMIT 100`,
     );
+    const now = Date.now();
     return {
       withdrawals: rows.map((row) => ({
         id: row.id,
@@ -417,6 +432,11 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
         addressHint: row.address_hint,
         status: row.status,
         requestedOn: dayToIsoDate(Math.floor(row.requested_at / 86_400_000)),
+        // For a payout the worker has taken: how long it has been gone, and whether that is
+        // long enough to need a human (ADR-0073). Null for everything still in the queue.
+        sendingForMinutes:
+          row.claimed_at === null ? null : Math.floor((now - row.claimed_at) / 60_000),
+        stuck: row.claimed_at !== null && now - row.claimed_at > PAYOUT_STUCK_MS,
       })),
     };
   });
@@ -448,6 +468,59 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     // and the amount is already theirs to see.
     await notifyQuietly(db, { userId: settled.userId, kind: "payout", detail: decision });
     return { id, status: approve ? "queued" : "rejected" };
+  });
+
+  /**
+   * Resolves a payout the worker took and never reported (ADR-0073).
+   *
+   * This is the manual half of a deliberate decision: nothing re-queues a `sending` payout,
+   * because only the process with the spend key knows whether a transaction was signed, and
+   * an automatic retry on an uncertain outcome pays somebody twice. So a human reads their
+   * own wallet history and says which of the two things happened — and that is all this route
+   * does. It sends nothing; it cannot.
+   *
+   * Admin only, audited, and refused for anything that is not `sending`: a queued payout
+   * belongs to the worker, and marking one sent by hand would strand money that never left.
+   */
+  app.post("/api/moderation/withdrawals/:id/resolve", async (request) => {
+    const admin = await app.requireRole(request, ["admin"]);
+    await app.limit(request, "moderation");
+    const id = asId((request.params as { id: string }).id, "id");
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    onlyKeys(body, ["outcome", "txid", "networkFeeXmr"]);
+    const outcome = asEnum(body.outcome, "outcome", ["sent", "failed"] as const);
+
+    const row = await db.get<{ user_id: string; status: string }>(
+      "SELECT user_id, status FROM withdrawals WHERE id = ?",
+      [id],
+    );
+    if (!row) throw notFound("no such payout");
+    if (row.status !== "sending") {
+      throw conflict("only a payout the worker has taken can be resolved by hand", "stale_status");
+    }
+
+    if (outcome === "sent") {
+      // The transaction id is not decoration: it is the payee's receipt, and requiring it
+      // means an operator has to have found the transfer before they can say it happened.
+      const txid = body.txid;
+      if (typeof txid !== "string" || !/^[0-9a-f]{64}$/.test(txid)) {
+        throw badRequest("txid must be a 64-character Monero transaction hash", "invalid_txid");
+      }
+      const networkFeePico = asXmrAmount(body.networkFeeXmr ?? "0", "networkFeeXmr", 0);
+      await markWithdrawalSent(db, { id, txid, networkFeePico });
+    } else {
+      // Nothing left the wallet, so the money goes back to where its owner can use it.
+      await markWithdrawalFailed(db, id);
+    }
+    await recordAudit(db, {
+      actorUserId: admin.id,
+      action: "withdrawal.resolved",
+      subjectType: "withdrawal",
+      subjectId: id,
+      note: outcome,
+    });
+    await notifyQuietly(db, { userId: row.user_id, kind: "payout", detail: outcome });
+    return { id, status: outcome };
   });
 
   /**

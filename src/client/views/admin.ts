@@ -31,6 +31,30 @@ interface Queue {
   }>;
 }
 
+interface Payouts {
+  withdrawals: Array<{
+    id: string;
+    username: string;
+    amountXmr: string;
+    addressHint: string;
+    status: string;
+    requestedOn: string;
+    sendingForMinutes: number | null;
+    stuck: boolean;
+  }>;
+}
+
+interface Treasury {
+  userAvailableXmr: string;
+  userHeldXmr: string;
+  platformEarnedXmr: string;
+  queuedPayoutsXmr: string;
+  uncreditedTopUpsXmr: string;
+  liabilitiesXmr: string;
+  walletXmr: string | null;
+  shortfallXmr: string | null;
+}
+
 export function renderModeration(root: HTMLElement): void {
   clear(root);
   const body = el("div", {});
@@ -51,14 +75,16 @@ export function renderModeration(root: HTMLElement): void {
     let audit: {
       entries: Array<{ actor: string | null; action: string; subjectId: string; note: string; at: string }>;
     };
+    let payouts: Payouts;
     try {
-      // Two independent reads: in parallel, because a moderator waiting twice for one
-      // screen is a latency bug that nobody reports and everybody feels.
-      [queue, audit] = await Promise.all([
+      // Independent reads, in parallel: a moderator waiting three times for one screen is a
+      // latency bug that nobody reports and everybody feels.
+      [queue, audit, payouts] = await Promise.all([
         api<Queue>("/api/moderation/queue"),
         api<{
           entries: Array<{ actor: string | null; action: string; subjectId: string; note: string; at: string }>;
         }>("/api/moderation/audit"),
+        api<Payouts>("/api/moderation/withdrawals"),
       ]);
     } catch {
       clear(body).append(errorState("The moderation queue did not load.", () => void load()));
@@ -126,6 +152,21 @@ export function renderModeration(root: HTMLElement): void {
       );
     }
 
+    const treasury = el("div", {});
+    const payoutList = el("div", { class: "stack" });
+    body.append(el("h2", {}, "Payouts"), treasury, payoutList);
+    // The treasury is an admin-only read, so a moderator simply does not get this block —
+    // and does not get an error about it either.
+    void api<Treasury>("/api/admin/treasury")
+      .then((books) => treasury.append(treasuryCard(books)))
+      .catch(() => undefined);
+    if (payouts.withdrawals.length === 0) {
+      payoutList.append(emptyState("Nothing waiting", "No payout needs a decision or a rescue."));
+    }
+    for (const payout of payouts.withdrawals) {
+      payoutList.append(payoutCard(payout));
+    }
+
     body.append(
       el("h2", {}, "Audit log"),
       table(
@@ -140,6 +181,126 @@ export function renderModeration(root: HTMLElement): void {
         { caption: "Administrative actions, newest first" },
       ),
     );
+  }
+
+  /**
+   * The number an operator has to look at: what the books owe against what the wallet holds.
+   * A shortfall is shown as an error rather than as a row in a table, because it is one.
+   */
+  function treasuryCard(books: Treasury): HTMLElement {
+    const shortfall = books.shortfallXmr !== null && books.shortfallXmr !== "0";
+    return el(
+      "div",
+      { class: "card" },
+      el("h3", { class: "tight" }, "Treasury"),
+      table(
+        ["Owed to accounts", "Held for orders", "Fees earned", "Uncredited top-ups", "Liabilities", "In the wallet"],
+        [
+          [
+            formatPrice(books.userAvailableXmr),
+            formatPrice(books.userHeldXmr),
+            formatPrice(books.platformEarnedXmr),
+            formatPrice(books.uncreditedTopUpsXmr),
+            formatPrice(books.liabilitiesXmr),
+            books.walletXmr === null ? "no wallet tier" : formatPrice(books.walletXmr),
+          ],
+        ],
+        { caption: "Reconciled against the wallet on every scan" },
+      ),
+      shortfall
+        ? notice(
+            `The books owe ${formatPrice(books.shortfallXmr as string)} more than the wallet holds. Stop payouts and reconcile before anything else.`,
+            "error",
+          )
+        : null,
+    );
+  }
+
+  /**
+   * One waiting payout. A row in `sending` has been taken by the worker: nothing on this
+   * server can move it back, so when it has been gone too long the only honest options are
+   * the two an operator can verify in their own wallet history (ADR-0073).
+   */
+  function payoutCard(payout: Payouts["withdrawals"][number]): HTMLElement {
+    const age =
+      payout.sendingForMinutes === null
+        ? `requested ${payout.requestedOn}`
+        : `taken by the worker ${payout.sendingForMinutes} min ago`;
+    return el(
+      "div",
+      { class: "card" },
+      el("strong", {}, `${formatPrice(payout.amountXmr)} to @${payout.username}`),
+      el("div", { class: "mono muted" }, `${payout.addressHint} · ${payout.status} · ${age}`),
+      payout.stuck
+        ? notice(
+            "The worker took this payout and never reported back. Check the payout wallet's own history for the transfer, then say which of the two things happened — nothing here can retry it, because a retry on an uncertain outcome pays twice.",
+            "error",
+          )
+        : null,
+      el(
+        "div",
+        { class: "row" },
+        ...(payout.status === "approval_required"
+          ? [decidePayoutButton(payout.id, "approved", "Approve"), decidePayoutButton(payout.id, "rejected", "Refuse")]
+          : []),
+        ...(payout.status === "sending"
+          ? [resolvePayoutSentButton(payout.id), resolvePayoutFailedButton(payout.id)]
+          : []),
+      ),
+    );
+  }
+
+  function decidePayoutButton(id: string, decision: string, label: string): HTMLElement {
+    const button = el("button", { type: "button", class: decision === "approved" ? "primary" : "danger" }, label);
+    button.addEventListener("click", () => {
+      act(api(`/api/moderation/withdrawals/${id}/decide`, { method: "POST", body: { decision } }));
+    });
+    return button;
+  }
+
+  /** Marking a payout sent requires its transaction id: the receipt, not the operator's word. */
+  function resolvePayoutSentButton(id: string): HTMLElement {
+    const button = el("button", { type: "button" }, "It was sent");
+    button.addEventListener("click", () => {
+      void formDialog({
+        title: "Mark this payout sent",
+        body: "Only if you have found the transfer in the payout wallet. The transaction id becomes the payee's receipt.",
+        fields: [
+          { name: "txid", label: "Transaction id", kind: "text", required: true, maxlength: 64 },
+          { name: "networkFeeXmr", label: "Network fee in XMR (optional)", kind: "text" },
+        ],
+        confirmLabel: "Mark sent",
+      }).then((answer) => {
+        if (!answer) return;
+        act(
+          api(`/api/moderation/withdrawals/${id}/resolve`, {
+            method: "POST",
+            body: {
+              outcome: "sent",
+              txid: (answer.txid ?? "").trim(),
+              networkFeeXmr: (answer.networkFeeXmr ?? "").trim() || "0",
+            },
+          }),
+        );
+      });
+    });
+    return button;
+  }
+
+  function resolvePayoutFailedButton(id: string): HTMLElement {
+    const button = el("button", { type: "button", class: "danger" }, "It never left");
+    button.addEventListener("click", () => {
+      void formDialog({
+        title: "Mark this payout failed",
+        body: "The money goes back to the owner's spendable balance. Only if you are sure no transfer left the wallet — this is the decision that pays twice if it is wrong.",
+        fields: [],
+        confirmLabel: "Return the money",
+        danger: true,
+      }).then((answer) => {
+        if (answer) act(api(`/api/moderation/withdrawals/${id}/resolve`, { method: "POST", body: { outcome: "failed" } }));
+      });
+    });
+    return button;
   }
 
   /** The one order transition staff can make: settle a dispute either way. Audited server-side. */

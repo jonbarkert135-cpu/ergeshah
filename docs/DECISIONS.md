@@ -2264,3 +2264,52 @@ things are worth saying plainly: a seller reinstated after a *mistaken* suspensi
 penalty — the honest remedy is trade, and an operator who wants to undo it has to write SQL,
 deliberately — and the sweep is a loop over sellers with a level, which is fine for this size
 of marketplace and is marked in the code as the place to write one joined UPDATE when it is not.
+
+## ADR-0073 — A payout stuck in `sending` is an operator's decision, and it needs a screen
+
+**Status:** accepted (2026-09-03)
+
+**Context.** ADR-0070 made `sending` a one-way door: nothing in this codebase moves a payout
+back to `queued`, because the only process that knows whether a transaction was signed is the
+one holding the spend key, and a row re-queued after a timeout is how a platform pays somebody
+twice. That decision stands. What it left behind was an operator with no tools: the row said
+`sending` and nothing said *since when*, so "is this stuck or did the worker take it four
+seconds ago" was a question the database could not answer, and resolving it meant an `UPDATE`
+written by hand against the money table — the single most dangerous statement in this system,
+composed at the moment of highest stress.
+
+**Decision.** Record when the row was claimed, publish how long it has been gone, and give the
+two honest answers a button each.
+
+- **`withdrawals.claimed_at`** (migration 017) is written by `claimWithdrawal` in the same
+  statement that sets `sending`. Milliseconds rather than the day granularity used elsewhere
+  (ADR-0018): it is an operational timer measured in minutes and it dies with the row.
+- **`GET /api/moderation/withdrawals`** reports `sendingForMinutes` and `stuck` — over
+  `PAYOUT_STUCK_MS`, two hours, which is many multiples of a Monero transaction. Staff can
+  read it; only an admin can act, which is the split that makes the audit log worth reading.
+- **`POST /api/moderation/withdrawals/:id/resolve`** takes `sent` (with the 64-hex transaction
+  id, mandatory — the receipt, not the operator's word) or `failed` (the money returns to the
+  owner's spendable balance). It goes through the same `markWithdrawalSent` /
+  `markWithdrawalFailed` the worker uses, so the ledger movement is identical whoever reports
+  it, and it is refused for any row that is not `sending`: a queued payout belongs to the
+  worker, and marking it sent by hand would strand money that never left.
+- **It is audited as `withdrawal.resolved`** and the owner is notified. Nothing automatic could
+  have produced this outcome, so the audit entry is the entire record of the judgement.
+- **The moderation screen finally shows the money it oversees**: the treasury totals (with the
+  shortfall as an error, not a number in a row) and the payout queue with those two buttons.
+  Until now both were API-only, which meant the operator's real interface was `curl`.
+
+**Rejected:** a timeout that re-queues (the thing ADR-0070 exists to prevent, and no new
+column makes an uncertain outcome certain); asking the worker for its opinion (it is the
+process that vanished — that is the situation); letting a moderator resolve payouts (money
+oversight is admin work, `docs/MODERATION.md`); accepting "it was sent" without a transaction
+id (an operator who cannot find the transfer has not verified anything, and the payee gets no
+receipt); a reason field on the failure (the reasons are wallet-side and none of them is worth
+storing against an account's name).
+
+**Consequences.** The dangerous statement is now a route with a status check, an audit entry
+and a test, which is strictly better than a hand-written `UPDATE` — but it is still a human
+judgement with real consequences: a wrong "it never left" pays the payee twice, and the dialog
+says exactly that before the button works. The two-hour threshold is a constant rather than
+configuration, on the grounds that an operator who needs a different number has a different
+problem; it moves to `config.ts` the first time somebody asks.

@@ -144,3 +144,4 @@ or if a record is missing a section.
 | [ADR-0070](../DECISIONS.md#adr-0070--the-monero-tier-a-watcher-that-cannot-spend-a-worker-that-cannot-be-called) | The Monero tier: a watcher that cannot spend, a worker that cannot be called |
 | [ADR-0071](../DECISIONS.md#adr-0071--uncredited-dust-goes-back-to-its-payer-and-the-refund-pays-its-own-way) | Uncredited dust goes back to its payer, and the refund pays its own way |
 | [ADR-0072](../DECISIONS.md#adr-0072--a-level-falls-dormancy-fades-it-a-suspension-costs-it) | A level falls: dormancy fades it, a suspension costs it |
+| [ADR-0073](../DECISIONS.md#adr-0073--a-payout-stuck-in-sending-is-an-operators-decision-and-it-needs-a-screen) | A payout stuck in `sending` is an operator's decision, and it needs a screen |

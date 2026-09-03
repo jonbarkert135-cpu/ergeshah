@@ -33,6 +33,11 @@ export type AuditAction =
   | "review.hidden"
   /** An administrator approved or refused one payout. */
   | "withdrawal.decided"
+  /**
+   * An administrator resolved by hand a payout the worker took and never reported. Nothing
+   * automatic can do this (ADR-0070), so the audit entry is the whole record of the judgement.
+   */
+  | "withdrawal.resolved"
   /** An administrator set or cleared an account's automatic payout ceiling. */
   | "payout_limit.set"
   /** An authenticated account was refused a privileged route: recorded, not silent. */

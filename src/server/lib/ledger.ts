@@ -315,6 +315,13 @@ export async function settleOrder(
   return { feePico, earningsPico };
 }
 
+/**
+ * How long a payout may sit in `sending` before an interface calls it stuck (ADR-0073). Two
+ * hours is many multiples of a Monero transaction: a worker that has not reported by then has
+ * either died or lost its connection to this server, and either way a human should look.
+ */
+export const PAYOUT_STUCK_MS = 2 * 60 * 60 * 1000;
+
 export type WithdrawalStatus =
   | "queued"
   | "approval_required"
@@ -484,13 +491,18 @@ export async function decideWithdrawal(
  */
 export async function claimWithdrawal(
   db: Db,
+  now = Date.now(),
 ): Promise<{ id: string; amountPico: number; address: string } | null> {
   const row = await db.get<{ id: string; amount_pico: number; address: string | null }>(
-    `UPDATE withdrawals SET status = 'sending'
+    // `claimed_at` is written here and nowhere else: it is the clock an operator reads when
+    // a payout is stuck in `sending`, and it has to start at the same instant the row does
+    // (ADR-0073).
+    `UPDATE withdrawals SET status = 'sending', claimed_at = ?
       WHERE id = (SELECT id FROM withdrawals WHERE status = 'queued'
                    ORDER BY requested_at LIMIT 1)
         AND status = 'queued'
       RETURNING id, amount_pico, address`,
+    [now],
   );
   if (!row?.address) return null;
   return { id: row.id, amountPico: row.amount_pico, address: row.address };

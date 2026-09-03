@@ -69,17 +69,12 @@ node and wallet services; `docs/DEPLOYMENT.md` §The Monero tier is the operator
   that the wallet's answers have the shape assumed: `subaddr_index.minor`, atomic-unit
   amounts, `confirmations` on an incoming transfer. A stagenet pass — sync, address, top-up,
   order, payout — is the first thing to do before any of this touches mainnet.
-- **PAY-7 — A stuck `sending` payout needs a screen.** Nothing re-queues one automatically and
-  that is deliberate (ADR-0070), but today resolving it means reading the wallet's history and
-  an `UPDATE`. An admin view that shows the row, the amount and the address hint, and lets a
-  human mark it sent or failed with an audit entry, is the missing half.
-
-*Shipped (PAY-3, 2026-09-03): the guarantee is escrow and only escrow, and the interface says
-so on every listing before an order is placed. A seller's level (0–3) is computed from settled
-on-platform orders alone and the catalogue is sorted by it (ADR-0068); a listing may not carry
-a wallet address, an email address, another messenger or a "pay me directly" offer (ADR-0069);
-and the deposit minimum is enforced, with a smaller transfer recorded uncredited and refunded
-by hand rather than credited or kept (ADR-0067). The chat is untouched and stays unread.*
+*Shipped (PAY-7, 2026-09-03, ADR-0073): a stuck payout has a screen. `withdrawals.claimed_at`
+(migration 017) is stamped when the worker takes a row, the payout queue reports
+`sendingForMinutes` and a `stuck` flag over two hours, and
+`POST /api/moderation/withdrawals/:id/resolve` lets an admin record the one thing this server
+cannot work out for itself — sent, with its transaction id, or never left, which returns the
+money. Audited as `withdrawal.resolved`; refused for any row the worker has not taken.*
 
 *Shipped (PAY-4, 2026-09-03, ADR-0071): `POST /api/wallet/refunds`. An uncredited top-up goes
 back to an address its owner names, all of it as one payout in the ordinary queue, claimed out

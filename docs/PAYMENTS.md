@@ -170,9 +170,12 @@ issues; *integrated addresses* embed a payment id and cannot serve two payments 
 | Worst case if compromised | reads what arrived, hands out addresses | loses the float, which is why the float is 1–2% of liabilities |
 
 The worker claims one payout at a time (`POST /api/payouts/claim`), which marks the row
-`sending` in the same statement. **Nothing moves it back.** A worker that dies after signing
+`sending` and stamps `claimed_at` in the same statement. **Nothing moves it back.** A worker that dies after signing
 and before reporting leaves a row an operator resolves by reading their own wallet history —
-slower than an automatic retry, and it does not pay anybody twice. A payout larger than the
+slower than an automatic retry, and it does not pay anybody twice. The moderation screen is
+where that happens (ADR-0073): the payout queue shows how long a row has been `sending`,
+flags it over two hours, and offers exactly the two answers an operator can verify in the
+wallet's own history — sent, with the transaction id, or never left, which returns the money. A payout larger than the
 worker's own float is reported failed, which returns the money to its owner's spendable
 balance and tells the operator to top the float up.
 
