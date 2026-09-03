@@ -18,12 +18,14 @@ import {
   asOptionalText,
   asString,
   asUsername,
+  asXmrAmount,
   REPORT_REASONS,
   REPORT_TARGETS,
 } from "../lib/validate.ts";
 import { destroyAllSessions } from "../lib/sessions.ts";
 import { sellerReputation } from "../lib/reputation.ts";
 import { notify, notifyQuietly } from "../lib/notify.ts";
+import { decideWithdrawal, PLATFORM_ACCOUNT, setPayoutLimit } from "../lib/ledger.ts";
 
 export async function registerModerationRoutes(app: FastifyInstance): Promise<void> {
   const { db } = app;
@@ -115,6 +117,13 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     const body = (request.body ?? {}) as Record<string, unknown>;
     const decision = asEnum(body.decision, "decision", ["approved", "rejected"] as const);
     const note = asOptionalText(body.note, "note", 1000);
+    // How much this seller may take out without an administrator looking: set here, by hand,
+    // at the moment somebody is deciding how much they trust them. Absent means the
+    // deployment default, which is what an ordinary account gets (docs/PAYMENTS.md §Limits).
+    const payoutLimitPico =
+      body.payoutLimitXmr === undefined || body.payoutLimitXmr === null
+        ? null
+        : asXmrAmount(body.payoutLimitXmr, "payoutLimitXmr", 0);
 
     const application = await db.get<{
       id: string;
@@ -151,6 +160,16 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
         );
       }
     });
+    if (decision === "approved" && payoutLimitPico !== null) {
+      await setPayoutLimit(db, application.user_id, payoutLimitPico);
+      await recordAudit(db, {
+        actorUserId: moderator.id,
+        action: "payout_limit.set",
+        subjectType: "user",
+        subjectId: application.user_id,
+        note: xmrString(payoutLimitPico),
+      });
+    }
     await recordAudit(db, {
       actorUserId: moderator.id,
       action: "seller_application.decided",
@@ -319,6 +338,139 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
       note: role,
     });
     return { username, role };
+  });
+
+  /* ------------------------------- money oversight ------------------------------- */
+
+  /**
+   * Changes one account's automatic payout ceiling.
+   *
+   * Admin only, and audited with the amount: this is the dial that decides how much a stolen
+   * session or a compromised server could move without a human, so who changed it and to what
+   * is part of the record. `"default"` puts the account back on the deployment default.
+   */
+  app.post("/api/admin/users/:username/payout-limit", async (request) => {
+    const admin = await app.requireRole(request, ["admin"]);
+    await app.limit(request, "moderation");
+    const username = asUsername((request.params as { username: string }).username);
+    const raw = (request.body as Record<string, unknown>)?.limitXmr;
+    const limitPico = raw === "default" ? null : asXmrAmount(raw, "limitXmr", 0);
+    const target = await db.get<{ id: string }>("SELECT id FROM users WHERE username = ?", [
+      username,
+    ]);
+    if (!target) throw notFound("no such user");
+    await setPayoutLimit(db, target.id, limitPico);
+    await recordAudit(db, {
+      actorUserId: admin.id,
+      action: "payout_limit.set",
+      subjectType: "user",
+      subjectId: target.id,
+      note: limitPico === null ? "default" : xmrString(limitPico),
+    });
+    return { username, limitXmr: limitPico === null ? null : xmrString(limitPico) };
+  });
+
+  /**
+   * Payouts waiting for a human, oldest first.
+   *
+   * Readable by staff, decidable by an admin only (below): a moderator handling disputes has
+   * no business moving money, and the split is what makes the audit log worth reading.
+   * Destinations appear as hints — the full address is needed by the payout worker and by
+   * nobody in this interface.
+   */
+  app.get("/api/moderation/withdrawals", async (request) => {
+    await app.requireRole(request, [...staff]);
+    await app.limit(request, "moderation");
+    const rows = await db.all<{
+      id: string;
+      amount_pico: number;
+      address_hint: string;
+      status: string;
+      requested_at: number;
+      username: string;
+    }>(
+      `SELECT w.id, w.amount_pico, w.address_hint, w.status, w.requested_at, u.username
+         FROM withdrawals w JOIN users u ON u.id = w.user_id
+        WHERE w.status IN ('approval_required', 'queued', 'sending')
+        ORDER BY w.requested_at ASC LIMIT 100`,
+    );
+    return {
+      withdrawals: rows.map((row) => ({
+        id: row.id,
+        username: row.username,
+        amountXmr: xmrString(row.amount_pico),
+        addressHint: row.address_hint,
+        status: row.status,
+        requestedOn: dayToIsoDate(Math.floor(row.requested_at / 86_400_000)),
+      })),
+    };
+  });
+
+  /**
+   * Approve or refuse one payout. Approving does not send anything: it moves the row into the
+   * queue the payout worker reads, and that worker is the only thing in this system that
+   * holds a spend key (docs/PAYMENTS.md). Refusing returns the money to the owner's
+   * spendable balance in the same transaction.
+   */
+  app.post("/api/moderation/withdrawals/:id/decide", async (request) => {
+    const admin = await app.requireRole(request, ["admin"]);
+    await app.limit(request, "moderation");
+    const id = asId((request.params as { id: string }).id, "id");
+    const decision = asEnum((request.body as Record<string, unknown>)?.decision, "decision", [
+      "approved",
+      "rejected",
+    ] as const);
+    const approve = decision === "approved";
+    const settled = await decideWithdrawal(db, { id, approve, adminUserId: admin.id });
+    await recordAudit(db, {
+      actorUserId: admin.id,
+      action: "withdrawal.decided",
+      subjectType: "withdrawal",
+      subjectId: id,
+      note: decision,
+    });
+    // The owner is told a decision was made about their payout; the word is this codebase's,
+    // and the amount is already theirs to see.
+    await notifyQuietly(db, { userId: settled.userId, kind: "payout", detail: decision });
+    return { id, status: approve ? "queued" : "rejected" };
+  });
+
+  /**
+   * The books, in one answer: what users are owed, what the platform has earned, and what is
+   * committed to open orders and queued payouts.
+   *
+   * Admin only, and it names nobody — this is the total an operator reconciles against the
+   * wallet, not a list of who holds what. If `liabilities` ever exceeds what the wallet
+   * actually holds, the platform is insolvent and this is the number that says so before a
+   * seller does.
+   */
+  app.get("/api/admin/treasury", async (request) => {
+    await app.requireRole(request, ["admin"]);
+    await app.limit(request, "moderation");
+    const users = await db.get<{ available: number | null; held: number | null }>(
+      `SELECT SUM(available_pico) AS available, SUM(held_pico) AS held
+         FROM balances WHERE account_id <> ?`,
+      [PLATFORM_ACCOUNT],
+    );
+    const platform = await db.get<{ available_pico: number; held_pico: number }>(
+      "SELECT available_pico, held_pico FROM balances WHERE account_id = ?",
+      [PLATFORM_ACCOUNT],
+    );
+    const available = Number(users?.available ?? 0);
+    const held = Number(users?.held ?? 0);
+    const earned = Number(platform?.available_pico ?? 0);
+    const queued = await db.get<{ total: number | null }>(
+      "SELECT SUM(amount_pico) AS total FROM withdrawals WHERE status IN ('queued', 'approval_required', 'sending')",
+    );
+    return {
+      userAvailableXmr: xmrString(available),
+      userHeldXmr: xmrString(held),
+      platformEarnedXmr: xmrString(earned),
+      queuedPayoutsXmr: xmrString(Number(queued?.total ?? 0)),
+      // What the wallet must hold for this platform to be solvent, fees included.
+      liabilitiesXmr: xmrString(available + held + earned),
+      orderFeePercent: app.config.orderFeeBps / 100,
+    };
   });
 
   /** The audit log is readable by staff: oversight that only admins can see is not oversight. */

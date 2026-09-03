@@ -54,6 +54,8 @@ describe("limits are configurable", () => {
       "review",
       "moderation",
       "search",
+      // Asking the server to move money has its own, tight bucket (ADR-0066).
+      "wallet_write",
     ]) {
       expect(Object.keys(DEFAULT_LIMITS)).toContain(scope);
     }

@@ -18,7 +18,9 @@ export type NotificationKind =
   | "seller_application"
   | "moderation"
   | "review"
-  | "dispute";
+  | "dispute"
+  /** A decision about the owner's payout: approved, refused. Never an amount, never a destination. */
+  | "payout";
 
 export interface NotificationInput {
   userId: string;

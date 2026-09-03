@@ -11,6 +11,8 @@ import { deriveAccountKeys } from "../src/shared/crypto/vault.ts";
 import { toBase64Url } from "../src/shared/encoding.ts";
 import { sodium } from "../src/shared/crypto/sodium.ts";
 import { solveProofOfWork } from "../src/shared/pow.ts";
+import { creditDeposit } from "../src/server/lib/ledger.ts";
+import { parseXmr } from "../src/shared/money.ts";
 
 /** Argon2id parameters are the product; in tests we only care that the plumbing works. */
 export const FAST_KDF = { opsLimit: 1, memLimit: 8192 };
@@ -197,6 +199,31 @@ export async function approveSeller(
     { decision: "approved", note: "welcome" },
   );
   if (decision.status !== 200) throw new Error(`approval failed: ${JSON.stringify(decision.body)}`);
+}
+
+/**
+ * Credits a test account's balance the way a confirmed top-up does — through the real ledger,
+ * not by writing the column. Orders are escrowed since migration 014, so a buyer in a test is
+ * as unfunded as a buyer in production until somebody pays.
+ */
+export async function fund(
+  server: TestServer,
+  client: TestClient,
+  xmr: string,
+): Promise<void> {
+  const user = await server.db.get<{ id: string }>("SELECT id FROM users WHERE username = ?", [
+    client.username,
+  ]);
+  if (!user) throw new Error(`no such account: ${client.username}`);
+  const pico = parseXmr(xmr);
+  if (pico === null) throw new Error(`not an amount of XMR: ${xmr}`);
+  await creditDeposit(server.db, {
+    userId: user.id,
+    amountPico: pico,
+    txid: `test-${randomUUID()}`,
+    subaddressIndex: 1,
+    confirmations: 10,
+  });
 }
 
 /** Publish a fresh device for a signed-in client, the way the browser does on first run. */

@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
-import { approveSeller, register, startTestServer, type TestServer } from "./helpers.ts";
+import { approveSeller, fund, register, startTestServer, type TestServer } from "./helpers.ts";
 import { listColumns, listTables } from "./database.ts";
 import {
   MAX_PRICE_PICO,
@@ -33,6 +33,7 @@ afterEach(async () => {
 async function soldAndReviewed() {
   const seller = await register(server, "seller");
   const buyer = await register(server, "buyer");
+  await fund(server, buyer, "5");
   await approveSeller(server, seller, "Seller Co");
   const listing = await seller.post<{ id: string }>("/api/market/listings", {
     title: "A typeface, licensed properly",
@@ -120,7 +121,7 @@ describe("what the marketplace discloses (point 81)", () => {
   });
 });
 
-describe("payments are absent, and the shape they must take is fixed (point 82)", () => {
+describe("the payment shape, now that payments exist (point 82, ADR-0066)", () => {
   it("has no card-shaped column anywhere in the schema", async () => {
     const columns: string[] = [];
     for (const name of await listTables(server.db)) {
@@ -133,7 +134,39 @@ describe("payments are absent, and the shape they must take is fixed (point 82)"
 
   it("has no route that would accept payment details", async () => {
     const routes = server.app.routeInventory.map((route) => route.url);
-    expect(routes.filter((url) => /pay|card|checkout|invoice|wallet|balance/i.test(url))).toEqual([]);
+    // There is a wallet now, and it is the point: money moves in Monero, held by this
+    // marketplace (ADR-0066). What must never appear is the *other* kind of payment route —
+    // a card, a checkout, a processor's invoice — because that is the one that brings a PAN,
+    // a billing address and a compliance surface with it.
+    expect(routes.filter((url) => /card|checkout|invoice|paypal|stripe|iban/i.test(url))).toEqual([]);
+    // And the wallet routes that do exist take an amount and a destination, nothing else.
+    const wallet = routes.filter((url) => url.startsWith("/api/wallet"));
+    expect(wallet.sort()).toEqual([
+      "/api/wallet",
+      "/api/wallet/entries",
+      "/api/wallet/withdrawals",
+      "/api/wallet/withdrawals",
+      "/api/wallet/withdrawals/:id/cancel",
+    ]);
+  });
+
+  it("keeps the spend key out of the application entirely", () => {
+    // The web application may see money arrive and may write a payout row. It may not sign a
+    // transaction, and this is what says so: no spend key, no seed, no signing call anywhere
+    // in the server or the client (docs/PAYMENTS.md §Keys).
+    const root = new URL("../src/", import.meta.url);
+    const files: string[] = [];
+    (function walk(directory: URL) {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        if (entry.isDirectory()) walk(new URL(`${entry.name}/`, directory));
+        else if (entry.name.endsWith(".ts")) files.push(`${directory.pathname}${entry.name}`);
+      }
+    })(root);
+    expect(files.length).toBeGreaterThan(30);
+    for (const path of files) {
+      const source = readFileSync(path, "utf8");
+      expect(source, path).not.toMatch(/spend_key|spendKey|wallet_seed|walletSeed|sweep_all|transfer_split/i);
+    }
   });
 
   it("has no payment field in any request validator or route module", () => {
@@ -149,11 +182,11 @@ describe("payments are absent, and the shape they must take is fixed (point 82)"
     expect(response.headers["permissions-policy"]).toContain("payment=()");
   });
 
-  it("writes the architecture down before the feature exists", () => {
+  it("writes the architecture down, including the parts that are not built yet", () => {
     const doc = read("docs/PAYMENTS.md");
     expect(doc).toMatch(/PAYMENT STATE|payment state/i);
     expect(doc).toContain("Never stored");
-    for (const rule of ["separate", "processor", "escrow"]) {
+    for (const rule of ["view key", "subaddress", "escrow", "confirmations", "cold"]) {
       expect(doc.toLowerCase(), rule).toContain(rule);
     }
   });
@@ -164,7 +197,7 @@ describe("payments are absent, and the shape they must take is fixed (point 82)"
  * stops being true by accident: a float in the wire format, a second currency in the
  * schema, and an exchange rate fetched from somewhere.
  */
-describe("prices are XMR-native (ADR-0060)", () => {
+describe("prices are XMR-native (ADR-0064)", () => {
   it("converts decimal XMR to piconero exactly, and refuses what it cannot", () => {
     expect(parseXmr("0.045")).toBe(45_000_000_000);
     expect(parseXmr("1")).toBe(PICO_PER_XMR);

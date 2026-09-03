@@ -77,6 +77,18 @@ the server remembers anything.
 | `NOTIFICATION_RETENTION_MS` | 90 days | How long a notification stays in an inbox, read or unread |
 | `RATE_LIMITS` | *see below* | JSON overriding per-operation buckets |
 
+### Money
+
+Amounts are decimal strings of XMR; the server stores piconero. `docs/PAYMENTS.md` explains
+what each one protects.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `ORDER_FEE_BPS` | `500` (5%) | The marketplace's cut of a completed order, in basis points, charged to the seller and rounded down in their favour. `0` is supported. Boot refuses anything above `2000` (20%), because `5000` where `500` was meant is a typo nothing downstream would question |
+| `MIN_WITHDRAWAL_XMR` | `0.02` (≈$10) | Smallest payout the server will queue. Enforced: below it the network fee dominates the transfer |
+| `MIN_DEPOSIT_XMR` | `0.02` | The smallest top-up worth making, *advertised and not enforced* — anything the wallet sees is credited, because keeping a payment that was smaller than a suggestion is theft and Monero gives no address to refund it to |
+| `AUTO_PAYOUT_MAX_XMR` | `2` (≈$1,000) | Default ceiling on automatic payouts, per request and per rolling 24 hours, for an account with no ceiling of its own. Above it a payout is queued for an administrator, never refused. Per-account overrides are set through the admin API and audited |
+
 ### `RATE_LIMITS`
 
 Sixteen scopes: `register`, `login`, `account_attempt`, `recovery`, `sensitive`,

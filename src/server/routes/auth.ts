@@ -275,6 +275,22 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       throw unauthorized("password is wrong");
     }
 
+    // Money first. Deleting an account is allowed to destroy data — that is the point — but
+    // it must not destroy value: the balance rows cascade from `users`, so a deletion with a
+    // balance on it would quietly keep the money. The owner is told to empty the account,
+    // which is the one thing this server cannot do on their behalf (it has no spend key, and
+    // no address to send to).
+    const balance = await db.get<{ available_pico: number; held_pico: number }>(
+      "SELECT available_pico, held_pico FROM balances WHERE account_id = ?",
+      [user.id],
+    );
+    if ((balance?.available_pico ?? 0) > 0 || (balance?.held_pico ?? 0) > 0) {
+      throw conflict(
+        "withdraw your balance and let your open orders finish before deleting the account",
+        "balance_not_empty",
+      );
+    }
+
     await db.transaction(async (tx) => {
       await tx.run("UPDATE audit_log SET actor_user_id = NULL WHERE actor_user_id = ?", [user.id]);
       await tx.run("UPDATE reports SET resolved_by = NULL WHERE resolved_by = ?", [user.id]);

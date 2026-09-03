@@ -56,18 +56,29 @@ down before the feature exists (`docs/PAYMENTS.md`).*
 exchange rate anywhere (ADR-0064) — and the Monero settlement design in `docs/PAYMENTS.md`
 (ADR-0065).*
 
-- **PAY-1 — A self-hosted Monero gateway.** Designed in `docs/PAYMENTS.md`; four things are
-  needed before code is worth writing, and two of them are not engineering:
-  1. **A custody decision.** Buyer-pays-seller (non-custodial, no node, works today) or an
-     operator wallet that receives and forwards (custody, commission possible, hot wallet,
-     jurisdiction-dependent). The two produce different schemas.
-  2. **A wallet tier in the deployment**: `monerod` plus `monero-wallet-rpc` on the internal
+- **PAY-2 — The Monero tier.** Balances, escrow, the 5% fee, payout queueing, limits and the
+  treasury total are shipped (ADR-0066, migration 014, `test/wallet.test.ts`). What is missing is
+  the part that touches the chain, and it is three processes and one decision:
+  1. **A wallet tier in the deployment**: `monerod` plus `monero-wallet-rpc` on the internal
      network, the daemon holding the only egress, ideally over Tor — the application container
-     still reaches nothing but them (`docs/NETWORK.md`).
-  3. **A view-key-only wallet** on that tier. The spend key stays off this machine.
-  4. Then: `payments` table, subaddress per order, a poll inside the housekeeping timer, a
-     confirmation gate, a quote that expires, an admin view, and refunds that are *recorded*
-     rather than sent (a Monero transaction has no sender address to send one to).
+     still reaches nothing but them (`docs/NETWORK.md`). Sized for a pruned node: ~4 GB RAM and
+     an SSD with room for ~90 GB and growth.
+  2. **A watcher**, with the private **view key** only: `get_transfers` on an interval inside
+     the housekeeping timer, `creditDeposit` at three confirmations, `create_address` to fill
+     `deposit_addresses` on demand. It can see money and cannot move it.
+  3. **A payout worker** on its own host with a spend key and a working float: takes `queued`
+     rows, calls `validate_address` then `transfer`, and reports back through
+     `markWithdrawalSent` / `markWithdrawalFailed`. Everything above the float is swept to a
+     cold wallet the operator alone controls (`docs/PAYMENTS.md` §Keys).
+  4. **Solvency in the open**: the treasury total compared against what the wallet actually
+     holds, on a schedule, with a loud failure — a custodial platform that discovers a shortfall
+     from a seller has already lost the argument.
+- **PAY-3 — Buyer protection worth the name.** Guarantee only on-platform (an order paid outside
+  the escrow gets no dispute, no hold and no refund), seller level and visibility computed from
+  on-platform volume only, and listing moderation that rejects an address or a "write to me
+  directly" in a listing body — the chat stays end-to-end encrypted and unread, so the incentive
+  has to do the work.
+
 *Shipped: MKT-2, client-encrypted digital delivery with blind server-side storage. MKT-4,
 physical orders whose delivery details are a message rather than a database column.*
 
@@ -79,7 +90,7 @@ count published, and an audited `order.settled` action.*
 - **MKT-1 — Escrow and dispute evidence.** Today a moderator reads the buyer's stated reason
   and the public facts; evidence stays in the encrypted channel, described in words. What
   remains: a hash of exchanged evidence committed server-side, so a party cannot later
-  claim a different file was sent. Escrow is blocked on PAY-1.
+  claim a different file was sent. Escrow shipped with ADR-0066: the price is held from the buyer's balance while the order runs.
 - **MKT-3 — Categories, pagination and search quality.** Currently a `LIKE` query.
 
 ## Operations

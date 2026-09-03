@@ -13,6 +13,7 @@ import { renderAuth } from "./views/auth.ts";
 import { renderChat } from "./views/chat.ts";
 import { renderMarket, renderSell } from "./views/market.ts";
 import { renderOrders } from "./views/orders.ts";
+import { renderWallet } from "./views/wallet.ts";
 import { renderModeration } from "./views/admin.ts";
 import { renderAccount } from "./views/account.ts";
 import { renderNotifications, unreadCount } from "./views/notifications.ts";
@@ -24,6 +25,7 @@ const ROUTES = [
   { hash: "#/market", label: "Market" },
   { hash: "#/chat", label: "Messages" },
   { hash: "#/orders", label: "Orders" },
+  { hash: "#/wallet", label: "Balance" },
   { hash: "#/notifications", label: "Notifications" },
   { hash: "#/sell", label: "Sell" },
   { hash: "#/account", label: "Account" },
@@ -92,6 +94,7 @@ function renderRoute(container: HTMLElement): void {
   };
   if (hash.startsWith("#/chat")) return renderChat(container);
   if (hash.startsWith("#/orders")) return renderOrders(container);
+  if (hash.startsWith("#/wallet")) return renderWallet(container);
   if (hash.startsWith("#/sell")) return renderSell(container);
   if (hash.startsWith("#/account")) {
     return renderAccount(container, () => {

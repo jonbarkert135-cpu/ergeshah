@@ -150,7 +150,7 @@ the client.
 | `GET /api/market/seller-applications/mine` | session | `read` | The state of my own application |
 | `POST /api/market/listings` | session (seller) | `listing_write` | Create a listing |
 | `PATCH /api/market/listings/:id` | session (owner) | `listing_write` | Edit or pause a listing |
-| `POST /api/market/orders` | session | `order_write` | Place an order; opens an encrypted channel with the seller |
+| `POST /api/market/orders` | session | `order_write` | Place an order; opens an encrypted channel with the seller. The price is held from the buyer's balance in the same transaction — an unfunded buyer is refused with `402 insufficient_balance` and no order exists (ADR-0066) |
 | `GET /api/market/orders` | session (party) | `read` | My orders, as buyer or as seller |
 | `POST /api/market/orders/:id/status` | session (party) | `order_write` | Advance the order state machine; illegal and stale transitions are refused server-side (`409 stale_status`). `disputed` requires a `reason` (10–2000 chars), which is filed as a report for moderation; a moderator settling a dispute closes that report and is audited |
 | `POST /api/market/orders/:id/review` | session (buyer) | `review` | Review a completed order, once |
@@ -160,6 +160,23 @@ the client.
 
 Physical orders have no address column: the shipping address is an ordinary encrypted
 message in the order channel (ADR-0021).
+
+## Balance
+
+Money is Monero, held by the marketplace (`docs/PAYMENTS.md`). Amounts in and out are decimal
+strings of XMR; the server stores piconero as integers.
+
+| Endpoint | Auth | Limit | Notes |
+| --- | --- | --- | --- |
+| `GET /api/wallet` | session | `read` | Available and held balance, this account's deposit address (`null` until the deployment has a wallet), the minimums, the amount above which a payout waits for approval, and the marketplace fee |
+| `GET /api/wallet/entries` | session | `read` | This account's ledger: every movement, signed, with the order it belongs to and a day-granularity date |
+| `POST /api/wallet/withdrawals` | session | `wallet_write` | Request a payout: `{ amountXmr, address }`. The amount leaves the spendable balance at once; the answer says whether it was `queued` or needs approval. One pending payout per account (`payout_pending`) |
+| `GET /api/wallet/withdrawals` | session | `read` | This account's payouts, with the destination shown as a hint and the transaction id once sent |
+| `POST /api/wallet/withdrawals/:id/cancel` | session (owner) | `wallet_write` | Cancel one that has not been sent; the money returns to the balance |
+
+There is no endpoint that credits a balance, and no transfer between accounts: money enters
+only as a confirmed Monero deposit seen by a wallet this server cannot spend from, and leaves
+only as a payout row a separate process picks up.
 
 ## Moderation and administration
 
@@ -175,6 +192,10 @@ result, including refusals (`docs/PRIVACY.md`, ADR-0024).
 | `POST /api/moderation/listings/:id/remove` | staff | `moderation` | Remove a listing |
 | `POST /api/moderation/reviews/:id/hide` | staff | `moderation` | Hide a review |
 | `POST /api/moderation/users/:username/status` | staff | `moderation` | Suspend or reinstate an account |
+| `GET /api/moderation/withdrawals` | session (staff) | `moderation` | Payouts awaiting approval or waiting to be sent, oldest first, destinations as hints |
+| `POST /api/moderation/withdrawals/:id/decide` | session (admin) | `moderation` | `{ decision: "approved" \| "rejected" }`. Approving queues it — this process cannot send. Refusing returns the money to the owner. Audited |
+| `POST /api/admin/users/:username/payout-limit` | session (admin) | `moderation` | `{ limitXmr }` or `{ limitXmr: "default" }`: how much this account may withdraw without approval, per request and per 24 hours. Audited with the amount |
+| `GET /api/admin/treasury` | session (admin) | `moderation` | The books as four totals plus liabilities. Names nobody |
 | `GET /api/moderation/audit` | staff | `moderation` | Read the administrative log |
 | `POST /api/admin/users/:username/role` | admin | `moderation` | Grant or remove staff roles |
 
@@ -193,9 +214,14 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `unexpected_field` | 400 | A body carried a field this endpoint refuses to accept — silently dropping it is how a client comes to depend on storage that does not exist (ADR-0033) |
 | `pow_spent` | 400 | That proof-of-work solution has already been used |
 | `below_dust` | 400 | A price above zero but under 0.001 XMR — smaller than the network fee it would take to pay or refund it |
+| `below_minimum` | 400 | An amount under a configured floor — a payout below `MIN_WITHDRAWAL_XMR` |
+| `bad_address` | 400 | Not a Monero address: wrong length, a character base58 does not contain, or a prefix no Monero network uses. The wallet's own `validate_address` is the authority before anything is sent |
+| `payout_pending` | 400 | This account already has a payout queued or awaiting approval |
+| `balance_not_empty` | 409 | Account deletion, with money still on the balance or held in an open order. Withdraw first — deleting must not silently keep it |
 | `unauthorized` | 401 | No session, or an expired one |
 | `forbidden` | 403 | Authenticated, but not allowed: a missing role, a failed CSRF check, or a suspended account |
 | `not_found` | 404 | No such route, or no such object *for this caller* — the two are deliberately indistinguishable |
+| `insufficient_balance` | 402 | The request is well formed and the account has not got the money: placing an order with an unfunded balance, or a movement that would overdraw one |
 | `conflict` | 409 | The request lost a race with one that arrived first |
 | `username_taken`, `display_name_taken`, `id_taken`, `identity_key_taken` | 409 | The name, id or key is already in use |
 | `already_applied`, `already_seller`, `already_ordered`, `already_reviewed` | 409 | The action has already happened once, and once is the limit |

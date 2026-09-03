@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { approveSeller, promote, register, startTestServer, type TestServer } from "./helpers.ts";
+import { approveSeller, promote, fund, register, startTestServer, type TestServer } from "./helpers.ts";
 
 let server: TestServer;
 
@@ -52,8 +52,10 @@ describe("becoming a seller", () => {
 
   it("does not let two sellers share a display name", async () => {
     const first = await register(server, "one");
+    await fund(server, first, "5");
     await approveSeller(server, first, "Same Name");
     const second = await register(server, "two");
+    await fund(server, second, "5");
     const clash = await second.post("/api/market/seller-applications", {
       displayName: "Same Name",
       statement: "I would like to use a name that is already taken by someone else.",
@@ -66,6 +68,7 @@ describe("listings", () => {
   it("publishes, searches and shows a listing", async () => {
     const { listingId } = await sellerWithListing();
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const search = await buyer.get<{ listings: Array<{ id: string; seller: { username: string } }> }>(
       "/api/market/listings?q=audit",
     );
@@ -92,6 +95,7 @@ describe("orders and reviews", () => {
   it("walks the full order lifecycle and records a review", async () => {
     const { seller, listingId } = await sellerWithListing();
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
 
     const order = await buyer.post<{ id: string; status: string; channel: string }>(
       "/api/market/orders",
@@ -130,6 +134,7 @@ describe("orders and reviews", () => {
   it("does not accept a review without a completed order", async () => {
     const { listingId } = await sellerWithListing();
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
     const early = await buyer.post(`/api/market/orders/${order.body.id}/review`, { rating: 5 });
     expect(early.status).toBe(403);
@@ -138,6 +143,7 @@ describe("orders and reviews", () => {
   it("keeps orders invisible to everyone but the two parties and moderation", async () => {
     const { listingId } = await sellerWithListing();
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
     const stranger = await register(server, "stranger");
 
@@ -158,6 +164,7 @@ describe("orders and reviews", () => {
   it("lets a moderator settle a dispute, and nobody else", async () => {
     const { seller, listingId } = await sellerWithListing();
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
     await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
     // A dispute without a reason is not a dispute a moderator can act on.

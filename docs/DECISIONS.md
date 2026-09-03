@@ -1929,3 +1929,69 @@ answer to "why is there no payment code yet" is a document rather than a shrug. 
 settlement is what it has been: an address in the encrypted order channel, and two parties who
 can each verify the payment in their own wallet — including with Monero's own payment proof
 (transaction key), which needs nothing from this server.
+
+## ADR-0066 — The marketplace holds the money, and the ledger is what makes that defensible
+
+**Status:** accepted (2026-09-03)
+
+**Context.** ADR-0065 left one question open on purpose, because it decides the schema: does the
+platform hold funds, or do buyer and seller settle directly? The owner answered it — a
+FunPay-shaped marketplace, where a buyer tops up a balance, the platform holds the price while
+the order runs, and the commission is taken from the completed sale. The reason given is the
+one that decides it: with direct settlement the two parties can agree beside the platform and
+there is nothing to charge a commission on, and no protection to offer a buyer.
+
+That answer buys a business model and imports the largest risk in this repository. Somebody
+else's money is now on a server that is reachable from the internet.
+
+**Decision.** Custodial balances, with the risk pushed into the places it can be bounded.
+
+- **Double-entry, not a counter.** `balances` is a running total; `ledger_entries` is an
+  append-only history of signed movements in two columns (`available`, `held`). Nothing writes
+  one without the other in the same transaction; every operation either sums to zero or names
+  the outside world (a confirmed deposit, a sent payout). `test/wallet.test.ts` re-adds every
+  entry and compares it to the balance, so a solvency bug fails a test instead of an argument.
+- **Escrow is the order state machine.** The price moves to `held` when the order is placed —
+  an unfunded order is refused with **402**, before the seller is told anything — and settles
+  on `completed` or returns on `cancelled`. A moderator settling a dispute moves the *order*;
+  the money follows. Nothing in the system can move money without an order, a deposit or a
+  payout row.
+- **The platform is an account.** Fee revenue lands on `account_id = 'platform'` rather than
+  being computed by summing orders, so revenue reconciles like everything else and a
+  double-charged fee cannot hide. `GET /api/admin/treasury` publishes liabilities as one
+  number.
+- **The fee is 5% of a completed order, charged to the seller** (`ORDER_FEE_BPS`, rounded down
+  in the seller's favour). Nothing on top-ups, nothing on payouts, nothing on a cancelled
+  order. Boot refuses a fee above 20%.
+- **Three wallets, and the application has none of them.** The app tier gets a private view key
+  at most; a separate payout process holds a spend key and a working float; everything above
+  the float is swept to a cold wallet whose seed never touches this repository, this database
+  or a chat. `test/payments.test.ts` greps `src` for a spend key and for the RPC calls that
+  spend.
+- **Payout limits bound automation, never the money.** Each account has an optional ceiling —
+  set by hand when a seller is approved, changed later, both audited — and the deployment
+  default (2 XMR ≈ ordinary buyer) applies otherwise. Above it a payout is *queued for an
+  administrator*, so a seller withdrawing a large balance needs one approval, and an attacker
+  who owns the web process cannot drain anything by asking nicely.
+- **Minimums: enforced on the way out, advertised on the way in.** A payout below
+  `MIN_WITHDRAWAL_XMR` is refused; a top-up below `MIN_DEPOSIT_XMR` is credited anyway.
+  Keeping money because it was smaller than a suggestion is theft, and Monero offers no address
+  to return it to.
+
+**Rejected:** a `users.balance_pico` column with `UPDATE … SET balance = balance + ?` (the
+common shape, and the reason such platforms cannot prove what they owe); an internal
+account-to-account transfer (a payment rail with no order attached is a money transmitter's
+product and an abuser's first tool); an endpoint that credits a balance (nothing a compromised
+session can call should be able to create money); automatic payouts with no ceiling (it makes a
+web process compromise worth the whole wallet); one Monero key per deposit address to limit a
+breach (every subaddress of a wallet derives from one spend key — a thousand keys means a
+thousand wallets and backups; hot/cold buys the same protection with one moving part);
+non-custodial 2-of-3 multisig now (right long-term answer for large orders, young tooling, and
+it does not solve the commission problem the owner actually raised).
+
+**Consequences.** The platform is a custodian, with everything that follows: regulated activity
+in many jurisdictions (`docs/PAYMENTS.md` §Custody states this plainly and notes that this
+repository holds no legal opinion), an operational duty to keep the hot float small, and a
+solvency number somebody has to look at. In exchange the marketplace can charge for what it
+does, a buyer has a hold to point at when a seller vanishes, and the fee no longer depends on
+two strangers choosing to be honest about a sale.

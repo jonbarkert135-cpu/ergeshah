@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   approveSeller,
+  fund,
   register,
   startTestServer,
   type TestClient,
@@ -40,6 +41,7 @@ async function acceptedOrder(title: string): Promise<string> {
     kind: "digital_good",
     priceXmr: "0.005",
   });
+  await fund(server, buyer, "1");
   const order = await buyer.post<{ id: string }>("/api/market/orders", {
     listingId: listing.body.id,
   });

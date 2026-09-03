@@ -11,3 +11,4 @@ sha256-GCJQcBCxwyCwBO2jsJc9HxLJLdgqaaD5gu1KIZqLS3g=  010_session_rotation.sql
 sha256-jSynnG7+s8R1eC7e6r0NSkXAAfpORpnJtG8SZ5hm/F8=  011_attachments.sql
 sha256-DqnDOwFcWxo+wduIMBodTxL0+vXD1wmrVOX+rpYdgy8=  012_widen_timestamps.postgres.sql
 sha256-cjClpfBx6VG0MdWq3+hqdwQtv5HBGlkZfl5ScEyXv2s=  013_price_xmr.sql
+sha256-oX3rEEANMUV9uKNjDZVQUfQbLYHoL+NWkvQOZt7+H/o=  014_balances.sql

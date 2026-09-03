@@ -10,6 +10,7 @@ import {
   approveSeller,
   promote,
   publishDevice,
+  fund,
   register,
   startTestServer,
   type TestClient,
@@ -68,6 +69,7 @@ describe("what an inbox holds", () => {
     await approveSeller(server, seller, "Notify Seller");
     const listing = await listingFor(seller, "Bookbinding Workshop");
     const buyer = await register(server, "notifybuyer");
+    await fund(server, buyer, "5");
 
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId: listing });
     expect(order.status).toBe(200);
@@ -107,6 +109,7 @@ describe("what an inbox holds", () => {
     await approveSeller(server, seller, "Dispute Seller");
     const listing = await listingFor(seller, "Emergency Locksmithing");
     const buyer = await register(server, "disputebuyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId: listing });
     await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
     const reason = "The lock was never opened and the phone was never answered.";
@@ -222,7 +225,9 @@ describe("reading, paging and forgetting", () => {
     // The seller's own approval notification is already in there; start from a clean slate.
     await seller.post("/api/notifications/read", { all: true });
     const first = await register(server, "readbuyerone");
+    await fund(server, first, "5");
     const second = await register(server, "readbuyertwo");
+    await fund(server, second, "5");
     await first.post("/api/market/orders", { listingId: listing });
     await second.post("/api/market/orders", { listingId: listing });
 
@@ -241,6 +246,7 @@ describe("reading, paging and forgetting", () => {
     await approveSeller(server, seller, "Priv Seller");
     const listing = await listingFor(seller, "Letterpress Business Cards");
     const buyer = await register(server, "privbuyer");
+    await fund(server, buyer, "5");
     await buyer.post("/api/market/orders", { listingId: listing });
     const theirs = (await inbox(seller)).body.notifications[0]!;
     const stranger = await register(server, "privstranger");
@@ -258,6 +264,7 @@ describe("reading, paging and forgetting", () => {
     const listing = await listingFor(seller, "Slow Coffee Subscription");
     for (const name of ["pagebuyerone", "pagebuyertwo", "pagebuyerthree"]) {
       const buyer = await register(server, name);
+      await fund(server, buyer, "5");
       await buyer.post("/api/market/orders", { listingId: listing });
     }
     const seen: string[] = [];
@@ -281,6 +288,7 @@ describe("reading, paging and forgetting", () => {
     await approveSeller(server, seller, "Old Seller");
     const listing = await listingFor(seller, "Archival Photo Scanning");
     const buyer = await register(server, "oldbuyer");
+    await fund(server, buyer, "5");
     await buyer.post("/api/market/orders", { listingId: listing });
     await server.db.run("UPDATE notifications SET created_at = 1 WHERE created_at > 0");
     await pruneNotifications(server.db, 90 * 24 * 60 * 60 * 1000);
@@ -292,6 +300,7 @@ describe("reading, paging and forgetting", () => {
     await approveSeller(server, seller, "Cascade Seller");
     const listing = await listingFor(seller, "Sourdough Starter Coaching");
     const buyer = await register(server, "cascadebuyer");
+    await fund(server, buyer, "5");
     await buyer.post("/api/market/orders", { listingId: listing });
     const before = await server.db.all("SELECT id FROM notifications WHERE detail = 'placed'");
     expect(before.length).toBeGreaterThan(0);

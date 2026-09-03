@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import {
   approveSeller,
   promote,
+  fund,
   register,
   startTestServer,
   type TestClient,
@@ -60,6 +61,7 @@ describe("the four moderation lanes stay apart", () => {
   it("never puts an order's channel in front of a moderator", async () => {
     const seller = await register(server, "seller");
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     await approveSeller(server, seller, "Seller Co");
     const listing = await seller.post<{ id: string }>("/api/market/listings", {
       title: "A careful piece of software",

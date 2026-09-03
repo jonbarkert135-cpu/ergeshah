@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { approveSeller, register, startTestServer, type TestClient, type TestServer } from "./helpers.ts";
+import { approveSeller, fund, register, startTestServer, type TestClient, type TestServer } from "./helpers.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../src/shared/crypto/file.ts";
 import { fromBase64Url, toBase64Url, utf8 } from "../src/shared/encoding.ts";
 import { sodiumReady } from "../src/shared/crypto/sodium.ts";
-import { listTables } from "./database.ts";
+import { listColumns, listTables } from "./database.ts";
 
 let server: TestServer;
 
@@ -32,6 +32,7 @@ async function acceptedOrder(): Promise<{
     priceXmr: "0.009",
   });
   const buyer = await register(server, "buyer");
+  await fund(server, buyer, "5");
   const order = await buyer.post<{ id: string }>("/api/market/orders", {
     listingId: listing.body.id,
   });
@@ -180,6 +181,7 @@ describe("shipping details for a physical order", () => {
     expect(listing.status).toBe(200);
 
     const buyer = await register(server, "physicalbuyer");
+    await fund(server, buyer, "5");
     const address = "12 Rue des Lilas, 75011 Paris";
     // A naive (or hostile) client sends the address anyway. The route refuses the request
     // rather than dropping the field quietly: silently accepting it would leave a buyer
@@ -206,7 +208,25 @@ describe("shipping details for a physical order", () => {
     }
     expect(dump.join()).not.toContain("Rue des Lilas");
     expect(dump.join()).not.toContain("shippingAddress");
-    // And no column anywhere is named after one, either.
-    expect(dump.join().toLowerCase()).not.toContain("address");
+    // And no column anywhere is named after a postal address either. \"address\" itself is no
+    // longer a word this schema can do without — a Monero payout has a destination
+    // (migration 014) — so the check names the parts of a *postal* address instead, and pins
+    // the columns that are allowed to be called one.
+    for (const postal of ["shipping", "postal", "street", "postcode", "zipcode", "recipient_name", "city", "country"]) {
+      expect(dump.join().toLowerCase(), postal).not.toContain(postal);
+    }
+    const addressColumns: string[] = [];
+    for (const name of tables) {
+      for (const column of await listColumns(server.db, name)) {
+        if (/address/i.test(column)) addressColumns.push(`${name}.${column}`);
+      }
+    }
+    expect(addressColumns.sort()).toEqual([
+      "deposit_addresses.address",
+      "deposit_addresses.subaddress_index",
+      "deposits.subaddress_index",
+      "withdrawals.address",
+      "withdrawals.address_hint",
+    ]);
   });
 });

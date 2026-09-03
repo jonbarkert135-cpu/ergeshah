@@ -2,7 +2,7 @@
  * Points 45–46: goods that are not files, and reputation that is hard to buy.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { approveSeller, promote, register, startTestServer, type TestClient, type TestServer } from "./helpers.ts";
+import { approveSeller, promote, fund, register, startTestServer, type TestClient, type TestServer } from "./helpers.ts";
 
 let server: TestServer;
 
@@ -29,6 +29,9 @@ async function seller(name: string, kind: "service" | "digital_good" = "service"
 
 /** Buyer orders, seller accepts and delivers manually, buyer completes and reviews. */
 async function completedOrder(buyer: TestClient, vendor: TestClient, listingId: string, rating: number) {
+  // Orders are escrowed (ADR-0066): a buyer with an empty balance cannot place one, here or
+  // in production.
+  await fund(server, buyer, "1");
   const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
   await vendor.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
   await vendor.post(`/api/market/orders/${order.body.id}/delivery`, { manual: true });
@@ -42,6 +45,7 @@ describe("delivery is not only a file", () => {
   it("lets a seller mark a service delivered without storing anything", async () => {
     const { client: vendor, listingId } = await seller("vendor");
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string; kind: string }>("/api/market/orders", { listingId });
     await vendor.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
 
@@ -68,6 +72,7 @@ describe("disputes reach a moderator and are settled once", () => {
   it("files the buyer's reason where the moderation queue can see it, with the order's facts", async () => {
     const { client: vendor, listingId } = await seller("vendor");
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
     await vendor.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
     await buyer.post(`/api/market/orders/${order.body.id}/status`, {

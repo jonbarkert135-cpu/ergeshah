@@ -5,6 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolveLimits, type Limits } from "./lib/rate_limit.ts";
+import { parseXmr } from "../shared/money.ts";
 
 export type Dialect = "sqlite" | "postgres";
 
@@ -52,6 +53,28 @@ export interface Config {
   rateLimits: Limits;
   /** Bytes that must stay free before this server accepts another blob. 0 disables the floor. */
   storageFloorBytes: number;
+  /**
+   * The platform's cut of a completed order, in basis points (500 = 5%). Charged to the
+   * seller, deducted at settlement, and rounded down in the seller's favour
+   * (`lib/ledger.ts`). Zero is supported and means a marketplace that earns nothing per
+   * order, which is a business decision this server is happy to run.
+   */
+  orderFeeBps: number;
+  /** Smallest payout this server will queue, in piconero. Below it the network fee dominates. */
+  minWithdrawalPico: number;
+  /**
+   * Default ceiling on automatic payouts, per request and per rolling 24 hours, for an
+   * account that has no limit of its own. Anything above it is queued for an administrator
+   * rather than refused. This is the number that decides what a compromise of this process is
+   * worth, so it is configuration and not a constant (docs/PAYMENTS.md §Limits).
+   */
+  autoPayoutMaxPico: number;
+  /**
+   * The smallest top-up worth making, advertised to buyers. Deliberately *not* enforced:
+   * anything the wallet sees is credited, because keeping a payment that was smaller than a
+   * suggestion is theft, and Monero gives no address to refund it to.
+   */
+  minDepositPico: number;
   /** v3 onion address of this service, advertised to Tor Browser. Empty = not published. */
   onionHostname: string;
   behindTls: boolean;
@@ -157,6 +180,33 @@ export function positiveInteger(name: string, value: string | undefined, fallbac
   return parsed;
 }
 
+/**
+ * The commission, in basis points, validated at boot. A typo here is money: `5000` instead
+ * of `500` is a 50% marketplace, and nothing downstream would question it. Anything above
+ * 2,000 (20%) is refused as a mistake rather than trusted — the ceiling is documented in
+ * docs/PAYMENTS.md and can be raised deliberately.
+ */
+function feeBasisPoints(value: string | undefined): number {
+  if (value === undefined || value.trim() === "") return 500;
+  const bps = Number(value);
+  if (!Number.isInteger(bps) || bps < 0 || bps > 2_000) {
+    throw new Error("ORDER_FEE_BPS must be a whole number of basis points between 0 and 2000 (20%)");
+  }
+  return bps;
+}
+
+/**
+ * A money limit, written the way a human writes money (`"0.5"` XMR) and stored the way this
+ * server counts it (piconero). Parsed by the shared parser, so an unparseable amount stops
+ * the server instead of quietly becoming a limit of zero — which would either block every
+ * payout or wave every payout through, and it is not obvious which.
+ */
+function picoFromEnv(name: string, value: string | undefined, fallback: string): number {
+  const pico = parseXmr((value ?? "").trim() === "" ? fallback : (value as string));
+  if (pico === null) throw new Error(`${name} must be an amount of XMR, for example ${fallback}`);
+  return pico;
+}
+
 const ONION_V3 = /^[a-z2-7]{56}\.onion$/;
 
 /**
@@ -200,6 +250,10 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     ),
     storageFloorBytes: Number(process.env.STORAGE_FLOOR_BYTES ?? 512 * 1024 * 1024),
     rateLimits: resolveLimits(process.env.RATE_LIMITS),
+    orderFeeBps: feeBasisPoints(process.env.ORDER_FEE_BPS),
+    minWithdrawalPico: picoFromEnv("MIN_WITHDRAWAL_XMR", process.env.MIN_WITHDRAWAL_XMR, "0.02"),
+    autoPayoutMaxPico: picoFromEnv("AUTO_PAYOUT_MAX_XMR", process.env.AUTO_PAYOUT_MAX_XMR, "2"),
+    minDepositPico: picoFromEnv("MIN_DEPOSIT_XMR", process.env.MIN_DEPOSIT_XMR, "0.02"),
     onionHostname: onionHostname(process.env.ONION_HOSTNAME),
     behindTls: process.env.BEHIND_TLS !== "false",
     ...overrides,

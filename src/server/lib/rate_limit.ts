@@ -75,6 +75,12 @@ export const DEFAULT_LIMITS = {
   order_write: { burst: 20, perMinute: 5 },
   /** Leaving a review. */
   review: { burst: 10, perMinute: 1 },
+  /**
+   * Asking this server to move money: a payout request or its cancellation. Tight, because a
+   * human does it rarely and a script doing it in a loop is either an attack or a bug, and
+   * because each call writes a ledger entry.
+   */
+  wallet_write: { burst: 6, perMinute: 1 },
   /** Reports and moderation actions. */
   moderation: { burst: 30, perMinute: 10 },
   /** Listing search: the one query that scans, so it gets its own, tighter bucket. */

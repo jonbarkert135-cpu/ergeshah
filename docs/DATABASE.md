@@ -85,6 +85,20 @@ quarterly (`docs/HARDENING.md`).
 | `envelopes` | id, recipient **device**, channel, `payload`, optional `invite`, created, expires | Addressed to a device, not a person. Deleted on acknowledgement, and expired by housekeeping regardless. No sender column — who sent it is inside the ciphertext. `expires_at` may be sooner than the default when the sender asked for disappearing messages (point 74) |
 | `attachments` | id, `ciphertext`, created, expires | Blind blobs for messages (point 78): no sender, no recipient, no conversation, no filename, no media type, no plaintext length. The id is chosen by the client and *is* the capability; the key never reaches the server. Expired by `DELIVERY_TTL_MS`, and deletable by anyone who holds the id |
 
+### Money
+
+Custodial balances, in piconero, with an append-only ledger behind them (migration 014,
+ADR-0066). Nothing in this group can be written without its ledger entry in the same
+transaction, and `test/wallet.test.ts` re-adds the entries to check.
+
+| Table | What it holds | Notes |
+| --- | --- | --- |
+| `balances` | `account_id`, optional user, `available_pico`, `held_pico`, optional `payout_limit_pico`, updated | One row per account, plus the single `'platform'` row that receives fees — so revenue reconciles like any other balance. CHECK constraints refuse a negative balance; `payout_limit_pico` is the hand-set ceiling above which a payout waits for an administrator |
+| `ledger_entries` | id, account, `kind`, `available_delta`, `held_delta`, optional order/deposit/withdrawal, created | Append-only. Every movement, signed, in two columns: `available` is spendable, `held` is committed to an open order or a queued payout. A hold sums to zero across the two |
+| `deposit_addresses` | user, `subaddress_index`, `address`, created | One Monero subaddress per account, never reused: a shared address would make an incoming payment unattributable |
+| `deposits` | id, user, `amount_pico`, `txid`, subaddress index, `confirmations`, status, detected/credited | A confirmed transfer, credited once — unique on (txid, subaddress index, amount), so a watcher that re-reads a transfer cannot pay twice. A Monero transaction names no sender, so `txid` is the whole of what can be recorded about where money came from |
+| `withdrawals` | id, user, `amount_pico`, `address` (until sent), `address_hint`, status, `txid`, `network_fee_pico`, requested/decided/settled | The destination is deleted when the payout leaves; the hint (first and last six characters) is what support needs. A Monero address appears nowhere on the chain, so a hint correlates with nothing |
+
 ### Marketplace
 
 | Table | What it holds | Notes |

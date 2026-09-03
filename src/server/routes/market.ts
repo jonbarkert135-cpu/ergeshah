@@ -27,6 +27,7 @@ import { recordAudit } from "../lib/audit.ts";
 import { listingRating, sellerReputation } from "../lib/reputation.ts";
 import { cursorFor, indexListing, parseCursor, queryTerms, termConditions } from "../lib/search.ts";
 import { notify } from "../lib/notify.ts";
+import { holdForOrder, releaseHold, settleOrder } from "../lib/ledger.ts";
 import { xmrString } from "../../shared/money.ts";
 
 type OrderStatus =
@@ -362,6 +363,12 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
            VALUES (?, ?, ?, '', 'placed', ?)`,
           [newId(), id, user.id, now],
         );
+        // Escrow, in the same transaction as the order: the price leaves the buyer's
+        // spendable balance and is held until the order ends one way or the other
+        // (ADR-0066). An unfunded order is refused with 402 rather than created and left
+        // for the seller to discover — a seller who starts work on an order that cannot pay
+        // is the failure this whole model exists to prevent.
+        await holdForOrder(tx, { userId: user.id, orderId: id, amountPico: listing.price_pico });
         // In the same transaction as the order: a seller is never told about an order that
         // was rolled back, and never left uninformed about one that was not.
         await notify(tx, {
@@ -439,7 +446,11 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       status: OrderStatus;
       buyer_user_id: string;
       seller_user_id: string;
-    }>("SELECT id, status, buyer_user_id, seller_user_id FROM orders WHERE id = ?", [id]);
+      price_pico: number;
+    }>(
+      "SELECT id, status, buyer_user_id, seller_user_id, price_pico FROM orders WHERE id = ?",
+      [id],
+    );
     if (!order) throw notFound("no such order");
 
     const actorRoles: Array<"buyer" | "seller" | "moderator"> = [];
@@ -478,6 +489,25 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       // A finished order keeps no file: the buyer has saved it or has lost the chance to.
       if (next === "completed" || next === "cancelled") {
         await tx.run("DELETE FROM deliveries WHERE order_id = ?", [id]);
+      }
+      // Money follows the status, inside the same transaction and only on the two terminal
+      // transitions. `completed` pays the seller the price less the marketplace fee;
+      // `cancelled` hands the hold back to the buyer, whole and without a fee — a sale that
+      // did not happen earns nothing.
+      if (next === "completed") {
+        await settleOrder(tx, {
+          orderId: id,
+          buyerUserId: order.buyer_user_id,
+          sellerUserId: order.seller_user_id,
+          amountPico: order.price_pico,
+          feeBps: app.config.orderFeeBps,
+        });
+      } else if (next === "cancelled") {
+        await releaseHold(tx, {
+          userId: order.buyer_user_id,
+          orderId: id,
+          amountPico: order.price_pico,
+        });
       }
       await tx.run(
         `INSERT INTO order_events (id, order_id, actor_user_id, from_status, to_status, created_at)

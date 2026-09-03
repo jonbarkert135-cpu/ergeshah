@@ -8,7 +8,7 @@
  * an application-level check cannot survive.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { approveSeller, promote, register, startTestServer, type TestServer } from "./helpers.ts";
+import { approveSeller, promote, fund, register, startTestServer, type TestServer } from "./helpers.ts";
 
 let server: TestServer;
 
@@ -52,6 +52,7 @@ describe("orders cannot be duplicated or moved twice", () => {
   it("gives a buyer who submits the same order five times exactly one order", async () => {
     const { listingId } = await listingFor("seller");
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const attempts = await Promise.all(
       Array.from({ length: 5 }, () => buyer.post("/api/market/orders", { listingId })),
     );
@@ -63,6 +64,7 @@ describe("orders cannot be duplicated or moved twice", () => {
   it("allows the same listing to be bought again only once the previous order is closed", async () => {
     const { seller, listingId } = await listingFor("seller");
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const first = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
     expect((await buyer.post("/api/market/orders", { listingId })).status).toBe(409);
     await seller.post(`/api/market/orders/${first.body.id}/status`, { status: "cancelled" });
@@ -72,6 +74,7 @@ describe("orders cannot be duplicated or moved twice", () => {
   it("lets exactly one of two conflicting transitions from the same state win", async () => {
     const { seller, listingId } = await listingFor("seller");
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
     await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
     await seller.post(`/api/market/orders/${order.body.id}/delivery`, { ciphertext: "Zm9vYmFy" });
@@ -93,6 +96,7 @@ describe("orders cannot be duplicated or moved twice", () => {
   it("never stores a delivery for an order that was cancelled in the same instant", async () => {
     const { seller, listingId } = await listingFor("seller");
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
     await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
     const [cancel, deliver] = await Promise.all([
@@ -146,6 +150,7 @@ describe("the database enforces what the application also checks", () => {
   it("moves an order only from the state the caller saw (compare-and-swap)", async () => {
     const { seller, listingId } = await listingFor("seller");
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
     // What every transition in market.ts and deliveries.ts executes, with a stale `from`.
     const stale = await server.db.get(

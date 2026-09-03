@@ -80,7 +80,8 @@ in `src/` and fails if one crosses a line in the table below.
 | CRYPTO | `shared/crypto/*` | the protocol: one implementation, imported by both sides, imports neither |
 | MARKETPLACE / SELLERS / ORDERS / REVIEWS | `routes/market.ts`, `lib/reputation.ts`, `lib/search.ts` | listings, applications, the order state machine, reviews and reputation |
 | STORAGE (BLIND BLOBS) | `routes/deliveries.ts` | ciphertext the server cannot open: order deliveries and message attachments (point 78), and their deletion |
-| MODERATION / ADMIN | `routes/moderation.ts`, `lib/audit.ts` | reports and disputes, decisions, roles, the audit trail |
+| MONEY | `routes/wallet.ts`, `lib/ledger.ts` | balances, the append-only ledger, escrow on an order, deposits, payouts. Knows nothing about Monero itself: no address, no node, no key |
+| MODERATION / ADMIN | `routes/moderation.ts`, `lib/audit.ts` | reports and disputes, decisions, roles, the audit trail, and money oversight (the payout queue, per-account limits, the treasury total) |
 | SECURITY | `app.ts`, `security.ts`, `lib/rate_limit.ts`, `lib/validate.ts` | authentication of requests, CSRF, CSP, limits, input validation at the boundary |
 | INFRASTRUCTURE | `db/*`, `config.ts`, `main.ts`, `routes/static.ts` | drivers, migrations, configuration, the built client and its digests |
 | OBSERVABILITY | `routes/health.ts`, `lib/metrics.ts` | uptime, resources, database latency and aggregate request counters, for an administrator only. Counts and times, never a route, an account or a body (point 85, `docs/OBSERVABILITY.md`) |

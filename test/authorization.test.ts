@@ -11,7 +11,7 @@
  * must be refused by the server no matter what the client renders.
  */
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { approveSeller, register, startTestServer, TestClient, type TestServer } from "./helpers.ts";
+import { approveSeller, fund, register, startTestServer, TestClient, type TestServer } from "./helpers.ts";
 
 /**
  * Routes that must work without a session, each with the reason it is public. Anything
@@ -95,6 +95,7 @@ describe("a session is not a licence to touch someone else's data", () => {
   it("refuses a foreign order, and says nothing about whether it exists", async () => {
     const seller = await register(server, "owner-seller");
     const buyer = await register(server, "owner-buyer");
+    await fund(server, buyer, "5");
     const stranger = await register(server, "owner-stranger");
     await approveSeller(server, seller, "Ownership Works");
 

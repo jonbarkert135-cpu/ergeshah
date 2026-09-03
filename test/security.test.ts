@@ -15,6 +15,7 @@ import {
   authSecretFor,
   promote,
   publishDevice,
+  fund,
   register,
   startTestServer,
   TestClient,
@@ -493,6 +494,7 @@ describe("insecure direct object references", () => {
       priceXmr: "0.025",
     });
     const buyer = await register(server, "buyer");
+    await fund(server, buyer, "5");
     const order = await buyer.post<{ id: string }>("/api/market/orders", {
       listingId: listing.body.id,
     });

@@ -163,6 +163,64 @@ export function asXmrPrice(value: unknown, field: string): number {
 }
 
 /**
+ * An amount of XMR a user asks this server to move, as opposed to a price on a listing:
+ * strictly positive, at least `minPico`, and capped by the same ceiling prices have.
+ */
+export function asXmrAmount(value: unknown, field: string, minPico: number): number {
+  if (typeof value !== "string") {
+    throw badRequest(`${field} must be a decimal string of XMR, for example "0.05"`);
+  }
+  const pico = parseXmr(value);
+  if (pico === null) {
+    throw badRequest(`${field} must be an amount of XMR with at most ${XMR_DECIMALS} decimals`);
+  }
+  if (pico > MAX_PRICE_PICO) {
+    throw badRequest(`${field} must not exceed ${xmrString(MAX_PRICE_PICO)} XMR`);
+  }
+  if (pico < minPico) {
+    throw badRequest(`${field} must be at least ${xmrString(minPico)} XMR`, "below_minimum");
+  }
+  return pico;
+}
+
+/**
+ * Monero's base58 alphabet: Bitcoin's, minus nothing — the difference is the block size, not
+ * the digits. `0`, `O`, `I` and `l` are absent, which is most of what makes a hand-copied
+ * address survive.
+ */
+const BASE58 = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
+
+/**
+ * A Monero destination, checked as far as it can be checked here.
+ *
+ * What this catches: the wrong length, a character no Monero address contains, a network
+ * prefix that belongs to no Monero network, and every form of injection (the value is
+ * base58, so it cannot contain a quote, a space or a shell character).
+ *
+ * What it deliberately does not do: verify the checksum. That needs Keccak-256, and
+ * `docs/SOURCES.md` allows exactly one hand-written primitive in this repository — writing a
+ * second one to save an RPC call would be the wrong trade. The wallet's own
+ * `validate_address` is the authority, and the payout worker calls it before it sends
+ * anything (docs/PAYMENTS.md). So this is a cheap filter in front of an exact check, and it
+ * is honest about which is which.
+ */
+export function asMoneroAddress(value: unknown, field: string): string {
+  const address = asString(value, field, 106, 95).trim();
+  if (address.length !== 95 && address.length !== 106) {
+    throw badRequest(`${field} must be a 95-character Monero address (106 if integrated)`, "bad_address");
+  }
+  if (!BASE58.test(address)) {
+    throw badRequest(`${field} contains a character no Monero address contains`, "bad_address");
+  }
+  // First character by network and kind: 4 and 8 are mainnet standard and subaddress, 5 and 7
+  // stagenet, 9 and A/B testnet. Anything else is not an address for any Monero network.
+  if (!/^[45789AB]/.test(address)) {
+    throw badRequest(`${field} does not start like a Monero address`, "bad_address");
+  }
+  return address;
+}
+
+/**
  * `physical_good` exists so a client knows an order needs a delivery address. The address
  * itself never reaches this server: there is no field for it in any route, and no column
  * for it in any table — see ADR-0021.

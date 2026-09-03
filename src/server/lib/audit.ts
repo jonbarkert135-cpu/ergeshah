@@ -31,6 +31,10 @@ export type AuditAction =
   /** A moderator settled a disputed order: the one order transition staff can make. */
   | "order.settled"
   | "review.hidden"
+  /** An administrator approved or refused one payout. */
+  | "withdrawal.decided"
+  /** An administrator set or cleared an account's automatic payout ceiling. */
+  | "payout_limit.set"
   /** An authenticated account was refused a privileged route: recorded, not silent. */
   | "privileged.denied";
 
