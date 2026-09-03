@@ -52,9 +52,22 @@ wrapped master key (PR #7), and AUTH-7 PGP challenge–response as a second fact
 the moderation lanes separated and asserted by tests, and the payment architecture written
 down before the feature exists (`docs/PAYMENTS.md`).*
 
-- **PAY-1 — Optional payment adapters.** Isolated, replaceable, never required; the first
-  candidate is a self-hosted Monero payment gateway, precisely because it needs no
-  third-party identity.
+*Shipped (2026-09-03): prices are XMR-native — piconero integers, no `currency` column, no
+exchange rate anywhere (ADR-0064) — and the Monero settlement design in `docs/PAYMENTS.md`
+(ADR-0065).*
+
+- **PAY-1 — A self-hosted Monero gateway.** Designed in `docs/PAYMENTS.md`; four things are
+  needed before code is worth writing, and two of them are not engineering:
+  1. **A custody decision.** Buyer-pays-seller (non-custodial, no node, works today) or an
+     operator wallet that receives and forwards (custody, commission possible, hot wallet,
+     jurisdiction-dependent). The two produce different schemas.
+  2. **A wallet tier in the deployment**: `monerod` plus `monero-wallet-rpc` on the internal
+     network, the daemon holding the only egress, ideally over Tor — the application container
+     still reaches nothing but them (`docs/NETWORK.md`).
+  3. **A view-key-only wallet** on that tier. The spend key stays off this machine.
+  4. Then: `payments` table, subaddress per order, a poll inside the housekeeping timer, a
+     confirmation gate, a quote that expires, an admin view, and refunds that are *recorded*
+     rather than sent (a Monero transaction has no sender address to send one to).
 *Shipped: MKT-2, client-encrypted digital delivery with blind server-side storage. MKT-4,
 physical orders whose delivery details are a message rather than a database column.*
 

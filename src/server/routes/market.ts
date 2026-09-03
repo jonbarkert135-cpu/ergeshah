@@ -19,7 +19,7 @@ import {
   asOptionalText,
   asString,
   asText,
-  CURRENCIES,
+  asXmrPrice,
   LISTING_KINDS,
   onlyKeys,
 } from "../lib/validate.ts";
@@ -27,6 +27,7 @@ import { recordAudit } from "../lib/audit.ts";
 import { listingRating, sellerReputation } from "../lib/reputation.ts";
 import { cursorFor, indexListing, parseCursor, queryTerms, termConditions } from "../lib/search.ts";
 import { notify } from "../lib/notify.ts";
+import { xmrString } from "../../shared/money.ts";
 
 type OrderStatus =
   | "placed"
@@ -142,14 +143,13 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       description: asText(body.description, "description", 8000, 20),
       category: asString(body.category, "category", 40, 2),
       kind: asEnum(body.kind, "kind", LISTING_KINDS),
-      priceMinor: asInteger(body.priceMinor, "priceMinor", 0, 10 ** 12),
-      currency: asEnum(body.currency, "currency", CURRENCIES),
+      pricePico: asXmrPrice(body.priceXmr, "priceXmr"),
     };
     await db.transaction(async (tx) => {
       await tx.run(
-        `INSERT INTO listings (id, seller_user_id, title, description, category, kind, price_minor,
-                               currency, status, created_day, updated_day)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+        `INSERT INTO listings (id, seller_user_id, title, description, category, kind, price_pico,
+                               status, created_day, updated_day)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
         [
           listing.id,
           seller.user_id,
@@ -157,8 +157,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
           listing.description,
           listing.category,
           listing.kind,
-          listing.priceMinor,
-          listing.currency,
+          listing.pricePico,
           today(),
           today(),
         ],
@@ -191,8 +190,8 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     if (body.category !== undefined) {
       updates.push(["category", asString(body.category, "category", 40, 2)]);
     }
-    if (body.priceMinor !== undefined) {
-      updates.push(["price_minor", asInteger(body.priceMinor, "priceMinor", 0, 10 ** 12)]);
+    if (body.priceXmr !== undefined) {
+      updates.push(["price_pico", asXmrPrice(body.priceXmr, "priceXmr")]);
     }
     if (body.status !== undefined) {
       updates.push(["status", asEnum(body.status, "status", ["active", "paused"] as const)]);
@@ -261,7 +260,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     params.push(limit + 1);
 
     const rows = await db.all<ListingRow>(
-      `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_minor, l.currency,
+      `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_pico,
               l.created_day, s.display_name, u.username
          FROM listings l
          JOIN sellers s ON s.user_id = l.seller_user_id
@@ -283,7 +282,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     await app.limit(request, "read");
     const id = asId((request.params as { id: string }).id, "id");
     const row = await db.get<ListingRow & { status: string }>(
-      `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_minor, l.currency,
+      `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_pico,
               l.created_day, l.status, s.display_name, u.username
          FROM listings l
          JOIN sellers s ON s.user_id = l.seller_user_id
@@ -334,10 +333,9 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const listing = await db.get<{
       id: string;
       seller_user_id: string;
-      price_minor: number;
-      currency: string;
+      price_pico: number;
       status: string;
-    }>("SELECT id, seller_user_id, price_minor, currency, status FROM listings WHERE id = ?", [
+    }>("SELECT id, seller_user_id, price_pico, status FROM listings WHERE id = ?", [
       listingId,
     ]);
     if (!listing || listing.status !== "active") throw notFound("no such listing");
@@ -354,10 +352,10 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     await orConflict(
       db.transaction(async (tx) => {
         await tx.run(
-          `INSERT INTO orders (id, listing_id, buyer_user_id, seller_user_id, price_minor, currency,
+          `INSERT INTO orders (id, listing_id, buyer_user_id, seller_user_id, price_pico,
                                status, channel, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'placed', ?, ?, ?)`,
-          [id, listing.id, user.id, listing.seller_user_id, listing.price_minor, listing.currency, channel, now, now],
+           VALUES (?, ?, ?, ?, ?, 'placed', ?, ?, ?)`,
+          [id, listing.id, user.id, listing.seller_user_id, listing.price_pico, channel, now, now],
         );
         await tx.run(
           `INSERT INTO order_events (id, order_id, actor_user_id, from_status, to_status, created_at)
@@ -394,13 +392,12 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       title: string;
       kind: string;
       status: OrderStatus;
-      price_minor: number;
-      currency: string;
+      price_pico: number;
       channel: string;
       created_at: number;
       counterparty: string;
     }>(
-      `SELECT o.id, o.listing_id, l.title, l.kind, o.status, o.price_minor, o.currency, o.channel, o.created_at,
+      `SELECT o.id, o.listing_id, l.title, l.kind, o.status, o.price_pico, o.channel, o.created_at,
               cu.username AS counterparty
          FROM orders o
          JOIN listings l ON l.id = o.listing_id
@@ -416,8 +413,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
         title: row.title,
         kind: row.kind,
         status: row.status,
-        priceMinor: row.price_minor,
-        currency: row.currency,
+        priceXmr: xmrString(row.price_pico),
         channel: row.channel,
         counterparty: row.counterparty,
         placedOn: dayToIsoDate(Math.floor(row.created_at / 86_400_000)),
@@ -599,7 +595,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     if (!seller || seller.status !== "active") throw notFound("no such seller");
     const reputation = await sellerReputation(app.db, seller.user_id);
     const listings = await db.all<ListingRow>(
-      `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_minor, l.currency,
+      `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_pico,
               l.created_day, s.display_name, u.username
          FROM listings l
          JOIN sellers s ON s.user_id = l.seller_user_id
@@ -627,8 +623,7 @@ interface ListingRow {
   description: string;
   category: string;
   kind: string;
-  price_minor: number;
-  currency: string;
+  price_pico: number;
   created_day: number;
   display_name: string;
   username: string;
@@ -641,8 +636,7 @@ async function presentListing(app: FastifyInstance, row: ListingRow) {
     description: row.description,
     category: row.category,
     kind: row.kind,
-    priceMinor: row.price_minor,
-    currency: row.currency,
+    priceXmr: xmrString(row.price_pico),
     seller: { username: row.username, displayName: row.display_name },
     listedOn: dayToIsoDate(row.created_day),
     ...(await listingRating(app.db, row.id)),

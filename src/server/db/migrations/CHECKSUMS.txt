@@ -10,3 +10,4 @@ sha256-zy7f0C2/G6jmDp2Pzh1kWtNDNBCTHEm8EU5wBD5NjzQ=  009_notifications.sql
 sha256-GCJQcBCxwyCwBO2jsJc9HxLJLdgqaaD5gu1KIZqLS3g=  010_session_rotation.sql
 sha256-jSynnG7+s8R1eC7e6r0NSkXAAfpORpnJtG8SZ5hm/F8=  011_attachments.sql
 sha256-DqnDOwFcWxo+wduIMBodTxL0+vXD1wmrVOX+rpYdgy8=  012_widen_timestamps.postgres.sql
+sha256-cjClpfBx6VG0MdWq3+hqdwQtv5HBGlkZfl5ScEyXv2s=  013_price_xmr.sql

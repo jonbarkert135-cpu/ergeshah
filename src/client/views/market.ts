@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, emptyState, errorState, field, formDialog, input, money, notice, skeletonCards, toast, withBusy } from "../ui.ts";
+import { clear, el, emptyState, errorState, field, formDialog, input, notice, price as formatPrice, skeletonCards, toast, withBusy } from "../ui.ts";
 import { state } from "../state.ts";
 import { sendShippingDetails, startConversation } from "../messaging.ts";
 
@@ -9,8 +9,7 @@ interface Listing {
   description: string;
   category: string;
   kind: string;
-  priceMinor: number;
-  currency: string;
+  priceXmr: string;
   seller: { username: string; displayName: string };
   listedOn: string;
   reviewCount: number;
@@ -182,7 +181,7 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
       el(
         "div",
         { class: "row" },
-        el("span", { class: "price" }, money(listing.priceMinor, listing.currency)),
+        el("span", { class: "price" }, formatPrice(listing.priceXmr)),
         el("span", { class: "tag" }, KIND_LABELS[listing.kind] ?? listing.kind),
         el("span", { class: "tag" }, listing.category),
       ),
@@ -281,12 +280,11 @@ export function renderSell(root: HTMLElement): void {
     const title = input("title", { maxlength: "120" });
     const description = el("textarea", { name: "description", rows: "6", maxlength: "8000" });
     const category = input("category", { maxlength: "40", placeholder: "e.g. design, code, tutoring" });
-    const price = input("price", { type: "number", min: "0", step: "0.01", value: "0" });
-    const currency = el(
-      "select",
-      { name: "currency" },
-      ...["USD", "EUR", "XMR", "BTC"].map((code) => el("option", { value: code }, code)),
-    );
+    // XMR, and no currency to choose (ADR-0060). A text field rather than `type=number`:
+    // a number input hands back a value the browser has already parsed as a float, which is
+    // the one thing a price with twelve decimals must not pass through. The server parses
+    // the string and says what is wrong with it.
+    const price = input("price", { inputmode: "decimal", placeholder: "0.045", value: "0" });
     const kind = el(
       "select",
       { name: "kind" },
@@ -304,7 +302,7 @@ export function renderSell(root: HTMLElement): void {
       field("Title", title),
       field("Description", description),
       field("Category", category),
-      el("div", { class: "row" }, field("Price", price), field("Currency", currency), field("Kind", kind)),
+      el("div", { class: "row" }, field("Price in XMR", price), field("Kind", kind)),
       el("button", { class: "primary spaced", type: "submit" }, "Publish listing"),
       result,
     );
@@ -317,8 +315,9 @@ export function renderSell(root: HTMLElement): void {
           description: description.value,
           category: category.value,
           kind: (kind as HTMLSelectElement).value,
-          currency: (currency as HTMLSelectElement).value,
-          priceMinor: Math.round(Number(price.value) * 100),
+          // Sent as the string the seller typed: the server parses the decimals, so no
+          // float ever stands between what was typed and what is stored.
+          priceXmr: price.value.trim(),
         },
       })
         .then(() => {
@@ -341,7 +340,7 @@ export function renderSell(root: HTMLElement): void {
             "div",
             { class: "card" },
             el("strong", {}, listing.title),
-            el("div", { class: "price" }, money(listing.priceMinor, listing.currency)),
+            el("div", { class: "price" }, formatPrice(listing.priceXmr)),
             el("div", { class: "muted mono" }, `listed ${listing.listedOn}`),
           ),
         );

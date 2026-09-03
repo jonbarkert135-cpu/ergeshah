@@ -27,8 +27,7 @@ async function publish(title: string, description: string, category = "software"
     description,
     category,
     kind: "digital_good",
-    priceMinor: 1000,
-    currency: "USD",
+    priceXmr: "0.01",
   });
   expect(response.status, JSON.stringify(response.body)).toBe(200);
   return response.body.id;

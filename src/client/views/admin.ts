@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, emptyState, errorState, formDialog, money, notice, skeleton, table } from "../ui.ts";
+import { clear, el, emptyState, errorState, formDialog, notice, price as formatPrice, skeleton, table } from "../ui.ts";
 
 interface Queue {
   reports: Array<{
@@ -15,8 +15,7 @@ interface Queue {
       status: string;
       title: string;
       kind: string;
-      priceMinor: number;
-      currency: string;
+      priceXmr: string;
       buyer: string;
       seller: string;
       updatedOn: string;
@@ -108,7 +107,7 @@ export function renderModeration(root: HTMLElement): void {
             ? el(
                 "p",
                 { class: "muted" },
-                `${order.title} (${order.kind}), ${money(order.priceMinor, order.currency)} · buyer @${order.buyer}, seller @${order.seller} · ${order.status} since ${order.updatedOn}. ` +
+                `${order.title} (${order.kind}), ${formatPrice(order.priceXmr)} · buyer @${order.buyer}, seller @${order.seller} · ${order.status} since ${order.updatedOn}. ` +
                   `Seller record: ${order.sellerRecord.completedOrders} completed, ${order.sellerRecord.disputedOrders} disputed, ` +
                   (order.sellerRecord.averageRating === null ? "no reviews." : `★ ${order.sellerRecord.averageRating} from ${order.sellerRecord.distinctReviewers} buyers.`),
               )

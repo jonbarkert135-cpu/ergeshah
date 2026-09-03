@@ -1,6 +1,7 @@
 /** Input validation. Everything that reaches the database goes through here first. */
 import { badRequest } from "./errors.ts";
 import { base64UrlBytes } from "../../shared/uploads.ts";
+import { MAX_PRICE_PICO, MIN_PRICE_PICO, XMR_DECIMALS, parseXmr, xmrString } from "../../shared/money.ts";
 
 const USERNAME_RE = /^[a-z0-9](?:[a-z0-9_.-]{1,30})[a-z0-9]$/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
@@ -134,7 +135,33 @@ export function asArray(value: unknown, field: string, maxLength: number): unkno
   return value;
 }
 
-export const CURRENCIES = ["USD", "EUR", "XMR", "BTC"] as const;
+/**
+ * A price, in the only currency this marketplace has: XMR, written as a decimal string and
+ * stored as piconero.
+ *
+ * A string and not a number, and this is the validator that insists on it. A JSON number
+ * with twelve decimals is a double, a double cannot hold every piconero, and a price that
+ * arrives 1e-12 off is an amount no payment will ever match exactly. Free (`"0"`) is
+ * allowed; anything between zero and the dust floor is not, because a price smaller than the
+ * fee to move it is a promise the network cannot keep (`src/shared/money.ts`).
+ */
+export function asXmrPrice(value: unknown, field: string): number {
+  if (typeof value !== "string") {
+    throw badRequest(`${field} must be a decimal string of XMR, for example "0.045"`);
+  }
+  const pico = parseXmr(value);
+  if (pico === null) {
+    throw badRequest(`${field} must be an amount of XMR with at most ${XMR_DECIMALS} decimals`);
+  }
+  if (pico > MAX_PRICE_PICO) {
+    throw badRequest(`${field} must not exceed ${xmrString(MAX_PRICE_PICO)} XMR`);
+  }
+  if (pico !== 0 && pico < MIN_PRICE_PICO) {
+    throw badRequest(`${field} must be 0 or at least ${xmrString(MIN_PRICE_PICO)} XMR`, "below_dust");
+  }
+  return pico;
+}
+
 /**
  * `physical_good` exists so a client knows an order needs a delivery address. The address
  * itself never reaches this server: there is no field for it in any route, and no column

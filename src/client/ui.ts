@@ -175,9 +175,13 @@ export async function withBusy<T>(button: HTMLButtonElement, action: () => Promi
   }
 }
 
-export function money(minor: number, currency: string): string {
-  const major = (minor / 100).toFixed(2);
-  return `${major} ${currency}`;
+/**
+ * A price, as the API sends it: an exact decimal string of XMR. The unit is appended and
+ * nothing is rounded — a marketplace that quietly displayed 0.0450 as 0.05 would be telling
+ * the buyer a number the payment will not match.
+ */
+export function price(xmr: string): string {
+  return `${xmr} XMR`;
 }
 
 let fieldCounter = 0;

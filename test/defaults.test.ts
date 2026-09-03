@@ -112,7 +112,7 @@ describe("protections are not settings", () => {
         title: "anything",
         description: "anything at all",
         category: "misc",
-        priceMinor: 100,
+        priceXmr: "0.001",
       });
       expect([401, 403]).toContain(listing.status);
     } finally {

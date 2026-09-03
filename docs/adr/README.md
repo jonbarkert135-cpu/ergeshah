@@ -135,3 +135,5 @@ or if a record is missing a section.
 | [ADR-0056](../DECISIONS.md#adr-0056--a-mechanism-carries-its-threat-and-a-file-has-a-ceiling) | A mechanism carries its threat, and a file has a ceiling |
 | [ADR-0058](../DECISIONS.md#adr-0058--the-criticism-of-this-project-lives-in-this-project) | The criticism of this project lives in this project |
 | [ADR-0063](../DECISIONS.md#adr-0063--a-feature-is-finished-when-nine-parts-exist-and-a-test-counts-them) | A feature is finished when nine parts exist, and a test counts them |
+| [ADR-0064](../DECISIONS.md#adr-0064--one-currency-and-it-is-monero-stored-as-an-integer) | One currency, and it is Monero, stored as an integer |
+| [ADR-0065](../DECISIONS.md#adr-0065--monero-settlement-subaddresses-a-view-key-polling-and-no-automatic-refund) | Monero settlement: subaddresses, a view key, polling, and no automatic refund |

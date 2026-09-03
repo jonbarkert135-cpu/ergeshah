@@ -44,8 +44,7 @@ async function listingFor(seller: TestClient, title: string): Promise<string> {
     description: "A carefully written thing, sold with care and delivered by hand.",
     category: "software",
     kind: "service",
-    priceMinor: 2500,
-    currency: "USD",
+    priceXmr: "0.025",
   });
   expect(response.status, JSON.stringify(response.body)).toBe(200);
   return response.body.id;

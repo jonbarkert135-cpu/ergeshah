@@ -28,8 +28,7 @@ async function listingFor(sellerName: string) {
     description: "A description that is long enough to satisfy the validator on this route.",
     category: "consulting",
     kind: "service",
-    priceMinor: 5_000,
-    currency: "EUR",
+    priceXmr: "0.05",
   });
   return { seller, listingId: listing.body.id };
 }
@@ -169,12 +168,12 @@ describe("the database enforces what the application also checks", () => {
           `INSERT INTO users (id, username, password_hash, created_day) VALUES ('u1', 'x1', 'h', 0), ('u2', 'x2', 'h', 0)`,
         );
         await tx.run(
-          `INSERT INTO listings (id, seller_user_id, title, description, category, kind, price_minor, currency, created_day, updated_day)
-           VALUES ('l1', 'u1', 't', 'd', 'c', 'service', 1, 'EUR', 0, 0)`,
+          `INSERT INTO listings (id, seller_user_id, title, description, category, kind, price_pico, created_day, updated_day)
+           VALUES ('l1', 'u1', 't', 'd', 'c', 'service', 1000000000, 0, 0)`,
         );
         await tx.run(
-          `INSERT INTO orders (id, listing_id, buyer_user_id, seller_user_id, price_minor, currency, channel, created_at, updated_at)
-           VALUES ('o1', 'l1', 'u2', 'u1', 1, 'EUR', 'c', 0, 0)`,
+          `INSERT INTO orders (id, listing_id, buyer_user_id, seller_user_id, price_pico, channel, created_at, updated_at)
+           VALUES ('o1', 'l1', 'u2', 'u1', 1000000000, 'c', 0, 0)`,
         );
         for (const id of ["r1", "r2"]) {
           await tx.run(

@@ -46,8 +46,7 @@ describe("moderation powers and their limits", () => {
       description: "Something a moderator is going to take down within the minute.",
       category: "misc",
       kind: "digital_good",
-      priceMinor: 500,
-      currency: "USD",
+      priceXmr: "0.005",
     });
     const reporter = await register(server, "reporter");
     const report = await reporter.post<{ id: string }>("/api/moderation/reports", {
@@ -85,8 +84,7 @@ describe("moderation powers and their limits", () => {
       description: "It disappears when its seller is suspended, without being deleted.",
       category: "misc",
       kind: "service",
-      priceMinor: 100,
-      currency: "USD",
+      priceXmr: "0.001",
     });
     const moderator = await register(server, "mod");
     await promote(server, "mod", "moderator");

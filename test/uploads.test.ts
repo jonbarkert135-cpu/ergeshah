@@ -38,8 +38,7 @@ async function acceptedOrder(title: string): Promise<string> {
     description: "Something digital, delivered as bytes the server cannot read.",
     category: "software",
     kind: "digital_good",
-    priceMinor: 500,
-    currency: "USD",
+    priceXmr: "0.005",
   });
   const order = await buyer.post<{ id: string }>("/api/market/orders", {
     listingId: listing.body.id,

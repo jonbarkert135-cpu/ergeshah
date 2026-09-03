@@ -1827,3 +1827,105 @@ the judgement — which rule applies, what is missing — and a generator cannot
 **Consequences.** Adding a route or a table now forces an edit to the matrix, which is the
 point: the cheapest moment to notice that a feature has no authorisation rule is while writing
 the row that has to name one.
+
+## ADR-0064 — One currency, and it is Monero, stored as an integer
+
+**Status:** accepted (2026-09-03)
+
+**Context.** The marketplace priced listings as `price_minor` (an integer of minor units) plus a
+`currency` column from a list of four: USD, EUR, XMR, BTC. Three of those four need somebody to
+tell the server an exchange rate before a price can even be displayed next to another price, and
+a rate means an outbound HTTP call — to CoinGecko, Binance, Kraken, anyone. The application
+container has no route to the internet, deliberately and now provably (`docs/NETWORK.md`,
+`test/deployment.test.ts`). So the schema quietly contained a network dependency that the
+deployment forbids, and the first person to implement a "price in USD" label would have
+discovered it as a bug rather than as a decision.
+
+The requirement that prompted this asked for the opposite arrangement — prices in XMR with USD
+shown "via the CoinGecko API, updated every five minutes, averaged across three exchanges" —
+and for amounts stored as floating point with twelve decimals.
+
+**Decision.** One currency: XMR. `price_pico` (`BIGINT`, piconero, 10⁻¹² XMR) replaces
+`price_minor`; the `currency` column is dropped from `listings` and `orders`; `USD`, `EUR` and
+`BTC` are removed from the validator. The wire format is a decimal *string* (`"0.045"`), parsed
+into piconero by string arithmetic in `src/shared/money.ts`, because a JSON number is a double
+and a double cannot hold every piconero — `0.045 * 1e12` is `45000000000.00001`, and a price one
+piconero out is a payment that never matches. A price is 0 (free) or at least 0.001 XMR, which
+is ten to a hundred times the network fee it would cost to move or refund; the ceiling is
+1,000 XMR, an order of magnitude inside `Number.MAX_SAFE_INTEGER` in piconero. Existing rows are
+zeroed and every live listing is paused: converting a historical fiat price needs a rate for a
+past day, from a source this deployment cannot reach, applied to somebody else's price without
+asking them.
+
+**Rejected:** floating-point amounts (the requirement's own suggestion, and the classic money
+bug: a rounding error here is an unpayable invoice); keeping `currency` "for later" (a column
+whose only legal value is `'XMR'` is a decision postponed, not preserved, and it invites the
+rate oracle back); a fiat display fetched by the browser instead of the server (it moves the
+egress to the buyer, tells CoinGecko that this person is looking at this shop, and needs
+`connect-src` opened for a decoration); an operator-set reference rate (a number a human updates
+by hand is stale by definition, and a wrong rate shown next to a real price is worse than no
+rate — it can be added later as an explicit, timestamped, obviously-manual field if anyone
+actually wants it); Bitcoin as a second currency (see ADR-0065).
+
+**Consequences.** There is nothing in this codebase that asks anybody for an exchange rate, and
+a test says so by grepping for the exchanges by name. Sellers price in the currency they are
+paid in — the honest arrangement for a marketplace whose settlement asset is XMR — and a price
+displayed anywhere is exact to the piconero. The cost, stated: a buyer who thinks in dollars has
+to convert in their head or in their wallet, and the pause-and-re-price migration is visible
+work for any seller who had listings before it.
+
+## ADR-0065 — Monero settlement: subaddresses, a view key, polling, and no automatic refund
+
+**Status:** accepted (2026-09-03) — design only; the code is roadmap PAY-1
+
+**Context.** A requirements block asked for a full Monero payment system: a wallet built from
+`monero-js` with the private spend key in an environment variable, a WebSocket subscription to a
+node that reads each block and matches `tx.address` against pending orders, automatic refunds
+"to the address the payment came from", a 30-minute timeout that makes an address invalid, and
+BTC as a secondary currency through a swap API. Four of those five cannot be built as written,
+and the fifth should not be.
+
+**Decision.** `docs/PAYMENTS.md` now carries the design; the parts that are decisions rather
+than description:
+
+- **`monero-wallet-rpc` over JSON-RPC, no wallet library.** `monero-js` does not exist on npm;
+  the real libraries are `monero-ts` (formerly `monero-javascript`), which ship a WebAssembly
+  build of the wallet. Against a four-dependency budget and an audited bundle, an HTTP client
+  for a documented JSON-RPC interface is the smaller and more reviewable thing.
+- **The server holds the private view key and nothing else.** It must recognise payments; it
+  must not be able to move them. A spend key on an internet-facing host is the failure mode that
+  ends projects like this one.
+- **Subaddress per order** (`create_address`), not "stealth addresses" — those are the
+  protocol's automatic one-time output keys, not an integration's to create — and not integrated
+  addresses, which serialise payments per address.
+- **Polling, not sockets.** `monerod` exposes JSON-RPC, ZMQ pub/sub and `--block-notify`; it has
+  no WebSocket interface, this project has no WebSockets by decision (ADR-0042), and a payment
+  cannot be recognised from a block in the first place, because a Monero transaction names no
+  recipient. Only a view-key scan can. A 30–60 s poll against a 2-minute block time is not a
+  compromise, it is the mechanism.
+- **A quote expires, an address does not.** A subaddress cannot be revoked; a late payment to an
+  expired quote is still credited to its order, because the money arrived.
+- **Refunds are recorded, not executed.** There is no sender address in a Monero transaction, so
+  a refund needs a destination the buyer supplies and a key the server does not have.
+- **No Bitcoin, and no swap service.** A swap API learns the order, the amounts and both legs,
+  can freeze funds mid-order, and can be compelled; and BTC publishes the purchase on a
+  transparent ledger. The one property this marketplace is for is the one BTC does not have.
+- **Custody is a separate decision, not a technical detail.** Buyer-pays-seller directly
+  (out-of-band, today's answer) is non-custodial and needs no node at all. An operator wallet
+  that receives buyers' money and forwards it is custody: a hot wallet worth robbing, a
+  jurisdiction-dependent legal position, and exactly the compelled-disclosure surface this
+  design otherwise removes. The platform's revenue model therefore has to be chosen *before*
+  the gateway is built, because the two options produce different code.
+
+**Rejected:** implementing the requirements as given (the code in them does not run: a
+non-existent package, a socket that does not exist, a block scan that cannot work, and a refund
+target the chain does not contain); building the gateway now against a stub node (the custody
+question decides the schema, so it would be written twice); MyMonero or another remote node (it
+sees every one of this shop's payment queries, which is the metadata the design exists to
+withhold).
+
+**Consequences.** PAY-1 becomes a shippable piece of work with its unknowns named, and the
+answer to "why is there no payment code yet" is a document rather than a shrug. Until it ships,
+settlement is what it has been: an address in the encrypted order channel, and two parties who
+can each verify the payment in their own wallet — including with Monero's own payment proof
+(transaction key), which needs nothing from this server.

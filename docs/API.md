@@ -192,6 +192,7 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `query_too_vague` | 400 | A search term shorter than two characters |
 | `unexpected_field` | 400 | A body carried a field this endpoint refuses to accept — silently dropping it is how a client comes to depend on storage that does not exist (ADR-0033) |
 | `pow_spent` | 400 | That proof-of-work solution has already been used |
+| `below_dust` | 400 | A price above zero but under 0.001 XMR — smaller than the network fee it would take to pay or refund it |
 | `unauthorized` | 401 | No session, or an expired one |
 | `forbidden` | 403 | Authenticated, but not allowed: a missing role, a failed CSRF check, or a suspended account |
 | `not_found` | 404 | No such route, or no such object *for this caller* — the two are deliberately indistinguishable |

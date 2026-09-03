@@ -29,8 +29,7 @@ async function acceptedOrder(): Promise<{
     description: "A long enough description of a perfectly ordinary digital good.",
     category: "books",
     kind: "digital_good",
-    priceMinor: 900,
-    currency: "EUR",
+    priceXmr: "0.009",
   });
   const buyer = await register(server, "buyer");
   const order = await buyer.post<{ id: string }>("/api/market/orders", {
@@ -176,8 +175,7 @@ describe("shipping details for a physical order", () => {
       description: "A description of a physical object, long enough to pass validation.",
       category: "stationery",
       kind: "physical_good",
-      priceMinor: 2500,
-      currency: "EUR",
+      priceXmr: "0.025",
     });
     expect(listing.status).toBe(200);
 

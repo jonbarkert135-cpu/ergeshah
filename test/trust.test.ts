@@ -22,8 +22,7 @@ async function seller(name: string, kind: "service" | "digital_good" = "service"
     description: "A description that is long enough to satisfy the validator on this route.",
     category: "consulting",
     kind,
-    priceMinor: 5_000,
-    currency: "EUR",
+    priceXmr: "0.05",
   });
   return { client, listingId: listing.body.id };
 }

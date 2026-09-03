@@ -103,8 +103,7 @@ describe("a session is not a licence to touch someone else's data", () => {
       description: "A listing that exists only so that a stranger can fail to read its order.",
       category: "consulting",
       kind: "service",
-      priceMinor: 1000,
-      currency: "EUR",
+      priceXmr: "0.01",
     });
     const order = await buyer.request<{ id: string }>("POST", "/api/market/orders", {
       listingId: listing.body.id,

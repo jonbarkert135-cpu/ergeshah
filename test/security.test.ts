@@ -336,8 +336,7 @@ describe("cross-site scripting", () => {
       description: `A description with ${payload} and a javascript:alert(1) link, long enough to pass.`,
       category: "consulting",
       kind: "service",
-      priceMinor: 1000,
-      currency: "EUR",
+      priceXmr: "0.01",
     });
     expect(created.status).toBe(200);
 
@@ -462,8 +461,7 @@ describe("injection", () => {
       description: "First paragraph, long enough to pass.\r\n\r\nSecond paragraph.",
       category: "writing",
       kind: "service",
-      priceMinor: 1000,
-      currency: "EUR",
+      priceXmr: "0.01",
     });
     expect(listing.status).toBe(200);
     const stored = await server.db.get<{ description: string }>(
@@ -492,8 +490,7 @@ describe("insecure direct object references", () => {
       description: "Long enough a description to satisfy the validator on this route, honestly.",
       category: "software",
       kind: "digital_good",
-      priceMinor: 2500,
-      currency: "EUR",
+      priceXmr: "0.025",
     });
     const buyer = await register(server, "buyer");
     const order = await buyer.post<{ id: string }>("/api/market/orders", {

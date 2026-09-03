@@ -22,8 +22,7 @@ async function sellerWithListing() {
     description: "A careful review of your site for privacy leaks and performance issues.",
     category: "consulting",
     kind: "service",
-    priceMinor: 15_000,
-    currency: "EUR",
+    priceXmr: "0.15",
   });
   return { seller, listingId: listing.body.id };
 }
@@ -36,8 +35,7 @@ describe("becoming a seller", () => {
       description: "A description that is definitely long enough to pass validation.",
       category: "misc",
       kind: "service",
-      priceMinor: 100,
-      currency: "USD",
+      priceXmr: "0.001",
     });
     expect(denied.status).toBe(403);
 
@@ -47,8 +45,7 @@ describe("becoming a seller", () => {
       description: "A description that is definitely long enough to pass validation.",
       category: "misc",
       kind: "service",
-      priceMinor: 100,
-      currency: "USD",
+      priceXmr: "0.001",
     });
     expect(allowed.status).toBe(200);
   });
@@ -86,7 +83,7 @@ describe("listings", () => {
     const { listingId } = await sellerWithListing();
     const other = await register(server, "rival");
     await approveSeller(server, other, "Rival Works");
-    const attempt = await other.patch(`/api/market/listings/${listingId}`, { priceMinor: 1 });
+    const attempt = await other.patch(`/api/market/listings/${listingId}`, { priceXmr: "0.002" });
     expect(attempt.status).toBe(403);
   });
 });

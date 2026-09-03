@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, emptyState, errorState, formDialog, money, notice, skeleton, table, toast } from "../ui.ts";
+import { clear, el, emptyState, errorState, formDialog, notice, price as formatPrice, skeleton, table, toast } from "../ui.ts";
 import { receiveMessages, sendDeliveryKey } from "../messaging.ts";
 import { persistVault, state } from "../state.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
@@ -12,8 +12,7 @@ interface Order {
   title: string;
   kind: string;
   status: string;
-  priceMinor: number;
-  currency: string;
+  priceXmr: string;
   channel: string;
   counterparty: string;
   placedOn: string;
@@ -99,7 +98,7 @@ export function renderOrders(root: HTMLElement): void {
         orders.map((order) => [
           order.title,
           el("span", { class: "mono" }, order.counterparty),
-          el("span", { class: "price" }, money(order.priceMinor, order.currency)),
+          el("span", { class: "price" }, formatPrice(order.priceXmr)),
           el("span", { class: "mono" }, order.placedOn),
           el("span", { class: "tag" }, order.status),
           actionsFor(order),

@@ -30,6 +30,9 @@ notices.
 | Onion service v3 addresses | Tor rend-spec-v3 | Validating `ONION_HOSTNAME` and advertising the service to Tor Browser | The v3 format is required at boot; `test/onion.test.ts` refuses a malformed address rather than emitting a broken header |
 | Cookie attributes (`Secure`, `HttpOnly`, `SameSite=Strict`) | RFC 6265bis | Session and CSRF cookies | `test/sessions.test.ts`, `test/defaults.test.ts`, and `test/onion.test.ts` for the one host where `Secure` cannot apply |
 | Content Security Policy Level 3 | W3C CSP3 | The response headers | `test/hardening.test.ts` asserts the exact policy |
+| Monero amounts, subaddresses and integrated addresses | Monero documentation (`docs.getmonero.org`: public addresses, integrated addresses, technical specifications) | Piconero as the stored unit, and the per-order subaddress design in `docs/PAYMENTS.md` | `test/payments.test.ts` checks the unit arithmetic and the schema; the address design is not yet code |
+| Monero wallet and daemon RPC | Monero developer guides (`wallet-rpc`), `monerod` reference and `docs/ZMQ.md` in monero-project/monero | Which calls a gateway may use — `create_address`, `get_transfers` — and the absence of any WebSocket interface (ADR-0065) | Design only; no code depends on it yet |
+| Monero spendable age (10 blocks) and ~2-minute block target | Monero technical specifications, `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` | The confirmation policy in `docs/PAYMENTS.md`: "paid" and "spendable" are different moments | Design only |
 
 Two rules follow from this table and are not negotiable (point 104): **primitives are never
 written here** — every one of them comes from libsodium or the Node standard library

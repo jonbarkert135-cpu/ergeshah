@@ -66,8 +66,7 @@ describe("the four moderation lanes stay apart", () => {
       description: "Written slowly, and documented properly, by a person.",
       category: "software",
       kind: "digital_good",
-      priceMinor: 2500,
-      currency: "EUR",
+      priceXmr: "0.025",
     });
     const order = await buyer.post<{ id: string; channel: string }>("/api/market/orders", {
       listingId: listing.body.id,

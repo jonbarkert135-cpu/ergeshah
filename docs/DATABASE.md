@@ -91,7 +91,7 @@ quarterly (`docs/HARDENING.md`).
 | --- | --- | --- |
 | `sellers` | user, display name, bio, status, `joined_day` | A seller is a role on an account, not a separate identity |
 | `seller_applications` | applicant, display name, statement, status, decision note, decider, days | |
-| `listings` | seller, title, description, category, kind, `price_minor`, currency, status, days | Integer minor units; no floating-point money |
+| `listings` | seller, title, description, category, kind, `price_pico`, status, days | Piconero (10⁻¹² XMR) as a `BIGINT` integer; one currency, no `currency` column, no floating-point money (ADR-0064) |
 | `orders` | listing, buyer, seller, price at the time, status, `channel`, created/updated | `channel` is the encrypted conversation the order lives in. **No address column** — a shipping address is a message (ADR-0021) |
 | `order_events` | order, actor, from/to status, `created_at` | The state machine's history, with a real timestamp because dispute questions are "in what order" |
 | `deliveries` | order, encrypted digital goods, expiry | Ciphertext, capped by `MAX_DELIVERY_BYTES`, expired by `DELIVERY_TTL_MS` |

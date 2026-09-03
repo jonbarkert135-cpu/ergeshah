@@ -10,6 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { recordAudit } from "../lib/audit.ts";
 import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
+import { xmrString } from "../../shared/money.ts";
 import { dayToIsoDate, today } from "../lib/time.ts";
 import {
   asEnum,
@@ -358,14 +359,13 @@ async function orderSummary(app: FastifyInstance, id: string) {
     status: string;
     title: string;
     kind: string;
-    price_minor: number;
-    currency: string;
+    price_pico: number;
     buyer: string;
     seller: string;
     seller_user_id: string;
     updated_at: number;
   }>(
-    `SELECT o.id, o.status, l.title, l.kind, o.price_minor, o.currency, o.updated_at, o.seller_user_id,
+    `SELECT o.id, o.status, l.title, l.kind, o.price_pico, o.updated_at, o.seller_user_id,
             b.username AS buyer, s.username AS seller
        FROM orders o
        JOIN listings l ON l.id = o.listing_id
@@ -380,8 +380,7 @@ async function orderSummary(app: FastifyInstance, id: string) {
     status: row.status,
     title: row.title,
     kind: row.kind,
-    priceMinor: row.price_minor,
-    currency: row.currency,
+    priceXmr: xmrString(row.price_pico),
     buyer: row.buyer,
     seller: row.seller,
     updatedOn: dayToIsoDate(Math.floor(row.updated_at / 86_400_000)),

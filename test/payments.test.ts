@@ -10,6 +10,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { approveSeller, register, startTestServer, type TestServer } from "./helpers.ts";
 import { listColumns, listTables } from "./database.ts";
+import {
+  MAX_PRICE_PICO,
+  MIN_PRICE_PICO,
+  PICO_PER_XMR,
+  parseXmr,
+  xmrString,
+} from "../src/shared/money.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -32,8 +39,7 @@ async function soldAndReviewed() {
     description: "Five weights, and the licence text is the short kind a person can read.",
     category: "design",
     kind: "digital_good",
-    priceMinor: 4900,
-    currency: "EUR",
+    priceXmr: "0.049",
   });
   const order = await buyer.post<{ id: string }>("/api/market/orders", {
     listingId: listing.body.id,
@@ -85,12 +91,11 @@ describe("what the marketplace discloses (point 81)", () => {
     expect(fields).toEqual([
       "channel",
       "counterparty",
-      "currency",
       "id",
       "kind",
       "listingId",
       "placedOn",
-      "priceMinor",
+      "priceXmr",
       "status",
       "title",
     ]);
@@ -150,6 +155,103 @@ describe("payments are absent, and the shape they must take is fixed (point 82)"
     expect(doc).toContain("Never stored");
     for (const rule of ["separate", "processor", "escrow"]) {
       expect(doc.toLowerCase(), rule).toContain(rule);
+    }
+  });
+});
+
+/**
+ * Prices are Monero, in piconero, as integers. The tests below are the three ways that
+ * stops being true by accident: a float in the wire format, a second currency in the
+ * schema, and an exchange rate fetched from somewhere.
+ */
+describe("prices are XMR-native (ADR-0060)", () => {
+  it("converts decimal XMR to piconero exactly, and refuses what it cannot", () => {
+    expect(parseXmr("0.045")).toBe(45_000_000_000);
+    expect(parseXmr("1")).toBe(PICO_PER_XMR);
+    // The classic float error: 0.045 * 1e12 is 45000000000.00001 in binary floating point,
+    // and a price one piconero out is a payment that never matches.
+    expect(parseXmr("0.000000000001")).toBe(1);
+    expect(xmrString(45_000_000_000)).toBe("0.045");
+    expect(xmrString(PICO_PER_XMR)).toBe("1");
+    for (const bad of ["", "-1", "1e-3", "0,045", "0.0000000000001", "12345", " 0.1 x", "Infinity"]) {
+      expect(parseXmr(bad), bad).toBeNull();
+    }
+  });
+
+  it("stores a price as an integer of piconero and returns the string it was given", async () => {
+    const seller = await register(server, "seller");
+    await approveSeller(server, seller, "Seller Co");
+    const created = await seller.post<{ id: string }>("/api/market/listings", {
+      title: "A font licence with twelve decimals",
+      description: "Priced to the piconero, because the payment will be matched to it.",
+      category: "design",
+      kind: "digital_good",
+      priceXmr: "0.045000000001",
+    });
+    expect(created.status).toBe(200);
+    const row = await server.db.get<{ price_pico: number }>(
+      "SELECT price_pico FROM listings WHERE id = ?",
+      [created.body.id],
+    );
+    expect(row!.price_pico).toBe(45_000_000_001);
+    const detail = await seller.get<{ listing: { priceXmr: string } }>(
+      `/api/market/listings/${created.body.id}`,
+    );
+    expect(detail.body.listing.priceXmr).toBe("0.045000000001");
+  });
+
+  it("refuses a float, a currency, a price under the dust floor and one over the ceiling", async () => {
+    const seller = await register(server, "seller2");
+    await approveSeller(server, seller, "Seller Two");
+    const listing = {
+      title: "A perfectly ordinary listing",
+      description: "The description is long enough to pass validation, which is all it does.",
+      category: "misc",
+      kind: "service",
+    };
+    // A JSON number is refused outright: it is a double, and a double cannot hold every
+    // piconero. The field is a string or it is nothing.
+    const asNumber = await seller.post("/api/market/listings", { ...listing, priceXmr: 0.045 });
+    expect(asNumber.status).toBe(400);
+    // Below the fee it would cost to move it.
+    const dust = await seller.post("/api/market/listings", {
+      ...listing,
+      priceXmr: xmrString(MIN_PRICE_PICO - 1),
+    });
+    expect(dust.status).toBe(400);
+    // Past the point where JavaScript integers stop being exact.
+    const huge = await seller.post("/api/market/listings", {
+      ...listing,
+      priceXmr: xmrString(MAX_PRICE_PICO + PICO_PER_XMR),
+    });
+    expect(huge.status).toBe(400);
+    // Free is a price. Zero is allowed, and needs no transfer at all.
+    const free = await seller.post("/api/market/listings", { ...listing, priceXmr: "0" });
+    expect(free.status).toBe(200);
+  });
+
+  it("has no fiat currency and no second currency anywhere in the schema", async () => {
+    const columns: string[] = [];
+    for (const name of await listTables(server.db)) {
+      columns.push(...(await listColumns(server.db, name)).map((column) => `${name}.${column}`));
+    }
+    expect(columns.filter((column) => /currency|price_minor|amount_usd|fiat/i.test(column))).toEqual([]);
+  });
+
+  it("asks nobody for an exchange rate", () => {
+    // A rate needs egress, and the application tier has none by design
+    // (docs/NETWORK.md). A price oracle in this codebase would be a network dependency
+    // hidden inside a display detail — so there is not one, and this is what says so.
+    for (const path of [
+      "src/server/routes/market.ts",
+      "src/server/routes/moderation.ts",
+      "src/shared/money.ts",
+      "src/client/views/market.ts",
+      "src/client/views/orders.ts",
+    ]) {
+      const source = read(path);
+      expect(source, path).not.toMatch(/coingecko|binance|kraken|coinmarketcap|exchange[ _-]?rate/i);
+      expect(source, path).not.toMatch(/USD|EUR/);
     }
   });
 });
