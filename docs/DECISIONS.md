@@ -1976,7 +1976,8 @@ else's money is now on a server that is reachable from the internet.
 - **Minimums: enforced on the way out, advertised on the way in.** A payout below
   `MIN_WITHDRAWAL_XMR` is refused; a top-up below `MIN_DEPOSIT_XMR` is credited anyway.
   Keeping money because it was smaller than a suggestion is theft, and Monero offers no address
-  to return it to.
+  to return it to. *(Superseded by ADR-0067: the deposit minimum is enforced too, and a smaller
+  transfer is recorded uncredited and refunded by hand rather than credited or kept.)*
 
 **Rejected:** a `users.balance_pico` column with `UPDATE … SET balance = balance + ?` (the
 common shape, and the reason such platforms cannot prove what they owe); an internal
@@ -1995,3 +1996,101 @@ repository holds no legal opinion), an operational duty to keep the hot float sm
 solvency number somebody has to look at. In exchange the marketplace can charge for what it
 does, a buyer has a hold to point at when a seller vanishes, and the fee no longer depends on
 two strangers choosing to be honest about a sale.
+
+## ADR-0067 — The deposit minimum is enforced, and a smaller transfer is recorded rather than kept
+
+**Status:** accepted (2026-09-03)
+
+**Context.** ADR-0066 shipped `MIN_DEPOSIT_XMR` as advice: a top-up below it was credited
+anyway, because refusing a payment nobody can refund reads as theft. The owner's instruction
+is that the minimum applies on the way in as well as on the way out — top up from about ten
+dollars, or not at all.
+
+The instruction and the earlier reasoning both have a point behind them. Dust top-ups cost
+more than they are worth: each one is a row, a support question, and a payout fee larger than
+the amount. And a payment silently kept is exactly the accusation a custodial platform cannot
+survive.
+
+**Decision.** Enforce it, and make the uncredited money visible instead of absent.
+
+- A transfer below `MIN_DEPOSIT_XMR` is written to `deposits` with status `below_minimum` and
+  **no ledger entry**: not credited, not counted as platform revenue, not part of the treasury
+  liability, and not silently discarded either.
+- `GET /api/wallet` returns `belowMinimumXmr`, the total that arrived under the floor, and the
+  wallet screen says the amount, why it is not on the balance, and that support returns it.
+- The deposit screen states the minimum as a rule, not a suggestion, *before* anyone sends
+  anything.
+- Refunding one is a manual payout by an operator (`docs/PAYMENTS.md` §Refunds). There is no
+  automatic refund, for the reason in ADR-0065: a Monero transfer names no sender, so the
+  platform cannot return money to an address it does not have.
+
+**Rejected:** crediting anyway (the owner's instruction, and it is a real cost with no ceiling
+— dust is free to send and not free to hold); refusing and keeping (theft with a changelog
+entry); an automatic refund (no sender address exists to refund to); accumulating dust until it
+crosses the floor (a balance that appears days later, and an incentive to send dust).
+
+**Consequences.** Somebody who sends 0.005 XMR sees their money named on their own screen and
+has to ask for it back — worse than an automatic credit for them, better than a silent loss,
+and honest about the rule. `test/wallet.test.ts` covers both sides of the boundary.
+
+## ADR-0068 — Standing is earned on settled orders, and it is what the catalogue sorts by
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Escrow protects an order placed here. The failure mode is the deal that starts
+here and finishes elsewhere: a buyer pays a seller directly, receives nothing, and has no hold
+to point at. The chat is end-to-end encrypted and will stay that way, so nothing in this
+system can *detect* that conversation. What is left is incentive.
+
+**Decision.** A seller's level is computed only from money this escrow moved.
+
+- `sellers.settled_pico` is incremented inside the same transaction that settles a completed
+  order, with the seller's actual earnings. It is a sum of ledger movements, so it cannot be
+  raised without moving real money through an escrow that charges a fee to do it.
+- `level` is 0–3, derived from settled volume *and* completed orders together (0.5 XMR and 3
+  orders, 5 XMR and 20, 50 XMR and 100 — `src/server/lib/reputation.ts`). Both conditions,
+  because volume alone is one large sale and orders alone are free listings.
+- `listings.rank_key` is `level * 100000 + created_day`, and the catalogue orders by it
+  descending. Keyset pagination still seeks one index (ADR-0030); the cursor is the rank key.
+- The level is published; the volume behind it is not. A buyer needs to know how much trade a
+  seller has settled here, not how much money they made.
+
+**Rejected:** ranking by review score (buyable, and ADR-0029 already limits what reviews can
+say); ranking by revenue with the number published (a seller's income is not the catalogue's
+business); reading the chat for off-platform offers (the one thing this project will not do);
+a penalty for a *suspected* off-platform sale (unfalsifiable, and it makes moderation a target).
+
+**Consequences.** A seller who takes a deal off the platform keeps the whole price and loses
+level progress, catalogue position and the buyer's protection — the incentive is the mechanism,
+and it is honest about being an incentive rather than a rule. A new seller starts at the bottom
+of the catalogue, which is the cost, and a search still finds them.
+
+## ADR-0069 — A listing may not advertise a way around the escrow; the chat stays unread
+
+**Status:** accepted (2026-09-03)
+
+**Context.** The same problem as ADR-0068, from the other side: a listing that says "pay me
+directly, it is cheaper" reaches every reader of the catalogue, and the buyers who take it up
+are the ones who then have no dispute. Moderating that is not moderating a conversation — a
+listing is a public advertisement this server stores in the clear and republishes.
+
+**Decision.** Listing text (title, description) and a seller application's statement are
+refused when they carry a payment destination or an off-platform contact route: a Monero or
+Bitcoin address, an email address, a named third-party messenger, or a "pay me directly"
+phrase in either of the catalogue's languages (`src/server/lib/listing_policy.ts`, 400
+`off_platform_offer`). The error names the rule, never the pattern that matched.
+
+Nothing is applied to messages. The chat is end-to-end encrypted, the server holds ciphertext,
+and no rule that requires reading it will be written here.
+
+**Rejected:** scanning the encrypted channel (impossible without breaking the product's central
+promise, and it would be a promise broken quietly); a classifier (a dependency, a model, and a
+false positive that no seller can argue with); silently hiding a listing that matches
+(shadow-banning teaches nothing and looks like a bug); a wide phrase list (a seller who cannot
+publish "email me the receipt after delivery" is a support ticket, so the list stays short).
+
+**Consequences.** The filter is trivially evadable — "you know where to find me" passes — and
+that is stated rather than hidden: it raises the cost of advertising the bypass to strangers,
+and ADR-0068 is what makes taking it unattractive. Buyers also get the rule in words on the
+listing itself: ordering here holds the price; paying directly has no escrow, no dispute and no
+refund.

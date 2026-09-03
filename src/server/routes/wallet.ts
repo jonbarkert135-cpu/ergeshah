@@ -64,6 +64,19 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
       // than an address nobody controls.
       depositAddress: deposit?.address ?? null,
       minDepositXmr: xmrString(config.minDepositPico),
+      // Enforced, not advertised (ADR-0067): a smaller transfer is recorded and not credited.
+      // The total sits here so the owner sees it on their own screen instead of finding a
+      // balance that does not match what they sent.
+      belowMinimumXmr: xmrString(
+        Number(
+          (
+            await db.get<{ total: number | null }>(
+              "SELECT SUM(amount_pico) AS total FROM deposits WHERE user_id = ? AND status = 'below_minimum'",
+              [user.id],
+            )
+          )?.total ?? 0,
+        ),
+      ),
       minWithdrawalXmr: xmrString(config.minWithdrawalPico),
       // The account's own automatic ceiling, so the screen can say "above this a payout waits
       // for approval" with the number that will actually apply to this person.

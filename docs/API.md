@@ -168,7 +168,7 @@ strings of XMR; the server stores piconero as integers.
 
 | Endpoint | Auth | Limit | Notes |
 | --- | --- | --- | --- |
-| `GET /api/wallet` | session | `read` | Available and held balance, this account's deposit address (`null` until the deployment has a wallet), the minimums, the amount above which a payout waits for approval, and the marketplace fee |
+| `GET /api/wallet` | session | `read` | Available and held balance, this account's deposit address (`null` until the deployment has a wallet), the minimums, `belowMinimumXmr` (top-ups that arrived under `MIN_DEPOSIT_XMR`, recorded and not credited — ADR-0067), the amount above which a payout waits for approval, and the marketplace fee |
 | `GET /api/wallet/entries` | session | `read` | This account's ledger: every movement, signed, with the order it belongs to and a day-granularity date |
 | `POST /api/wallet/withdrawals` | session | `wallet_write` | Request a payout: `{ amountXmr, address }`. The amount leaves the spendable balance at once; the answer says whether it was `queued` or needs approval. One pending payout per account (`payout_pending`) |
 | `GET /api/wallet/withdrawals` | session | `read` | This account's payouts, with the destination shown as a hint and the transaction id once sent |
@@ -177,6 +177,11 @@ strings of XMR; the server stores piconero as integers.
 There is no endpoint that credits a balance, and no transfer between accounts: money enters
 only as a confirmed Monero deposit seen by a wallet this server cannot spend from, and leaves
 only as a payout row a separate process picks up.
+
+The deposit minimum is enforced (ADR-0067). A transfer smaller than `MIN_DEPOSIT_XMR` is
+recorded as a `below_minimum` deposit and not credited — it is not kept quietly either: the
+total appears on the owner's own wallet response, and an operator refunds it by hand from the
+payout wallet if the payer asks.
 
 ## Moderation and administration
 
@@ -217,6 +222,7 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `below_minimum` | 400 | An amount under a configured floor — a payout below `MIN_WITHDRAWAL_XMR` |
 | `bad_address` | 400 | Not a Monero address: wrong length, a character base58 does not contain, or a prefix no Monero network uses. The wallet's own `validate_address` is the authority before anything is sent |
 | `payout_pending` | 400 | This account already has a payout queued or awaiting approval |
+| `off_platform_offer` | 400 | A listing, or a seller application, carried a wallet address, an email address, another messenger or an offer to be paid outside the escrow (ADR-0069). The message names the rule, never the pattern that matched |
 | `balance_not_empty` | 409 | Account deletion, with money still on the balance or held in an open order. Withdraw first — deleting must not silently keep it |
 | `unauthorized` | 401 | No session, or an expired one |
 | `forbidden` | 403 | Authenticated, but not allowed: a missing role, a failed CSRF check, or a suspended account |

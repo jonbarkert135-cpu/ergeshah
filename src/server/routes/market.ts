@@ -24,7 +24,9 @@ import {
   onlyKeys,
 } from "../lib/validate.ts";
 import { recordAudit } from "../lib/audit.ts";
-import { listingRating, sellerReputation } from "../lib/reputation.ts";
+import { assertOnPlatform } from "../lib/listing_policy.ts";
+import { rankKey, recordSettledSale, sellerReputation } from "../lib/reputation.ts";
+import { presentListing, requireSeller, type ListingRow } from "../lib/listings.ts";
 import { cursorFor, indexListing, parseCursor, queryTerms, termConditions } from "../lib/search.ts";
 import { notify } from "../lib/notify.ts";
 import { holdForOrder, releaseHold, settleOrder } from "../lib/ledger.ts";
@@ -76,7 +78,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     // it was recorded, and the next version of that client will rely on it.
     onlyKeys(body, ["displayName", "statement"]);
     const displayName = asString(body.displayName, "displayName", 40, 3);
-    const statement = asText(body.statement, "statement", 2000, 20);
+    const statement = assertOnPlatform(asText(body.statement, "statement", 2000, 20), "statement");
 
     const alreadySeller = await db.get("SELECT user_id FROM sellers WHERE user_id = ?", [user.id]);
     if (alreadySeller) throw conflict("you are already a seller", "already_seller");
@@ -140,8 +142,10 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const body = (request.body ?? {}) as Record<string, unknown>;
     const listing = {
       id: newId(),
-      title: asString(body.title, "title", 120, 3),
-      description: asText(body.description, "description", 8000, 20),
+      // A listing is the one text this server publishes to strangers, so it is the one
+      // place the escrow rule can be enforced (ADR-0069). The chat stays unread.
+      title: assertOnPlatform(asString(body.title, "title", 120, 3), "title"),
+      description: assertOnPlatform(asText(body.description, "description", 8000, 20), "description"),
       category: asString(body.category, "category", 40, 2),
       kind: asEnum(body.kind, "kind", LISTING_KINDS),
       pricePico: asXmrPrice(body.priceXmr, "priceXmr"),
@@ -149,8 +153,8 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     await db.transaction(async (tx) => {
       await tx.run(
         `INSERT INTO listings (id, seller_user_id, title, description, category, kind, price_pico,
-                               status, created_day, updated_day)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+                               status, created_day, updated_day, rank_key)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
         [
           listing.id,
           seller.user_id,
@@ -161,6 +165,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
           listing.pricePico,
           today(),
           today(),
+          rankKey(seller.level, today()),
         ],
       );
       // The search index is written in the same transaction as the listing: it can never
@@ -184,9 +189,14 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
 
     const body = (request.body ?? {}) as Record<string, unknown>;
     const updates: Array<[string, unknown]> = [];
-    if (body.title !== undefined) updates.push(["title", asString(body.title, "title", 120, 3)]);
+    if (body.title !== undefined) {
+      updates.push(["title", assertOnPlatform(asString(body.title, "title", 120, 3), "title")]);
+    }
     if (body.description !== undefined) {
-      updates.push(["description", asText(body.description, "description", 8000, 20)]);
+      updates.push([
+        "description",
+        assertOnPlatform(asText(body.description, "description", 8000, 20), "description"),
+      ]);
     }
     if (body.category !== undefined) {
       updates.push(["category", asString(body.category, "category", 40, 2)]);
@@ -254,20 +264,24 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       params.push(kind);
     }
     if (cursor) {
-      conditions.push("(l.created_day < ? OR (l.created_day = ? AND l.id < ?))");
+      conditions.push("(l.rank_key < ? OR (l.rank_key = ? AND l.id < ?))");
       params.push(cursor.key, cursor.key, cursor.id);
     }
     // One row more than the page, to answer "is there a next page" without counting.
     params.push(limit + 1);
 
     const rows = await db.all<ListingRow>(
+      // Ordered by the rank key, which is the seller's level and then the listing's age
+      // (ADR-0068): visibility in this catalogue is bought with completed on-platform
+      // orders and with nothing else. One indexed expression on the driving table, so the
+      // page is still a seek rather than a sort (ADR-0030).
       `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_pico,
-              l.created_day, s.display_name, u.username
+              l.created_day, l.rank_key, s.display_name, s.level, u.username
          FROM listings l
          JOIN sellers s ON s.user_id = l.seller_user_id
          JOIN users u ON u.id = l.seller_user_id
         WHERE ${conditions.join(" AND ")}
-        ORDER BY l.created_day DESC, l.id DESC
+        ORDER BY l.rank_key DESC, l.id DESC
         LIMIT ?`,
       params,
     );
@@ -284,7 +298,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const id = asId((request.params as { id: string }).id, "id");
     const row = await db.get<ListingRow & { status: string }>(
       `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_pico,
-              l.created_day, l.status, s.display_name, u.username
+              l.created_day, l.rank_key, l.status, s.display_name, s.level, u.username
          FROM listings l
          JOIN sellers s ON s.user_id = l.seller_user_id
          JOIN users u ON u.id = l.seller_user_id
@@ -495,13 +509,16 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       // `cancelled` hands the hold back to the buyer, whole and without a fee — a sale that
       // did not happen earns nothing.
       if (next === "completed") {
-        await settleOrder(tx, {
+        const settled = await settleOrder(tx, {
           orderId: id,
           buyerUserId: order.buyer_user_id,
           sellerUserId: order.seller_user_id,
           amountPico: order.price_pico,
           feeBps: app.config.orderFeeBps,
         });
+        // Standing is counted here, from money this escrow actually moved (ADR-0068): a
+        // sale settled elsewhere earns no level and no place in the catalogue.
+        await recordSettledSale(tx, order.seller_user_id, settled.earningsPico);
       } else if (next === "cancelled") {
         await releaseHold(tx, {
           userId: order.buyer_user_id,
@@ -626,7 +643,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const reputation = await sellerReputation(app.db, seller.user_id);
     const listings = await db.all<ListingRow>(
       `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_pico,
-              l.created_day, s.display_name, u.username
+              l.created_day, l.rank_key, s.display_name, s.level, u.username
          FROM listings l
          JOIN sellers s ON s.user_id = l.seller_user_id
          JOIN users u ON u.id = l.seller_user_id
@@ -645,40 +662,4 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       listings: await Promise.all(listings.map((row) => presentListing(app, row))),
     };
   });
-}
-
-interface ListingRow {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  kind: string;
-  price_pico: number;
-  created_day: number;
-  display_name: string;
-  username: string;
-}
-
-async function presentListing(app: FastifyInstance, row: ListingRow) {
-  return {
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    category: row.category,
-    kind: row.kind,
-    priceXmr: xmrString(row.price_pico),
-    seller: { username: row.username, displayName: row.display_name },
-    listedOn: dayToIsoDate(row.created_day),
-    ...(await listingRating(app.db, row.id)),
-  };
-}
-
-async function requireSeller(app: FastifyInstance, userId: string): Promise<{ user_id: string }> {
-  const seller = await app.db.get<{ user_id: string; status: string }>(
-    "SELECT user_id, status FROM sellers WHERE user_id = ?",
-    [userId],
-  );
-  if (!seller) throw forbidden("you need an approved seller application first");
-  if (seller.status !== "active") throw forbidden("your seller account is suspended");
-  return seller;
 }

@@ -138,3 +138,6 @@ or if a record is missing a section.
 | [ADR-0064](../DECISIONS.md#adr-0064--one-currency-and-it-is-monero-stored-as-an-integer) | One currency, and it is Monero, stored as an integer |
 | [ADR-0065](../DECISIONS.md#adr-0065--monero-settlement-subaddresses-a-view-key-polling-and-no-automatic-refund) | Monero settlement: subaddresses, a view key, polling, and no automatic refund |
 | [ADR-0066](../DECISIONS.md#adr-0066--the-marketplace-holds-the-money-and-the-ledger-is-what-makes-that-defensible) | The marketplace holds the money, and the ledger is what makes that defensible |
+| [ADR-0067](../DECISIONS.md#adr-0067--the-deposit-minimum-is-enforced-and-a-smaller-transfer-is-recorded-rather-than-kept) | The deposit minimum is enforced, and a smaller transfer is recorded rather than kept |
+| [ADR-0068](../DECISIONS.md#adr-0068--standing-is-earned-on-settled-orders-and-it-is-what-the-catalogue-sorts-by) | Standing is earned on settled orders, and it is what the catalogue sorts by |
+| [ADR-0069](../DECISIONS.md#adr-0069--a-listing-may-not-advertise-a-way-around-the-escrow-the-chat-stays-unread) | A listing may not advertise a way around the escrow; the chat stays unread |

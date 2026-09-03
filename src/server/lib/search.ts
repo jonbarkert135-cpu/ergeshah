@@ -94,8 +94,8 @@ export function termConditions(terms: string[]): { sql: string[]; params: unknow
 const CURSOR_RE = /^(\d{1,15})\.([A-Za-z0-9_-]{8,64})$/;
 
 /**
- * A cursor is the sort key of the last row of the previous page: `<sort key>.<id>` — a day
- * for listings, a millisecond timestamp for the notification inbox. Opaque
+ * A cursor is the sort key of the last row of the previous page: `<sort key>.<id>` — the
+ * rank key (seller level and day, ADR-0068) for listings, a millisecond timestamp for the notification inbox. Opaque
  * enough that nobody builds one by hand, cheap enough that the server keeps no state, and
  * stable under inserts — which `OFFSET` is not, and `OFFSET` also makes page 500 cost five
  * hundred pages of work. There is no total count for the same reason.
@@ -108,8 +108,8 @@ export function parseCursor(value: unknown): { key: number; id: string } | null 
   return { key: Number(match[1]), id: match[2]! };
 }
 
-export function cursorFor(row: { created_day: number; id: string }): string {
-  return `${row.created_day}.${row.id}`;
+export function cursorFor(row: { rank_key: number; id: string }): string {
+  return `${row.rank_key}.${row.id}`;
 }
 
 /**

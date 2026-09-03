@@ -10,7 +10,7 @@ interface Listing {
   category: string;
   kind: string;
   priceXmr: string;
-  seller: { username: string; displayName: string };
+  seller: { username: string; displayName: string; level: number };
   listedOn: string;
   reviewCount: number;
   distinctReviewers: number;
@@ -189,7 +189,11 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
       el(
         "div",
         { class: "row muted mono" },
-        el("span", {}, `by ${listing.seller.displayName} (@${listing.seller.username})`),
+        el(
+          "span",
+          {},
+          `by ${listing.seller.displayName} (@${listing.seller.username}) · ${LEVEL_LABELS[listing.seller.level] ?? "new seller"}`,
+        ),
         el(
           "span",
           {},
@@ -206,10 +210,29 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
         message,
         state.account ? report : null,
       ),
+      // Said before the money moves, not in a help page after it (ADR-0069). The escrow is
+      // the only protection this marketplace can offer, and it exists only for an order
+      // placed here.
+      el(
+        "p",
+        { class: "meta" },
+        "Ordering here holds the price in escrow until you confirm. Pay a seller directly and there is no escrow, no dispute and no refund — we cannot see that payment and cannot return it.",
+      ),
       local,
     );
   }
 }
+
+/**
+ * A seller's level, in words. Earned only on completed orders paid through this platform
+ * (ADR-0068), which is why the catalogue lists a level-3 seller above a newer one.
+ */
+const LEVEL_LABELS: Record<number, string> = {
+  0: "new seller",
+  1: "level 1 seller",
+  2: "level 2 seller",
+  3: "level 3 seller",
+};
 
 const KIND_LABELS: Record<string, string> = {
   digital_good: "digital good",

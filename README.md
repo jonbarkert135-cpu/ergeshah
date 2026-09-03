@@ -48,13 +48,15 @@ Design philosophy, in priority order:
 | Encrypted ratchet headers + padded plaintexts (no ratchet keys, counters or exact sizes on the wire) | working |
 | Store-and-forward envelopes, deleted from the server on delivery | working |
 | Marketplace: seller applications, listings, orders, reviews | working |
+| Escrow-only guarantee: seller level and catalogue rank earned on settled on-platform orders; listings may not advertise a way around it | working |
 | Digital delivery: file encrypted in the browser, blind blob on the server, key over the encrypted channel | working |
 | Physical orders: delivery address encrypted to the seller, never a column in any table | working |
 | Moderation: reports, admin review queue, privacy-safe audit log | working |
 | Reproducible client build: published digests, subresource integrity, one-command deployment check | working |
 | Single-VPS deployment: Docker Compose + reverse proxy + TLS, SQLite or PostgreSQL | working |
 | Tor onion service: one instance serves both entrypoints, headers and cookies adapt, `Onion-Location` advertised | working |
-| Payments | **not implemented by design** — see `docs/ROADMAP.md` |
+| Money: balances, escrow on an order, a 5% fee, payout queue with per-account limits, double-entry ledger | working |
+| The Monero tier itself (node, deposit watcher, payout worker) | **not implemented** — the wallet screen says top-ups are not open; see `docs/ROADMAP.md` PAY-2 |
 | Post-quantum hybrid handshake (PQXDH-style) | **planned** — see `docs/ROADMAP.md` |
 
 ## Quick start (development)

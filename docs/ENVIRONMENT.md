@@ -86,7 +86,7 @@ what each one protects.
 | --- | --- | --- |
 | `ORDER_FEE_BPS` | `500` (5%) | The marketplace's cut of a completed order, in basis points, charged to the seller and rounded down in their favour. `0` is supported. Boot refuses anything above `2000` (20%), because `5000` where `500` was meant is a typo nothing downstream would question |
 | `MIN_WITHDRAWAL_XMR` | `0.02` (≈$10) | Smallest payout the server will queue. Enforced: below it the network fee dominates the transfer |
-| `MIN_DEPOSIT_XMR` | `0.02` | The smallest top-up worth making, *advertised and not enforced* — anything the wallet sees is credited, because keeping a payment that was smaller than a suggestion is theft and Monero gives no address to refund it to |
+| `MIN_DEPOSIT_XMR` | `0.02` | The smallest top-up this platform credits, and it is enforced (ADR-0067). A smaller transfer is recorded as `below_minimum`, left off the balance, shown to its owner, and refunded by hand on request |
 | `AUTO_PAYOUT_MAX_XMR` | `2` (≈$1,000) | Default ceiling on automatic payouts, per request and per rolling 24 hours, for an account with no ceiling of its own. Above it a payout is queued for an administrator, never refused. Per-account overrides are set through the admin API and audited |
 
 ### `RATE_LIMITS`

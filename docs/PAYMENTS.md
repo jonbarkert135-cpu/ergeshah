@@ -87,9 +87,11 @@ is a typo nothing downstream would question.
 ## Limits
 
 The minimums exist because a payment smaller than the fee to move it is not a payment:
-`MIN_WITHDRAWAL_XMR` (default 0.02) is enforced; `MIN_DEPOSIT_XMR` (default 0.02) is
-*advertised only* — anything the wallet sees is credited, because keeping a top-up that was
-smaller than a suggestion is theft and Monero gives no address to refund it to.
+both `MIN_WITHDRAWAL_XMR` and `MIN_DEPOSIT_XMR` (default 0.02 each) are enforced (ADR-0067).
+A payout below the floor is refused at the request. A top-up below it is *recorded and not
+credited*: the row is written with status `below_minimum`, its total appears on the owner's own
+wallet screen, and an operator returns it by hand if the payer asks — the money is never
+quietly kept, because Monero gives no sender address to refund to automatically.
 
 Payout ceilings are about automation, never about the money:
 
@@ -162,6 +164,11 @@ when Monero itself unlocks funds for spending
 (`CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE`), so "credited" and "spendable by the platform" are
 different moments and the operator's float has to cover the gap.
 
+**A below-minimum top-up is refunded by hand.** It is a `below_minimum` row in `deposits`, an
+uncredited amount on the payer's wallet screen, and a payout the operator makes to an address
+that person supplies in support. There is no automatic path, for the reason in the next
+paragraph.
+
 **Refunds are not automatic, and cannot be.** There is no sender address in a Monero
 transaction, so "refund to the address the payment came from" is not a feature that was
 skipped — it is not expressible. Inside the platform a refund is a cancellation: the hold goes
@@ -211,3 +218,23 @@ similar API means a third party learns the order, the amount and both legs of th
 freeze funds mid-order, and can be compelled for records this project would then be unable to
 produce or deny. Bitcoin is also a public ledger: a buyer who pays in BTC has published the
 purchase. One currency, chosen for the property this product is about (ADR-0064).
+
+## Guarantee, and what it does not cover (ADR-0068, ADR-0069)
+
+The protection this marketplace offers is the escrow and nothing else: the price is held from
+the moment the order is placed, a dispute freezes it, and a moderator's decision on the *order*
+is what moves it. That protection exists for an order placed here, and for no other
+arrangement.
+
+A payment made directly to a seller has no hold, no dispute and no refund, and this platform
+cannot even see it. The order screen and every listing card say so before the money moves,
+rather than in a help page afterwards.
+
+Because the chat is end-to-end encrypted and stays unread, the rules that keep trade on the
+platform are incentives and publishing rules, not surveillance:
+
+- a seller's **level** (0–3) comes only from settled on-platform orders, and the catalogue is
+  sorted by it, so a deal taken off the platform costs visibility (ADR-0068);
+- a **listing** may not carry a wallet address, an email address, another messenger or a "pay
+  me directly" offer (ADR-0069);
+- **reviews and ratings** count only completed on-platform orders, once per buyer (ADR-0029).

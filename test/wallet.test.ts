@@ -89,6 +89,51 @@ describe("a balance is the sum of its movements", () => {
     expect((await balance(buyer)).availableXmr).toBe("0.75");
   });
 
+  it("records a top-up below the minimum without crediting it, and shows it to its owner", async () => {
+    const owner = await register(server, "dustpayer");
+    const user = await server.db.get<{ id: string }>("SELECT id FROM users WHERE username = ?", [
+      "dustpayer",
+    ]);
+    const { creditDeposit } = await import("../src/server/lib/ledger.ts");
+    const id = await creditDeposit(server.db, {
+      userId: user!.id,
+      amountPico: parseXmr("0.005")!,
+      txid: "dust-transfer",
+      subaddressIndex: 4,
+      confirmations: 10,
+      minPico: parseXmr("0.02")!,
+    });
+    expect(id).toBeTruthy();
+    // Not credited...
+    expect((await balance(owner)).availableXmr).toBe("0");
+    const row = await server.db.get<{ status: string; credited_at: number | null }>(
+      "SELECT status, credited_at FROM deposits WHERE id = ?",
+      [id],
+    );
+    expect(row?.status).toBe("below_minimum");
+    expect(row?.credited_at).toBeNull();
+    // ...and not hidden either: the owner sees the amount that arrived and was not credited.
+    const wallet = await owner.get<{ belowMinimumXmr: string }>("/api/wallet");
+    expect(wallet.body.belowMinimumXmr).toBe("0.005");
+  });
+
+  it("credits a top-up that meets the minimum exactly", async () => {
+    const owner = await register(server, "exactpayer");
+    const user = await server.db.get<{ id: string }>("SELECT id FROM users WHERE username = ?", [
+      "exactpayer",
+    ]);
+    const { creditDeposit } = await import("../src/server/lib/ledger.ts");
+    await creditDeposit(server.db, {
+      userId: user!.id,
+      amountPico: parseXmr("0.02")!,
+      txid: "exact-transfer",
+      subaddressIndex: 5,
+      confirmations: 10,
+      minPico: parseXmr("0.02")!,
+    });
+    expect((await balance(owner)).availableXmr).toBe("0.02");
+  });
+
   it("shows every movement in the account's own ledger", async () => {
     const { seller, listingId } = await sellerWithListing("ledgerseller", "0.05");
     const buyer = await register(server, "ledgerbuyer");

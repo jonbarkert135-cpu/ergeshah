@@ -96,16 +96,16 @@ transaction, and `test/wallet.test.ts` re-adds the entries to check.
 | `balances` | `account_id`, optional user, `available_pico`, `held_pico`, optional `payout_limit_pico`, updated | One row per account, plus the single `'platform'` row that receives fees — so revenue reconciles like any other balance. CHECK constraints refuse a negative balance; `payout_limit_pico` is the hand-set ceiling above which a payout waits for an administrator |
 | `ledger_entries` | id, account, `kind`, `available_delta`, `held_delta`, optional order/deposit/withdrawal, created | Append-only. Every movement, signed, in two columns: `available` is spendable, `held` is committed to an open order or a queued payout. A hold sums to zero across the two |
 | `deposit_addresses` | user, `subaddress_index`, `address`, created | One Monero subaddress per account, never reused: a shared address would make an incoming payment unattributable |
-| `deposits` | id, user, `amount_pico`, `txid`, subaddress index, `confirmations`, status, detected/credited | A confirmed transfer, credited once — unique on (txid, subaddress index, amount), so a watcher that re-reads a transfer cannot pay twice. A Monero transaction names no sender, so `txid` is the whole of what can be recorded about where money came from |
+| `deposits` | id, user, `amount_pico`, `txid`, subaddress index, `confirmations`, status (`credited` \| `below_minimum`), detected/credited | A confirmed transfer, credited once — a transfer under `MIN_DEPOSIT_XMR` is recorded with no ledger entry and shown to its owner rather than kept (ADR-0067) — unique on (txid, subaddress index, amount), so a watcher that re-reads a transfer cannot pay twice. A Monero transaction names no sender, so `txid` is the whole of what can be recorded about where money came from |
 | `withdrawals` | id, user, `amount_pico`, `address` (until sent), `address_hint`, status, `txid`, `network_fee_pico`, requested/decided/settled | The destination is deleted when the payout leaves; the hint (first and last six characters) is what support needs. A Monero address appears nowhere on the chain, so a hint correlates with nothing |
 
 ### Marketplace
 
 | Table | What it holds | Notes |
 | --- | --- | --- |
-| `sellers` | user, display name, bio, status, `joined_day` | A seller is a role on an account, not a separate identity |
+| `sellers` | user, display name, bio, status, `joined_day`, `settled_pico`, `level` | A seller is a role on an account, not a separate identity. `settled_pico` is on-platform earnings, written only by an order settling; `level` (0–3) is derived from it and from completed orders (ADR-0068) |
 | `seller_applications` | applicant, display name, statement, status, decision note, decider, days | |
-| `listings` | seller, title, description, category, kind, `price_pico`, status, days | Piconero (10⁻¹² XMR) as a `BIGINT` integer; one currency, no `currency` column, no floating-point money (ADR-0064) |
+| `listings` | seller, title, description, category, kind, `price_pico`, status, days, `rank_key` | Piconero (10⁻¹² XMR) as a `BIGINT` integer; one currency, no `currency` column, no floating-point money (ADR-0064). `rank_key` is `level * 100000 + created_day`, the catalogue's sort key, kept on the listing so pagination stays a seek on one index (ADR-0068) |
 | `orders` | listing, buyer, seller, price at the time, status, `channel`, created/updated | `channel` is the encrypted conversation the order lives in. **No address column** — a shipping address is a message (ADR-0021) |
 | `order_events` | order, actor, from/to status, `created_at` | The state machine's history, with a real timestamp because dispute questions are "in what order" |
 | `deliveries` | order, encrypted digital goods, expiry | Ciphertext, capped by `MAX_DELIVERY_BYTES`, expired by `DELIVERY_TTL_MS` |

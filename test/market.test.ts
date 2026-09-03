@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { approveSeller, promote, fund, register, startTestServer, type TestServer } from "./helpers.ts";
+import { DEFAULT_LIMITS } from "../src/server/lib/rate_limit.ts";
 
 let server: TestServer;
 
@@ -188,5 +189,120 @@ describe("orders and reviews", () => {
     const { seller, listingId } = await sellerWithListing();
     const attempt = await seller.post("/api/market/orders", { listingId });
     expect(attempt.status).toBe(400);
+  });
+});
+
+/**
+ * The guarantee is escrow, and escrow only exists for an order placed here (ADR-0068,
+ * ADR-0069). Nothing can read the chat, so the enforcement lives in the two places that are
+ * public: what a listing may say, and what a seller's standing is worth in the catalogue.
+ */
+describe("staying on the platform is the only thing that pays", () => {
+  // These scenarios need several accounts (two sellers, a buyer, and the moderator each
+  // approval creates), which is more registrations than the shipped limit allows in one
+  // window. The limit itself is tested in `limits.test.ts`.
+  beforeEach(async () => {
+    await server.close();
+    server = await startTestServer({
+      rateLimits: { ...DEFAULT_LIMITS, register: { burst: 50, perMinute: 50 } },
+    });
+    await register(server, "root");
+  });
+
+  async function seller(name: string, displayName: string) {
+    const client = await register(server, name);
+    await approveSeller(server, client, displayName);
+    return client;
+  }
+
+  const listing = (title: string, description: string, priceXmr = "0.5") => ({
+    title,
+    description,
+    category: "software",
+    kind: "digital_good" as const,
+    priceXmr,
+  });
+
+  it("refuses a listing that carries a wallet address or an off-platform contact", async () => {
+    const shop = await seller("evader", "Evader Ltd");
+    const refusals = [
+      listing(
+        "Fast delivery",
+        `Send payment straight to 8${"A".repeat(94)} and I will deliver within the hour.`,
+      ),
+      listing("Fast delivery", "Write to me on Telegram before ordering, it is much quicker."),
+      listing("Fast delivery", "Pay directly and skip the fee, message me for the details here."),
+      listing("Fast delivery", "Пиши напрямую, оплата мимо площадки — так дешевле для нас обоих."),
+      listing("Fast delivery", "Reach me at seller@example.com for anything you need quickly."),
+    ];
+    for (const body of refusals) {
+      const refused = await shop.post("/api/market/listings", body);
+      expect(refused.status).toBe(400);
+      expect((refused.body as { error?: string }).error).toBe("off_platform_offer");
+    }
+    // The rule is narrow on purpose: an honest listing still publishes.
+    const allowed = await shop.post("/api/market/listings", listing(
+      "Fast delivery",
+      "Delivered through this platform within the hour, with the price held in escrow until you confirm.",
+    ));
+    expect(allowed.status).toBe(200);
+
+    // And it applies to an edit, not only to the first version.
+    const edited = await shop.patch(`/api/market/listings/${(allowed.body as { id: string }).id}`, {
+      description: "Actually, write to me on Telegram and we will settle it there, much faster.",
+    });
+    expect(edited.status).toBe(400);
+  });
+
+  it("raises a seller's level, and their place in the catalogue, only on settled orders", async () => {
+    const veteran = await seller("veteran", "Veteran Works");
+    const newcomer = await seller("newcomer", "Newcomer Works");
+    const first = await veteran.post<{ id: string }>(
+      "/api/market/listings",
+      listing("Veteran service", "Work delivered through this platform, honestly described.", "0.2"),
+    );
+
+    const buyer = await register(server, "levelbuyer");
+    await fund(server, buyer, "3");
+    // Three completed orders and half an XMR of earnings is level 1 (lib/reputation.ts).
+    for (let index = 0; index < 3; index += 1) {
+      const extra = await veteran.post<{ id: string }>(
+        "/api/market/listings",
+        listing(`Veteran service ${index}`, "Work delivered through this platform, described.", "0.2"),
+      );
+      const order = await buyer.post<{ id: string }>("/api/market/orders", {
+        listingId: extra.body.id,
+      });
+      await veteran.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
+      await veteran.post(`/api/market/orders/${order.body.id}/delivery`, { manual: true });
+      const done = await buyer.post(`/api/market/orders/${order.body.id}/status`, {
+        status: "completed",
+      });
+      expect(done.status).toBe(200);
+    }
+
+    // The newcomer's listing is the newest, and would be first under a purely chronological
+    // catalogue. It is not, because the veteran earned their place with on-platform trade.
+    const newest = await newcomer.post<{ id: string }>(
+      "/api/market/listings",
+      listing("Newcomer service", "Also work delivered through this platform, honestly described."),
+    );
+    expect(newest.status).toBe(200);
+    const page = await buyer.get<{ listings: Array<{ id: string; seller: { level: number } }> }>(
+      "/api/market/listings?limit=10",
+    );
+    const listings = page.body.listings;
+    expect(listings[0]?.seller.level).toBe(1);
+    expect(listings.at(-1)?.id).toBe(newest.body.id);
+    // The seller's own page publishes the level and never the volume behind it.
+    const profile = await buyer.get<{ seller: { level: number } }>("/api/market/sellers/veteran");
+    expect(profile.body.seller.level).toBe(1);
+    expect(JSON.stringify(profile.body)).not.toContain("settled");
+    // The first listing, published before the promotion, was re-keyed with the rest.
+    const ranked = await server.db.get<{ rank_key: number }>(
+      "SELECT rank_key FROM listings WHERE id = ?",
+      [first.body.id],
+    );
+    expect(ranked!.rank_key).toBeGreaterThan(100_000);
   });
 });

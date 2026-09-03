@@ -148,6 +148,13 @@ export async function balanceOf(db: Db, accountId: string): Promise<Balance> {
  * amount), so a watcher that re-reads the same transfer after a restart inserts nothing and
  * this returns null. That is the property that matters — a deposit credited twice is money
  * the platform does not have.
+ *
+ * `minPico` is the enforced minimum top-up (ADR-0067). A smaller transfer is *recorded* with
+ * status `below_minimum` and no ledger entry: not credited, and equally not quietly kept —
+ * the row is the platform's admission that the money arrived, it is shown to its owner on the
+ * wallet screen, and it is what an operator refunds from by hand. Recording rather than
+ * ignoring is the whole point; a payment the database does not mention is indistinguishable
+ * from theft.
  */
 export async function creditDeposit(
   db: Db,
@@ -157,11 +164,13 @@ export async function creditDeposit(
     txid: string;
     subaddressIndex: number;
     confirmations: number;
+    minPico?: number;
   },
 ): Promise<string | null> {
   if (!Number.isInteger(input.amountPico) || input.amountPico <= 0) {
     throw new Error("a deposit is a positive whole number of piconero");
   }
+  const credited = input.amountPico >= (input.minPico ?? 0);
   const id = newId();
   const now = Date.now();
   try {
@@ -169,23 +178,35 @@ export async function creditDeposit(
       await tx.run(
         `INSERT INTO deposits (id, user_id, amount_pico, txid, subaddress_index, confirmations,
                                status, detected_at, credited_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'credited', ?, ?)`,
-        [id, input.userId, input.amountPico, input.txid, input.subaddressIndex, input.confirmations, now, now],
-      );
-      await apply(
-        tx,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          {
-            accountId: accountFor(input.userId),
-            userId: input.userId,
-            kind: "deposit",
-            availableDelta: input.amountPico,
-            heldDelta: 0,
-            depositId: id,
-          },
+          id,
+          input.userId,
+          input.amountPico,
+          input.txid,
+          input.subaddressIndex,
+          input.confirmations,
+          credited ? "credited" : "below_minimum",
+          now,
+          credited ? now : null,
         ],
-        now,
       );
+      if (credited) {
+        await apply(
+          tx,
+          [
+            {
+              accountId: accountFor(input.userId),
+              userId: input.userId,
+              kind: "deposit",
+              availableDelta: input.amountPico,
+              heldDelta: 0,
+              depositId: id,
+            },
+          ],
+          now,
+        );
+      }
       return id;
     });
   } catch (error) {

@@ -79,3 +79,24 @@ and to create accounts slowly can still be a nuisance, and ten patient puppet ac
 still lift a seller's rating (`THREAT_MODEL.md`, residual risk 7). The counter-signals a
 reader gets are public — buyer count, completed orders, dispute count — rather than a
 verdict from a system that watched everyone to produce it.
+
+## What a listing may not say (ADR-0069)
+
+A listing is a public advertisement this server holds in the clear, which makes it the only
+text a rule can apply to. `POST`/`PATCH /api/market/listings` and a seller application's
+statement are refused with `off_platform_offer` when they carry:
+
+- a Monero or Bitcoin address,
+- an email address,
+- a named third-party messenger (Telegram, WhatsApp, Jabber/XMPP, Matrix, Signal, Discord,
+  and the Russian spellings of the common ones),
+- a "pay me directly", "outside the platform", «напрямую», «мимо площадки» phrase.
+
+The error names the rule and never the pattern that matched, because a filter that explains
+how it was tripped ships with its own bypass guide.
+
+**Messages are not touched.** The chat is end-to-end encrypted and the server holds
+ciphertext; no moderation rule here reads it, now or later. The filter is evadable by anyone
+who wants to evade it — the point is that the bypass cannot be *advertised* to strangers, and
+that a seller who takes the deal off the platform loses their level, their catalogue position
+and their buyer's protection (ADR-0068).

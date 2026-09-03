@@ -70,9 +70,11 @@ export interface Config {
    */
   autoPayoutMaxPico: number;
   /**
-   * The smallest top-up worth making, advertised to buyers. Deliberately *not* enforced:
-   * anything the wallet sees is credited, because keeping a payment that was smaller than a
-   * suggestion is theft, and Monero gives no address to refund it to.
+   * The smallest top-up this platform credits, and it is enforced (ADR-0067). A smaller
+   * transfer is recorded as `below_minimum` and left uncredited rather than kept: the row is
+   * visible to its owner and to an operator, who refunds it by hand if the payer asks. A
+   * dust top-up costs more in payout fees and support than it can ever be worth, and the
+   * honest way to say so is a rule at the door, not a surprise in the balance.
    */
   minDepositPico: number;
   /** v3 onion address of this service, advertised to Tor Browser. Empty = not published. */

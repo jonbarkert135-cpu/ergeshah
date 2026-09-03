@@ -6,6 +6,7 @@ import {
   errorState,
   field,
   input,
+  notice,
   price,
   skeleton,
   table,
@@ -18,6 +19,7 @@ interface Wallet {
   heldXmr: string;
   depositAddress: string | null;
   minDepositXmr: string;
+  belowMinimumXmr: string;
   minWithdrawalXmr: string;
   reviewAboveXmr: string;
   orderFeePercent: number;
@@ -135,8 +137,14 @@ export function renderWallet(root: HTMLElement): void {
       el(
         "p",
         { class: "meta" },
-        `Suggested minimum ${price(wallet.minDepositXmr)}. Smaller amounts are still credited; the network fee simply eats more of them.`,
+        `Minimum ${price(wallet.minDepositXmr)}, and it is enforced: a smaller transfer is recorded against your account but not credited, because the fees to move it cost more than it is worth. Ask support and it is refunded by hand.`,
       ),
+      wallet.belowMinimumXmr === "0"
+        ? null
+        : notice(
+            `${price(wallet.belowMinimumXmr)} arrived below the minimum and is not on your balance. Contact support to have it sent back.`,
+            "error",
+          ),
     );
   }
 

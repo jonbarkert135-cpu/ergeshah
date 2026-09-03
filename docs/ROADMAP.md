@@ -73,11 +73,19 @@ exchange rate anywhere (ADR-0064) — and the Monero settlement design in `docs/
   4. **Solvency in the open**: the treasury total compared against what the wallet actually
      holds, on a schedule, with a loud failure — a custodial platform that discovers a shortfall
      from a seller has already lost the argument.
-- **PAY-3 — Buyer protection worth the name.** Guarantee only on-platform (an order paid outside
-  the escrow gets no dispute, no hold and no refund), seller level and visibility computed from
-  on-platform volume only, and listing moderation that rejects an address or a "write to me
-  directly" in a listing body — the chat stays end-to-end encrypted and unread, so the incentive
-  has to do the work.
+*Shipped (PAY-3, 2026-09-03): the guarantee is escrow and only escrow, and the interface says
+so on every listing before an order is placed. A seller's level (0–3) is computed from settled
+on-platform orders alone and the catalogue is sorted by it (ADR-0068); a listing may not carry
+a wallet address, an email address, another messenger or a "pay me directly" offer (ADR-0069);
+and the deposit minimum is enforced, with a smaller transfer recorded uncredited and refunded
+by hand rather than credited or kept (ADR-0067). The chat is untouched and stays unread.*
+
+- **PAY-4 — Refunding a below-minimum top-up without a support conversation.** Today an
+  operator makes a manual payout to an address the payer supplies. Wanted: the owner naming a
+  destination on their own wallet screen, and the queue treating it like any other payout.
+- **PAY-5 — Level decay and a suspended seller's rank.** A level, once earned, does not fall.
+  A seller who stops trading keeps their catalogue position, and a suspension removes the
+  listings but not the standing behind them.
 
 *Shipped: MKT-2, client-encrypted digital delivery with blind server-side storage. MKT-4,
 physical orders whose delivery details are a message rather than a database column.*
