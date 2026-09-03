@@ -29,6 +29,12 @@ Two consequences visible in every table below:
 `src/server/db/migrations/NNN_name.sql`, applied in order, once each, inside a transaction,
 automatically on boot. Applied names are recorded in `schema_migrations`.
 
+A migration named `NNN_name.postgres.sql` or `NNN_name.sqlite.sql` runs on that driver only.
+The escape hatch exists for one reason — the two databases disagree about *types*, not about
+the schema — and a dialect-scoped migration that is not about a dialect difference is a bug
+(ADR-0059). There is exactly one so far: 012, which widens every millisecond timestamp to
+`BIGINT` on PostgreSQL, where `INTEGER` is 32 bits.
+
 A released migration is **never edited**: `src/server/db/migrations/CHECKSUMS.txt` records a
 digest of each, `npm run audit:migrations` fails if one changes, and `npm run migrate:checksums`
 is how a *new* one is registered. Destructive statements require a `-- destructive: why`
@@ -170,7 +176,14 @@ Housekeeping runs on an interval in `src/server/main.ts`, so an idle deployment 
   `sqlite3 … ".backup"`, not `cp`. Encrypt the backup — it contains the ciphertext and the
   metadata, which is exactly what an attacker who cannot break the crypto wants.
 - **PostgreSQL**: set `DATABASE_URL` (or `DATABASE_URL_FILE`). Give the application its own
-  role with rights on its own schema only; migrations run as that role.
+  role with rights on its own schema only; migrations run as that role. Every millisecond
+  timestamp is `BIGINT` (migration 012) and the driver parses `BIGINT` into a number rather
+  than the string `pg` returns by default, so both drivers hand the application the same
+  types; a value too large to represent exactly throws instead of rounding
+  (`src/server/db/postgres.ts`).
+- **Both drivers run the whole test suite** on every commit — SQLite by default,
+  PostgreSQL in the `postgres` CI job (`TEST_DATABASE_URL`, `docs/TESTING.md`). The first
+  run of that job found two real defects, which is the argument for having it.
 - Neither driver ever interpolates a value into SQL. The lint rule `sql-interpolation`
   enforces it, and the one place that builds a column list from literals is marked and
   explained.

@@ -226,23 +226,39 @@ async function countUnclaimed(db: FastifyInstance["db"], deviceId: string): Prom
 }
 
 /**
- * Claiming is a transaction: two people fetching a bundle at the same moment must never
- * receive the same one-time prekey, or the forward secrecy it provides is gone.
+ * Two people fetching a bundle at the same moment must never receive the same one-time
+ * prekey: the whole value of the key is that it is used once, and handing one out twice
+ * costs the forward secrecy it exists to provide.
+ *
+ * This used to be SELECT, then DELETE, inside a transaction — which is not the same thing
+ * as atomic. On SQLite it was safe by accident, because that driver serialises every write
+ * behind one handle; on PostgreSQL at READ COMMITTED, two transactions read the same row
+ * and both returned it, and the suite proved it the first time it ran against a real
+ * PostgreSQL (`docs/SELF_CRITIQUE.md`, finding 8).
+ *
+ * The fix is one statement: the delete chooses the row, and `RETURNING` says whether *this*
+ * caller is the one that took it. A caller that loses the race gets nothing back and tries
+ * again — three times, because losing three in a row means the device is out of keys rather
+ * than busy, and the bundle is still usable without one (the signed prekey covers it, with
+ * weaker forward secrecy, which is exactly what the protocol documents).
  */
 async function claimOneTimePreKey(
   app: FastifyInstance,
   deviceId: string,
 ): Promise<{ key_id: number; public_key: string } | null> {
-  return app.db.transaction(async (tx) => {
-    const candidate = await tx.get<{ id: string; key_id: number; public_key: string }>(
-      `SELECT id, key_id, public_key FROM one_time_prekeys
-        WHERE device_id = ? AND claimed_at IS NULL ORDER BY key_id LIMIT 1`,
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const claimed = await app.db.all<{ key_id: number; public_key: string }>(
+      `DELETE FROM one_time_prekeys
+        WHERE id = (SELECT id FROM one_time_prekeys
+                     WHERE device_id = ? AND claimed_at IS NULL
+                     ORDER BY key_id LIMIT 1)
+        RETURNING key_id, public_key`,
       [deviceId],
     );
-    if (!candidate) return null;
-    await tx.run("DELETE FROM one_time_prekeys WHERE id = ?", [candidate.id]);
-    return { key_id: candidate.key_id, public_key: candidate.public_key };
-  });
+    if (claimed.length > 0) return claimed[0]!;
+    if ((await countUnclaimed(app.db, deviceId)) === 0) return null;
+  }
+  return null;
 }
 
 async function requireOwnDevice(

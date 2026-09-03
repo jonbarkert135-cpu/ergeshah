@@ -69,6 +69,11 @@ count published, and an audited `order.settled` action.*
 
 ## Operations
 
+*Shipped (OPS-2): the suite runs against a real PostgreSQL in CI as well as SQLite
+(`docs/TESTING.md`), which is how findings 8 and 9 in `docs/SELF_CRITIQUE.md` were found —
+the PostgreSQL driver had never worked, and the one-time prekey claim was not atomic outside
+SQLite's write queue (ADR-0059, ADR-0060).*
+
 *Shipped (points 96–100): the mechanism register with a threat and a failure mode per row
 (`docs/MECHANISMS.md`), the quality bar and the development cycle in `docs/CHANGE_REVIEW.md`, a
 700-line ceiling on source files, a free-space floor in front of uploads, `TRUST_PROXY` that can
@@ -92,8 +97,6 @@ this project does not have (ADR-0051).*
 `docs/AUDIT.md`. Reproducible client builds (OPS-1) with published digests, subresource
 integrity and `npm run audit:deployment`.*
 
-- **OPS-2 — SQLite driver for the `Db` interface in tests against PostgreSQL in CI**, so
-  both drivers are exercised on every commit.
 - **OPS-3 — Container image signing and an SBOM.**
 - **OPS-5 — Storage accounting for blobs.** The free-space floor keeps the service alive
   (ADR-0057); it does not stop one account consuming the allowance. Wanted: a shorter default

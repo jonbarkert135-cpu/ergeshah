@@ -41,6 +41,7 @@ or if a record is missing a section.
 | [ADR-0011](../DECISIONS.md#adr-0011--encrypt-ratchet-headers-and-pad-plaintexts-break-the-wire-format-to-do-it) | Encrypt ratchet headers and pad plaintexts; break the wire format to do it |
 | [ADR-0014](../DECISIONS.md#adr-0014--a-random-master-key-wrapped-once-per-unlocking-route) | A random master key, wrapped once per unlocking route |
 | [ADR-0035](../DECISIONS.md#adr-0035--revocation-is-final-and-claiming-a-prekey-is-not-an-ordinary-read) | Revocation is final, and claiming a prekey is not an ordinary read |
+| [ADR-0060](../DECISIONS.md#adr-0060--a-one-time-prekey-is-claimed-by-one-statement) | A one-time prekey is claimed by one statement |
 
 ### Authentication and identity
 
@@ -60,6 +61,7 @@ or if a record is missing a section.
 | [ADR-0030](../DECISIONS.md#adr-0030--search-is-an-index-and-a-page-is-a-cursor) | Search is an index, and a page is a cursor |
 | [ADR-0036](../DECISIONS.md#adr-0036--one-writer-at-a-time-on-sqlite-because-handlers-are-not-synchronous) | One writer at a time on SQLite, because handlers are not synchronous |
 | [ADR-0052](../DECISIONS.md#adr-0052--rolling-back-a-migration-is-a-restore-not-a-down-script) | Rolling back a migration is a restore, not a down script |
+| [ADR-0059](../DECISIONS.md#adr-0059--both-drivers-run-the-whole-suite-and-a-migration-may-name-a-dialect) | Both drivers run the whole suite, and a migration may name a dialect |
 
 ### Deployment and operations
 

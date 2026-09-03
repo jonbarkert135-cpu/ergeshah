@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { register, startTestServer, TestClient, type TestServer } from "./helpers.ts";
 import { API_VERSION } from "../src/server/app.ts";
 import { DEFAULT_LIMITS } from "../src/server/lib/rate_limit.ts";
+import { listTables } from "./database.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (path: string) => readFileSync(`${root}${path}`, "utf8");
@@ -197,11 +198,7 @@ describe("errors are documented, consistent and machine-readable (point 89)", ()
 
   it("never describes the database in an error", async () => {
     const client = await register(server, "leak-probe");
-    const tables = (
-      await server.db.all<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-      )
-    ).map((row) => row.name);
+    const tables = await listTables(server.db);
     expect(tables.length).toBeGreaterThan(10);
 
     const responses = [

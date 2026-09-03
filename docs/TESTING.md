@@ -1,10 +1,24 @@
 # Testing
 
 ```
-npm test              # everything, ~20 s
+npm test              # everything, ~20 s, SQLite in memory
 npx vitest run test/limits.test.ts
 npx vitest            # watch mode
+
+# The same suite against a real PostgreSQL (what the `postgres` job in CI runs):
+docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=local -e POSTGRES_DB=symvolon_test postgres:17-alpine
+TEST_DATABASE_URL=postgres://postgres:local@127.0.0.1:5432/symvolon_test npm run test:postgres
 ```
+
+Both drivers ship, so both are tested. `TEST_DATABASE_URL` switches `startTestServer()` over
+to PostgreSQL, one schema per server so that two servers in one file stay isolated exactly as
+two `:memory:` databases do (`test/database.ts`). One test is skipped there — the query-plan
+assertion, because PostgreSQL's planner reads five rows sequentially whatever the indexes say,
+and asserting otherwise would measure the fixture. Everything else runs identically.
+
+The first time this ran, it found that the PostgreSQL path could not finish its own
+migrations and that two concurrent callers could be handed the same one-time prekey
+(`docs/SELF_CRITIQUE.md`, findings 8 and 9).
 
 One runner (Vitest), no mocks of our own code, no fixtures database. Every test that needs a
 server starts a real one on an in-memory SQLite database with the real routes, the real

@@ -17,6 +17,7 @@ import {
 } from "./helpers.ts";
 import { pruneNotifications } from "../src/server/lib/notify.ts";
 import { DEFAULT_LIMITS } from "../src/server/lib/rate_limit.ts";
+import { listColumns } from "./database.ts";
 
 let server: TestServer;
 
@@ -193,8 +194,8 @@ describe("a message notification is a hint, not metadata", () => {
   });
 
   it("keeps no free-text column at all", async () => {
-    const columns = await server.db.all<{ name: string }>("PRAGMA table_info(notifications)");
-    expect(columns.map((column) => column.name).sort()).toEqual([
+    const columns = await listColumns(server.db, "notifications");
+    expect([...columns].sort()).toEqual([
       "created_at",
       "detail",
       "id",

@@ -24,6 +24,7 @@ import { DEFAULT_LIMITS } from "../src/server/lib/rate_limit.ts";
 import { createDeviceIdentity, signSignedPreKey } from "../src/shared/crypto/identity.ts";
 import { openSession } from "../src/shared/crypto/session.ts";
 import { fromBase64Url, toBase64Url } from "../src/shared/encoding.ts";
+import { listColumns, listTables } from "./database.ts";
 
 let server: TestServer;
 
@@ -161,11 +162,9 @@ describe("end-to-end encryption", () => {
     });
     // The payload is opaque to the server by construction; what this asserts is that no
     // *other* column copied it, and that nothing recorded who sent it.
-    const tables = await server.db.all<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-    );
-    for (const { name } of tables) {
-      // The table name comes from sqlite_master, never from a request. audit:allow
+    const tables = await listTables(server.db);
+    for (const name of tables) {
+      // The table name comes from the schema itself, never from a request. audit:allow
       const rows = await server.db.all<Record<string, unknown>>(`SELECT * FROM ${name}`);
       for (const row of rows) {
         for (const [column, value] of Object.entries(row)) {
@@ -175,8 +174,7 @@ describe("end-to-end encryption", () => {
       }
     }
     // And no column names a sender: the envelope knows a recipient device and nothing else.
-    const columns = await server.db.all<{ name: string }>("PRAGMA table_info(envelopes)");
-    expect(columns.map((column) => column.name)).not.toContain("sender_user_id");
+    expect(await listColumns(server.db, "envelopes")).not.toContain("sender_user_id");
   });
 });
 

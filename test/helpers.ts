@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { buildApp } from "../src/server/app.ts";
 import { loadConfig, type Config } from "../src/server/config.ts";
-import { createSqliteDb } from "../src/server/db/sqlite.ts";
+import { createTestDatabase, TEST_DIALECT } from "./database.ts";
 import { migrate } from "../src/server/db/migrate.ts";
 import type { Db } from "../src/server/db/index.ts";
 import { sodiumReady } from "../src/shared/crypto/sodium.ts";
@@ -38,13 +38,13 @@ export async function startTestServer(
   await sodiumReady();
   const config = loadConfig({
     env: "test",
-    dialect: "sqlite",
+    dialect: TEST_DIALECT,
     behindTls: false,
     bucketPepper: `test-pepper-${randomUUID()}-0000000000000000`,
     powBits: TEST_POW_BITS,
     ...overrides,
   });
-  const db = createSqliteDb(":memory:");
+  const { db, drop } = await createTestDatabase();
   await migrate(db);
   const app = await buildApp(config, db);
   extraRoutes?.(app);
@@ -56,6 +56,7 @@ export async function startTestServer(
     async close() {
       await app.close();
       await db.close();
+      await drop();
     },
   };
 }

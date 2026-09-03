@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit",
     "check": "npm run lint && npm run typecheck",
     "test": "vitest run",
+    "test:postgres": "vitest run",
     "audit:deps": "npm audit --omit=dev --audit-level=high",
     "audit:dependencies": "node scripts/audit.mjs dependencies",
     "audit:bundle": "node scripts/audit.mjs bundle",

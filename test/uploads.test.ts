@@ -17,6 +17,7 @@ import {
 } from "./helpers.ts";
 import { DEFAULT_LIMITS } from "../src/server/lib/rate_limit.ts";
 import { base64UrlBytes, safeFileName } from "../src/shared/uploads.ts";
+import { listColumns } from "./database.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -83,8 +84,8 @@ describe("MIME and extension spoofing", () => {
   });
 
   it("stores no type, no name and no extension anywhere", async () => {
-    const columns = await server.db.all<{ name: string }>("PRAGMA table_info(deliveries)");
-    expect(columns.map((column) => column.name).sort()).toEqual([
+    const columns = await listColumns(server.db, "deliveries");
+    expect([...columns].sort()).toEqual([
       "ciphertext",
       "created_at",
       "expires_at",

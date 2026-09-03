@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { approveSeller, register, startTestServer, type TestClient, type TestServer } from "./helpers.ts";
 import { backfillSearchIndex, queryTerms, tokenize } from "../src/server/lib/search.ts";
+import { TEST_DIALECT } from "./database.ts";
 
 let server: TestServer;
 let seller: TestClient;
@@ -152,7 +153,12 @@ describe("pagination", () => {
 });
 
 describe("the query plan", () => {
-  it("uses an index for a search and never scans the listings table", async () => {
+  // SQLite only, and not for lack of trying: PostgreSQL's planner chooses a sequential scan
+  // on a table of five rows whatever the indexes say, so the same assertion there would
+  // measure the size of the fixture rather than the shape of the query. The indexes exist in
+  // both (one schema, `test/migrations.test.ts`); what is checked here is that the query the
+  // marketplace runs can use them.
+  it.skipIf(TEST_DIALECT === "postgres")("uses an index for a search and never scans the listings table", async () => {
     const plan = await server.db.all<{ detail: string }>(
       `EXPLAIN QUERY PLAN
        SELECT l.id FROM listings l

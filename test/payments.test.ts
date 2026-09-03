@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { approveSeller, register, startTestServer, type TestServer } from "./helpers.ts";
+import { listColumns, listTables } from "./database.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -116,13 +117,9 @@ describe("what the marketplace discloses (point 81)", () => {
 
 describe("payments are absent, and the shape they must take is fixed (point 82)", () => {
   it("has no card-shaped column anywhere in the schema", async () => {
-    const tables = await server.db.all<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-    );
     const columns: string[] = [];
-    for (const { name } of tables) {
-      const info = await server.db.all<{ name: string }>(`PRAGMA table_info(${name})`);
-      columns.push(...info.map((column) => `${name}.${column.name}`));
+    for (const name of await listTables(server.db)) {
+      columns.push(...(await listColumns(server.db, name)).map((column) => `${name}.${column}`));
     }
     const forbidden =
       /(card|pan|cvv|cvc|iban|sort_code|account_number|routing|expiry_month|billing|paypal|stripe)/i;

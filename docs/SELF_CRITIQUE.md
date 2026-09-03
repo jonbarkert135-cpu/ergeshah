@@ -122,7 +122,9 @@ or type — i.e. that the trade is the one described, not a wider one.
 
 **Why it matters.** `node:sqlite` is synchronous, and handlers are not, so transactions are
 queued on a single handle (ADR-0036). One slow transaction delays every write in the process:
-sending a message, placing an order, logging in. The PostgreSQL driver has no such queue.
+sending a message, placing an order, logging in. The PostgreSQL driver has no such queue —
+and, as findings 8 and 9 below show, the absence of that queue is not only a performance
+difference.
 
 **Severity:** medium — a scalability limit rather than a vulnerability, but it is also a
 denial-of-service amplifier: anything that makes one transaction slow makes all of them slow.
@@ -131,14 +133,15 @@ denial-of-service amplifier: anything that makes one transaction slow makes all 
 handful of accounts uploading concurrently turns a fast service into a queue. No rule is broken.
 
 **Proposed fix.** Treat SQLite as the single-small-instance option it is, and make the
-PostgreSQL path a tested default rather than an alternative.
+PostgreSQL path a tested one rather than a claimed one.
 
-**Implementation.** Roadmap OPS-2: run the suite against both drivers in CI. Operationally:
-`DB_DIALECT=postgres` for anything beyond a small instance, which the deployment guide already
-recommends.
+**Implementation.** Done (OPS-2): the whole suite runs against a real PostgreSQL in CI as
+well as SQLite, one schema per test server (`test/database.ts`, `docs/TESTING.md`).
+Operationally, `DB_DIALECT=postgres` for anything beyond a small instance.
 
-**Verification.** Until OPS-2 lands, this is unverified for PostgreSQL — the suite runs on
-SQLite. That is stated here rather than implied by "supports both".
+**Verification.** The `postgres` job in `deploy/github-ci.yml`, on every push. The queue
+itself remains — this finding is about a property of SQLite, not a bug — but the alternative
+is now known to work rather than assumed to.
 
 ## 6. Monitoring is in-memory, so an incident with a restart loses its evidence
 
@@ -186,3 +189,62 @@ assumptions rather than hiding them.
 
 **Verification.** `test/cryptography.test.ts` covers the nine kinds of failure the brief asks
 for. That is necessary and, as `docs/ROADMAP.md` says in the same words, not sufficient.
+
+## 8. Two callers could be handed the same one-time prekey
+
+**Why it matters.** A one-time prekey is the part of X3DH that gives forward secrecy to the
+very first message. Claiming it was `SELECT`, then `DELETE`, inside a transaction — which is
+not the same thing as atomic. On SQLite it was correct by accident: that driver serialises
+every write behind one handle, so the two statements could not interleave. On PostgreSQL at
+READ COMMITTED, two transactions read the same row and both returned it.
+
+**Severity:** high on the property it breaks, and it was live in every configuration that
+used the PostgreSQL driver — which, per finding 9, is none, because that driver could not
+start. That is luck, not design.
+
+**Attack scenario.** Two parties open a session with the same device at the same moment and
+receive the same one-time key. The key's whole purpose is to be used once: reuse collapses
+the initial secret into one both sessions share, so an attacker who later compromises one
+session's initial state learns something about the other's, and the "one-time" in the name
+is untrue.
+
+**Proposed fix.** Make the claim one statement, and let the database decide who won.
+
+**Implementation.** `src/server/routes/keys.ts`: `DELETE … WHERE id = (SELECT … LIMIT 1)
+RETURNING key_id, public_key`. The row is chosen and taken by the same statement, and
+`RETURNING` reports whether this caller is the one that took it. A caller that loses retries
+three times; after that the device is out of keys rather than busy, and the bundle is served
+without a one-time key, which the protocol already documents as the weaker-but-sound path.
+
+**Verification.** `test/security.test.ts` fires four concurrent bundle requests and requires
+four distinct keys. Before the fix it saw two on PostgreSQL, and passed on SQLite — the same
+test, the same code, one driver hiding the bug.
+
+## 9. The PostgreSQL driver had never worked
+
+**Why it matters.** The README, `docs/DATABASE.md` and the deployment guide all offer
+PostgreSQL for "anything larger", and ADR-0004 chose the two-driver design. None of it had
+ever been run: the first time the suite pointed at a real PostgreSQL, the server could not
+finish its own migrations. `INTEGER` is 64-bit in SQLite and exactly 32-bit in PostgreSQL,
+and every timestamp in this schema is a millisecond epoch — a number that outgrew int4 in
+1970. On top of that, `pg` returns `BIGINT` and `COUNT(*)` as strings, so comparisons like
+`expires_at < now` and `count === 0` would have been quietly wrong even after the columns
+were widened.
+
+**Severity:** medium — nobody could deploy the broken path, because it failed at boot rather
+than in production. What it says about the project is worse than what it does: a documented,
+tested-looking capability that had never been executed once.
+
+**Attack scenario.** None. The honest version is the failure mode this represents: a claim
+in the documentation that no command checked.
+
+**Proposed fix.** Run the suite against both drivers in CI, and fix whatever that finds.
+
+**Implementation.** Migration `012_widen_timestamps.postgres.sql` (dialect-scoped, ADR-0059),
+`BIGINT` for `schema_migrations.applied_at` in the runner, and an int8 parser in
+`src/server/db/postgres.ts` that returns numbers and throws rather than rounding above 2^53.
+Test-side schema introspection that used `sqlite_master` and `PRAGMA` now goes through
+`test/database.ts`, so the same assertions run on both.
+
+**Verification.** The `postgres` job in CI: 467 passing, 1 skipped (the query-plan assertion,
+which is about SQLite's planner). Locally: `TEST_DATABASE_URL=… npm run test:postgres`.

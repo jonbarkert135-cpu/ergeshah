@@ -268,8 +268,10 @@ function migrations(update = false) {
   );
 
   files.forEach((name, index) => {
-    if (!/^\d{3}_[a-z0-9_]+\.sql$/.test(name)) {
-      problems.push(`${name}: name must be NNN_lower_snake_case.sql`);
+    // `NNN_name.sql` runs on both drivers; `NNN_name.postgres.sql` and `NNN_name.sqlite.sql`
+    // run on one (src/server/db/migrate.ts).
+    if (!/^\d{3}_[a-z0-9_]+(\.(sqlite|postgres))?\.sql$/.test(name)) {
+      problems.push(`${name}: name must be NNN_lower_snake_case[.sqlite|.postgres].sql`);
     }
     const expected = String(index + 1).padStart(3, "0");
     if (name.slice(0, 3) !== expected) {

@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { loadConfig, parseEnvironment } from "../src/server/config.ts";
+import { TEST_DIALECT } from "./database.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -95,9 +96,10 @@ describe("the test environment is isolated by construction", () => {
     try {
       expect(first.config.env).toBe("test");
       expect(first.config.bucketPepper).not.toBe(second.config.bucketPepper);
-      expect(first.db.dialect).toBe("sqlite");
-      // Nothing a test writes reaches a file at all: each server gets its own `:memory:`
-      // database, which is why two of them can exist at once and neither sees the other.
+      // Two servers, two empty databases: a `:memory:` file each on SQLite, a schema each
+      // on PostgreSQL (`test/database.ts`). Neither can see what the other writes, which is
+      // what makes the suite safe to run in parallel.
+      expect(first.db.dialect).toBe(TEST_DIALECT);
       await first.db.run("INSERT INTO users (id, username, password_hash, created_day) VALUES (?, ?, ?, ?)", [
         "isolation-probe",
         "isolation-probe",

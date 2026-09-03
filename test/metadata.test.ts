@@ -25,6 +25,7 @@ import {
 } from "../src/client/messaging.ts";
 import { deleteConversation, deleteMessage } from "../src/client/messaging.ts";
 import { lock, privacySettings, ready, setPrivacy, state } from "../src/client/state.ts";
+import { listColumns, listTables } from "./database.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -52,13 +53,9 @@ describe("metadata features that do not exist", () => {
   });
 
   it("has no column anywhere for presence, read state or a delivery state", async () => {
-    const tables = await server.db.all<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-    );
     const columns: string[] = [];
-    for (const { name } of tables) {
-      const info = await server.db.all<{ name: string }>(`PRAGMA table_info(${name})`);
-      columns.push(...info.map((column) => `${name}.${column.name}`));
+    for (const name of await listTables(server.db)) {
+      columns.push(...(await listColumns(server.db, name)).map((column) => `${name}.${column}`));
     }
     // `notifications.read_at` is the inbox's own read flag — a person marking their own
     // notice board, not a receipt sent to anybody.

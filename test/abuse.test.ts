@@ -28,6 +28,7 @@ import {
   setBlocked,
   startConversation,
 } from "../src/client/messaging.ts";
+import { listColumns } from "./database.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -199,8 +200,8 @@ describe("abuse controls exist without watching anybody", () => {
   it("stores no behavioural profile: the rate limiter holds hashes and a count", async () => {
     const user = await register(server, "watched");
     await user.get("/api/market/listings");
-    const columns = await server.db.all<{ name: string }>("PRAGMA table_info(rate_limits)");
-    expect(columns.map((column) => column.name).sort()).toEqual([
+    const columns = await listColumns(server.db, "rate_limits");
+    expect([...columns].sort()).toEqual([
       "bucket",
       "tokens",
       "updated_at",

@@ -3,6 +3,7 @@ import { approveSeller, register, startTestServer, type TestClient, type TestSer
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../src/shared/crypto/file.ts";
 import { fromBase64Url, toBase64Url, utf8 } from "../src/shared/encoding.ts";
 import { sodiumReady } from "../src/shared/crypto/sodium.ts";
+import { listTables } from "./database.ts";
 
 let server: TestServer;
 
@@ -199,12 +200,10 @@ describe("shipping details for a physical order", () => {
     });
     expect(order.status).toBe(200);
 
-    const tables = await server.db.all<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table'",
-    );
+    const tables = await listTables(server.db);
     const dump: string[] = [];
-    for (const { name } of tables) {
-      // audit:allow — table names come from sqlite_master; this test dumps the whole schema
+    for (const name of tables) {
+      // audit:allow — table names come from the schema itself; this test dumps it whole
       dump.push(JSON.stringify(await server.db.all(`SELECT * FROM ${name}`)));
     }
     expect(dump.join()).not.toContain("Rue des Lilas");

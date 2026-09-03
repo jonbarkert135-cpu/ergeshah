@@ -13,6 +13,7 @@ import {
   type SessionInvite,
 } from "../src/shared/crypto/session.ts";
 import type { RatchetState } from "../src/shared/crypto/ratchet.ts";
+import { listColumns, listTables } from "./database.ts";
 
 let server: TestServer;
 
@@ -173,8 +174,8 @@ describe("end-to-end messaging through the real API", () => {
     const bob = await peer("bob");
     await alice.send("bob", toBase64Url(new Uint8Array(24).fill(1)), "ephemeral");
 
-    const columns = await server.db.all<{ name: string }>("PRAGMA table_info(envelopes)");
-    expect(columns.map((column) => column.name)).toEqual([
+    const columns = await listColumns(server.db, "envelopes");
+    expect(columns).toEqual([
       "id",
       "recipient_device_id",
       "channel",
@@ -200,11 +201,7 @@ describe("end-to-end messaging through the real API", () => {
 
     // Walk the whole database rather than the tables we remember: a future table that
     // records who sent what would be caught here and nowhere else.
-    const tables = (
-      await server.db.all<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-      )
-    ).map((row) => row.name);
+    const tables = await listTables(server.db);
     for (const table of ["envelopes", "notifications"]) {
       // audit:allow sql-interpolation — the name comes from the literal list two lines up, never from input, and SQL has no parameter form for a table name
       const rows = await server.db.all<Record<string, unknown>>(`SELECT * FROM ${table}`);

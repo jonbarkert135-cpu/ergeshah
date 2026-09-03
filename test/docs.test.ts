@@ -7,6 +7,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { readFileSync } from "node:fs";
 import { startTestServer, type TestServer } from "./helpers.ts";
+import { listTables } from "./database.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -55,11 +56,7 @@ describe("docs/API.md matches the routes that exist", () => {
 describe("docs/DATABASE.md matches the schema", () => {
   it("describes every table the migrations create", async () => {
     const doc = read("docs/DATABASE.md");
-    const tables = (
-      await server.db.all<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-      )
-    ).map((row) => row.name);
+    const tables = await listTables(server.db);
     expect(tables.length).toBeGreaterThan(10);
     const undocumented = tables.filter((name) => !doc.includes(`\`${name}\``)).sort();
     expect(undocumented, "add these to docs/DATABASE.md").toEqual([]);

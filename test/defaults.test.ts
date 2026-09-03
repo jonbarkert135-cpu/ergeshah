@@ -12,6 +12,7 @@ import { loadConfig } from "../src/server/config.ts";
 import { cookiesAreSecure } from "../src/server/app.ts";
 import { pad, unpad, paddedLength } from "../src/shared/crypto/padding.ts";
 import { register, startTestServer } from "./helpers.ts";
+import { listTables } from "./database.ts";
 
 /** A config as a fresh deployment gets it: NODE_ENV set, nothing else. */
 function defaultConfig() {
@@ -124,12 +125,10 @@ describe("protections are not settings", () => {
     try {
       const user = await register(server, "no-address");
       await user.get("/api/market/listings?q=x");
-      const tables = await server.db.all<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table'",
-      );
+      const tables = await listTables(server.db);
       const dump: string[] = [];
-      for (const { name } of tables) {
-        // audit:allow — table names come from sqlite_master; this test dumps the schema
+      for (const name of tables) {
+        // audit:allow — table names come from the schema itself; this test dumps it whole
         dump.push(JSON.stringify(await server.db.all(`SELECT * FROM ${name}`)));
       }
       const everything = dump.join();

@@ -1034,6 +1034,9 @@ conversations at once (a first sign-in with a large contact list) will now be th
 30; it retries, and the alternative was letting anyone drain a stranger's prekeys. Neither
 change touches an existing session, a stored key or the wire format.
 
+*Amended by ADR-0060: the claim itself is now one statement, because "inside a transaction"
+was not the same as atomic on a database with real concurrency.*
+
 ## ADR-0036 — One writer at a time on SQLite, because handlers are not synchronous
 
 **Status:** accepted (2026-09-03)
@@ -1680,3 +1683,62 @@ what the design accepts, not what the implementation currently gets wrong.
 effect and is unusual enough to be worth stating: a reader can grade the honesty of everything
 else by it. It also has to be maintained — a stale critique is worse than none, so a fixed
 finding is edited, never deleted.
+
+## ADR-0059 — Both drivers run the whole suite, and a migration may name a dialect
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Two drivers have shipped since ADR-0004, and only one was ever executed. The
+first run of the suite against a real PostgreSQL did not reach the second test: `INTEGER` is
+32-bit there and every timestamp in this schema is a millisecond epoch, so the server could
+not finish its own migrations (`docs/SELF_CRITIQUE.md`, finding 9). Fixing that ran into the
+strongest rule in the repository — a released migration is never edited — and into a second
+difference: `pg` returns `BIGINT` and `COUNT(*)` as strings, which would have made
+`expires_at < now` and `count === 0` silently wrong.
+
+**Decision.** A second CI job runs the whole suite against PostgreSQL 17
+(`TEST_DATABASE_URL`, one schema per test server, `test/database.ts`). Migrations may be
+named `NNN_name.postgres.sql` or `NNN_name.sqlite.sql` and then run on that driver only;
+`012_widen_timestamps.postgres.sql` widens every millisecond column to `BIGINT` after the
+released migrations, without touching one of them. The Postgres driver parses int8 into a
+number and throws on a value that cannot be represented exactly, so both drivers return the
+same types to the application. Schema introspection in tests goes through helpers rather than
+`sqlite_master` and `PRAGMA`.
+
+**Rejected:** editing 001–011 to say `BIGINT` (it is the rule that keeps deployments and
+development in step, and "no PostgreSQL deployment can exist yet" is an argument that stops
+being true the moment somebody deploys); a `DO $$ … $$` block to widen columns generically
+(procedures in migrations, and the statement splitter would cut it in half); keeping the
+strings and coercing at every call site (dozens of places, each one a chance to forget).
+
+**Consequences.** CI is two jobs and about a minute longer. Dialect-scoped migrations are a
+door that can be misused — the rule is that they exist for type differences, and a scoped
+migration that is not about one is a bug. The int8 parser is global to the process, which is
+correct here and would need revisiting if this schema ever stored a genuine 64-bit
+identifier.
+
+## ADR-0060 — A one-time prekey is claimed by one statement
+
+**Status:** accepted (2026-09-03)
+
+**Context.** `claimOneTimePreKey` read the oldest unclaimed key and then deleted it, inside a
+transaction. That is atomic only if the database serialises the two statements, which SQLite
+does (one write handle) and PostgreSQL at READ COMMITTED does not. Four concurrent bundle
+requests on PostgreSQL received two distinct keys instead of four
+(`docs/SELF_CRITIQUE.md`, finding 8).
+
+**Decision.** One statement: `DELETE FROM one_time_prekeys WHERE id = (SELECT id … ORDER BY
+key_id LIMIT 1) RETURNING key_id, public_key`. The delete chooses the row and takes it, and
+`RETURNING` tells the caller whether it was the one that took it. A caller that loses retries
+three times; then the device is treated as out of keys and the bundle is served with the
+signed prekey only.
+
+**Rejected:** `SELECT … FOR UPDATE SKIP LOCKED` (correct on PostgreSQL, unsupported on
+SQLite, and this codebase writes one SQL for both); `SERIALIZABLE` for the transaction (a
+retry loop on serialisation failures, for one row); trusting SQLite's write queue and
+documenting the PostgreSQL path as unsafe (that is the cargo-cult inverse — knowing about a
+correctness bug and writing it down instead of fixing it).
+
+**Consequences.** Claiming is now one round trip rather than three, and correct on both
+drivers. Under heavy contention a caller can still be served without a one-time key, which is
+the documented weaker path rather than a broken one.

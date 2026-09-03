@@ -13,7 +13,7 @@ export async function migrate(db: Db): Promise<string[]> {
   await db.run(
     `CREATE TABLE IF NOT EXISTS schema_migrations (
        name TEXT PRIMARY KEY,
-       applied_at INTEGER NOT NULL
+       applied_at BIGINT NOT NULL
      )`,
   );
   const applied = new Set(
@@ -21,6 +21,7 @@ export async function migrate(db: Db): Promise<string[]> {
   );
   const pending = readdirSync(MIGRATIONS_DIR)
     .filter((name) => name.endsWith(".sql"))
+    .filter((name) => appliesTo(name, db.dialect))
     .sort()
     .filter((name) => !applied.has(name));
 
@@ -35,6 +36,19 @@ export async function migrate(db: Db): Promise<string[]> {
     });
   }
   return pending;
+}
+
+/**
+ * A migration named `NNN_thing.postgres.sql` or `NNN_thing.sqlite.sql` runs on that driver
+ * only; anything else runs on both. The escape hatch exists because the two databases
+ * disagree about types, not about the schema: `INTEGER` is 64-bit in SQLite and 32-bit in
+ * PostgreSQL, so the millisecond timestamps this application stores need `BIGINT` there and
+ * nowhere else (ADR-0059). Portable SQL stays the rule — this is the exception, and a
+ * dialect-scoped migration that is not about a dialect difference is a bug.
+ */
+function appliesTo(name: string, dialect: Db["dialect"]): boolean {
+  const scoped = /\.(sqlite|postgres)\.sql$/.exec(name);
+  return scoped === null || scoped[1] === dialect;
 }
 
 /** Splits on `;` at statement level. Our migrations deliberately contain no procedures. */

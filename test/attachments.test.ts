@@ -19,6 +19,7 @@ import {
   startConversation,
 } from "../src/client/messaging.ts";
 import { toBase64Url } from "../src/shared/encoding.ts";
+import { listColumns } from "./database.ts";
 
 let server: TestServer;
 let recoveryPhrase = "";
@@ -48,8 +49,8 @@ describe("the blind attachment store", () => {
     expect(response.status).toBe(200);
     expect(response.body.id).toBe(attachmentId);
 
-    const columns = await server.db.all<{ name: string }>("PRAGMA table_info(attachments)");
-    expect(columns.map((column) => column.name).sort()).toEqual([
+    const columns = await listColumns(server.db, "attachments");
+    expect([...columns].sort()).toEqual([
       "ciphertext",
       "created_at",
       "expires_at",

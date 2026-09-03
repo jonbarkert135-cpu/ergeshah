@@ -20,6 +20,7 @@ import {
   type VaultBackup,
 } from "../src/shared/crypto/vault.ts";
 import { fromUtf8, utf8 } from "../src/shared/encoding.ts";
+import { listColumns, listTables } from "./database.ts";
 
 let server: TestServer;
 
@@ -172,16 +173,13 @@ describe("privacy of what is stored", () => {
   it("never writes an address, user agent or referrer to any table", async () => {
     const client = await register(server, "ivan");
     await client.get("/api/auth/me");
-    const tables = await server.db.all<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table'",
-    );
+    const tables = await listTables(server.db);
     // `pgp_fingerprint` is the hash of a public key the user chose to publish — the one
     // kind of fingerprint that is not a way of recognising a browser behind its back.
     for (const table of tables) {
-      const columns = await server.db.all<{ name: string }>(`PRAGMA table_info(${table.name})`);
-      for (const column of columns) {
-        if (column.name === "pgp_fingerprint") continue;
-        expect(column.name).not.toMatch(/(^|_)(ip|ip_address|user_agent|referrer|fingerprint)$/);
+      for (const column of await listColumns(server.db, table)) {
+        if (column === "pgp_fingerprint") continue;
+        expect(column).not.toMatch(/(^|_)(ip|ip_address|user_agent|referrer|fingerprint)$/);
       }
     }
   });

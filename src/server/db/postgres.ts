@@ -2,6 +2,25 @@ import pg from "pg";
 import { toPostgresPlaceholders, type Db } from "./index.ts";
 
 /**
+ * `pg` returns `BIGINT` as a string, because int8 can hold values JavaScript's number
+ * cannot represent exactly. That default is right in general and wrong here: every int8 in
+ * this schema is either a millisecond timestamp or a `COUNT(*)`, and the SQLite driver
+ * returns both as numbers. Left alone, the difference is silent — `row.expires_at < now`
+ * compares a string to a number, and `count === 0` is false for `"0"` — so the same code
+ * that passes on one driver quietly misbehaves on the other.
+ *
+ * So int8 is parsed to a number, and a value that would lose precision throws instead of
+ * rounding. A millisecond timestamp reaches 2^53 in the year 287396.
+ */
+pg.types.setTypeParser(pg.types.builtins.INT8, (value: string) => {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`bigint ${value} cannot be represented exactly as a JavaScript number`);
+  }
+  return parsed;
+});
+
+/**
  * Ceilings the database enforces itself (point 86). A query that runs for a minute is a
  * bug or an attack either way, and the request that started it is long gone; the same is
  * true of a transaction left open, which holds a connection and blocks vacuum. Both are
