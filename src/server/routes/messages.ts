@@ -84,6 +84,19 @@ export async function registerMessageRoutes(app: FastifyInstance): Promise<void>
       body.ttlHours === undefined || body.ttlHours === null
         ? config.envelopeTtlMs
         : Math.min(asInteger(body.ttlHours, "ttlHours", 1, 720) * 3_600_000, config.envelopeTtlMs);
+    // Delivery timing noise (MD-2, ADR-0085): a sender may ask that this envelope not be
+    // handed over for a while, so that a post and the fetch that follows it do not pin two
+    // accounts to the same second. Quantised to fifteen seconds — a delay of 3_471 ms is a
+    // fingerprint of the client that chose it — and capped by the deployment.
+    const delaySeconds =
+      body.delaySeconds === undefined || body.delaySeconds === null
+        ? 0
+        : Math.min(
+            // Rounded *up*: a delay is a request to wait, and rounding one down to zero
+            // would quietly turn the feature off for anyone who asked for a few seconds.
+            Math.ceil(asInteger(body.delaySeconds, "delaySeconds", 0, config.maxDeliveryDelaySeconds) / 15) * 15,
+            Math.floor(config.maxDeliveryDelaySeconds / 15) * 15,
+          );
 
     const target = await db.get<{ id: string; status: string }>(
       "SELECT id, status FROM users WHERE username = ?",
@@ -111,9 +124,9 @@ export async function registerMessageRoutes(app: FastifyInstance): Promise<void>
             : JSON.stringify(validateInvite(message.invite));
         const id = newId();
         await tx.run(
-          `INSERT INTO envelopes (id, recipient_device_id, channel, payload, invite, created_at, expires_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [id, deviceId, channel, payload, invite, now, now + ttlMs],
+          `INSERT INTO envelopes (id, recipient_device_id, channel, payload, invite, created_at, expires_at, available_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, deviceId, channel, payload, invite, now, now + ttlMs, now + delaySeconds * 1000],
         );
         accepted.push(id);
       }
@@ -144,9 +157,11 @@ export async function registerMessageRoutes(app: FastifyInstance): Promise<void>
       invite: string | null;
       created_at: number;
     }>(
+      // `available_at` is zero for anything sent without a delay and for every envelope
+      // written before ADR-0085, so the common case is one extra comparison.
       `SELECT id, channel, payload, invite, created_at FROM envelopes
-        WHERE recipient_device_id = ? ORDER BY created_at LIMIT 200`,
-      [device.id],
+        WHERE recipient_device_id = ? AND available_at <= ? ORDER BY created_at LIMIT 200`,
+      [device.id, Date.now()],
     );
     return {
       envelopes: rows.map((row) => ({

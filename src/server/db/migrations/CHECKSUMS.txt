@@ -20,3 +20,4 @@ sha256-GqOgMgb6dgg2stwMjxxjKYdYS4yVNypTVuhA12JgsZU=  019_withdrawal_approvals.sq
 sha256-W9qOanPPtayTo4uc17+eea6yoSfOQiaJ93p5fpSX3u8=  020_lockdown.sql
 sha256-OzkhENf9HA+3y6NhmQ5524+gZSYlXluNlSmn3jRmOxc=  021_category_folding.sql
 sha256-7v699NI8ggrgTsyOJg4savX6LtSyZGe17CR7EVu31Jo=  022_send_tokens.sql
+sha256-fOmsQM0bGB7kK49rcsFUgFyueWDJ85/jhL7nelLiqqo=  023_envelope_available_at.sql

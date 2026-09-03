@@ -24,8 +24,10 @@ expire, typing indicators and read receipts as opt-in encrypted signals with no 
 state, client-encrypted attachments in blind storage, and client-side message search. The
 decision not to ship presence or push is in ADR-0042 and ADR-0044.*
 
-- **MD-2 — Delivery timing noise.** Randomised polling intervals and optional delayed
-  delivery to blur send/fetch correlation.
+*Shipped: MD-2 timing noise (ADR-0085) — a poll interval redrawn from the CSPRNG after every
+fetch, and an opt-in delivery delay of 15 s to 2 min held by `envelopes.available_at`. The
+defence this section still lacks is cover traffic, which is a whole design and its own cost,
+not a knob: see the ADR for why it is not sprinkled in.*
 *Shipped: MD-4 sealed sender (ADR-0084) — the send request carries a single-use token and
 no cookie, so the sender is absent from the data at rest as well as from the schema. An
 operator watching the running server still sees who mints tokens; unlinkable issuance needs

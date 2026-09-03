@@ -15,7 +15,7 @@ privacy-preserving by construction, or it does not exist here.**
 | --- | --- | --- | --- | --- |
 | **Sender** | Inside the ciphertext | Nothing at rest. `envelopes` has no sender column, and since ADR-0084 the sending *request* carries no session either: the client spends a single-use token and omits its cookies. What remains is that an account asked for a batch of tokens at some earlier moment — visible to an operator watching the running server, absent from every stored row | Who wrote to them, which is the point | Always |
 | **Recipient** | `envelopes.recipient_device_id` | The device an envelope is for. Unavoidable: store-and-forward has to know where to forward | — | Always |
-| **Timestamp** | `envelopes.created_at`, and `at` inside the ciphertext | When an undelivered envelope arrived, to the millisecond, until it is collected and deleted. Long-lived rows elsewhere keep only a *day* | The time the sender's clock claimed | Always |
+| **Timestamp** | `envelopes.created_at`, `available_at`, and `at` inside the ciphertext | When an undelivered envelope arrived, to the millisecond, until it is collected and deleted. Long-lived rows elsewhere keep only a *day*. The poll that collects it no longer runs on a fixed beat, and a sender may ask that collection be held back by up to two minutes (ADR-0085) | The time the sender's clock claimed | Jittered poll always; the delay is **off** |
 | **Size** | `envelopes.payload` | A padding bucket — 64/256/1024/4096·n bytes — not the length of what was written | The message | Always |
 | **Delivery state** | Nowhere | That an envelope was fetched, because it is deleted at that moment. There is no `delivered` column and no delivery history | Nothing. There is no "delivered" tick: the client is not told, because the only honest source would be a receipt the peer chose to send | — |
 | **Typing indicator** | An encrypted message | That an envelope was sent, in the same padding bucket as a short sentence. No column, no flag, no way to sort signals from messages | That you are typing, for eight seconds | **Off** |
@@ -38,6 +38,22 @@ unlinkable issuance — a blind signature — which is a primitive this project 
 hand-roll for one route. Batches are minted when the pouch runs low rather than at send time,
 and expiries are jittered so a batch is not one grouping key, but neither of those turns the
 mechanism into something it is not.
+
+### Timing, and the defence that is not here (ADR-0085)
+
+Two things changed and one deliberately did not. The client's poll interval is redrawn from
+the CSPRNG after every fetch, so it neither identifies this client by its cadence nor makes
+the next fetch predictable. And a sender may ask the server to hold an envelope for a
+quantised delay of fifteen seconds to two minutes, which separates the post from the fetch
+that collects it; it is opt-in, in the account screen, because it makes messages arrive
+later.
+
+What is *not* here is cover traffic — a padded envelope on a fixed schedule whether or not
+anybody typed — and that is the only mechanism that actually defeats an observer watching
+the whole service. It costs battery and bandwidth without pause, and a half-hearted version
+teaches an analyst the shape of the exception. So the claim for timing is small and stated
+as such: the easy correlations are noisier, and someone who can watch both ends of this
+service for a week can still do traffic analysis on it.
 
 `test/metadata.test.ts` checks the parts of that table a test can check: that no route
 reports presence or read state, that the schema has no column for either, that the settings

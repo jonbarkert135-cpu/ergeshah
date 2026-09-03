@@ -183,6 +183,9 @@ describe("end-to-end messaging through the real API", () => {
       "invite",
       "created_at",
       "expires_at",
+      // When the fetch route may hand it over (ADR-0085). Still no sender, and still
+      // nothing about the conversation beyond the channel the clients chose.
+      "available_at",
     ]);
 
     await bob.receive();

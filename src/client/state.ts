@@ -85,12 +85,19 @@ export interface PrivacySettings {
   typingIndicators: boolean;
   /** Default disappearing-message lifetime for new conversations, in hours. */
   disappearHours: number | null;
+  /**
+   * Ask the server to hold each envelope for a random quarter to two minutes before it can
+   * be fetched (ADR-0085). It breaks the send/fetch timing correlation and costs immediacy,
+   * which is why it is a choice and not a default.
+   */
+  delayDelivery: boolean;
 }
 
 export const DEFAULT_PRIVACY: PrivacySettings = {
   readReceipts: false,
   typingIndicators: false,
   disappearHours: null,
+  delayDelivery: false,
 };
 
 /**

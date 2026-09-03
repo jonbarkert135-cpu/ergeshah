@@ -17,7 +17,8 @@ import { renderWallet } from "./views/wallet.ts";
 import { renderModeration } from "./views/admin.ts";
 import { renderAccount } from "./views/account.ts";
 import { renderNotifications, unreadCount } from "./views/notifications.ts";
-import { receiveMessages } from "./messaging.ts";
+import { randomUnit, receiveMessages } from "./messaging.ts";
+import { jitteredInterval } from "../shared/jitter.ts";
 
 const root = document.getElementById("app") as HTMLElement;
 
@@ -47,11 +48,17 @@ async function main(): Promise<void> {
   render();
   // Background delivery poll: the tab pulls, the server never pushes and never holds
   // an open association between an account and a socket.
-  window.setInterval(() => {
-    if (!state.vault || document.hidden) return;
-    void receiveMessages().catch(() => undefined);
-    void paintUnread();
-  }, 10_000);
+  // The interval is redrawn after every poll rather than fixed (MD-2, ADR-0085): a client
+  // that fetches on the exact same beat forever is both identifiable and predictable, and
+  // the gap between someone's send and the next fetch is what a timing observer measures.
+  const poll = (): void => {
+    if (state.vault && !document.hidden) {
+      void receiveMessages().catch(() => undefined);
+      void paintUnread();
+    }
+    window.setTimeout(poll, jitteredInterval(10_000, randomUnit()));
+  };
+  window.setTimeout(poll, jitteredInterval(10_000, randomUnit()));
   void paintUnread();
   // A signed prekey is rotated weekly, and a browser that stays signed in for months used to
   // keep the same one for months (ADR-0078). Checked once on load and daily after that, in

@@ -82,7 +82,7 @@ quarterly (`docs/HARDENING.md`).
 
 | Table | What it holds | Notes |
 | --- | --- | --- |
-| `envelopes` | id, recipient **device**, channel, `payload`, optional `invite`, created, expires | Addressed to a device, not a person. Deleted on acknowledgement, and expired by housekeeping regardless. No sender column — who sent it is inside the ciphertext. `expires_at` may be sooner than the default when the sender asked for disappearing messages (point 74) |
+| `envelopes` | id, recipient **device**, channel, `payload`, optional `invite`, created, expires | Addressed to a device, not a person. Deleted on acknowledgement, and expired by housekeeping regardless. No sender column — who sent it is inside the ciphertext. `expires_at` may be sooner than the default when the sender asked for disappearing messages (point 74). `available_at` is when the fetch route may return the row: zero unless the sender asked for a delivery delay (ADR-0085) |
 | `attachments` | id, `ciphertext`, created, expires | Blind blobs for messages (point 78): no sender, no recipient, no conversation, no filename, no media type, no plaintext length. The id is chosen by the client and *is* the capability; the key never reaches the server. Expired by `DELIVERY_TTL_MS`, and deletable by anyone who holds the id |
 
 ### Money

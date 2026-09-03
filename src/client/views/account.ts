@@ -291,6 +291,13 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
         settings.typingIndicators,
         (value) => setPrivacy({ typingIndicators: value }),
       ),
+      toggle(
+        "Delay delivery",
+        "Hold each message on the server for a random 15 seconds to 2 minutes before it can be collected, " +
+          "so a send and the fetch that follows it cannot be matched by their timing. Your messages arrive later.",
+        settings.delayDelivery,
+        (value) => setPrivacy({ delayDelivery: value }),
+      ),
     );
 
     const choices: Array<[string, number | null]> = [

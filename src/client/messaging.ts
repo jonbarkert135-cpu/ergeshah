@@ -22,6 +22,7 @@ import {
 import { fromBase64Url, toBase64Url } from "../shared/encoding.ts";
 import { safeFileName } from "../shared/uploads.ts";
 import { randomBytes } from "../shared/crypto/sodium.ts";
+import { delayStepsSeconds } from "../shared/jitter.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../shared/crypto/file.ts";
 import {
   acceptSession,
@@ -294,6 +295,11 @@ async function sendPayload(
     // for a shorter one only when a message disappears would tell the server which
     // envelopes are chat and which are receipts.
     ...(hours === null ? {} : { ttlHours: hours }),
+    // Timing noise, if this person asked for it (ADR-0085). Drawn per message, so a
+    // conversation does not carry one delay an observer can subtract.
+    ...(privacySettings().delayDelivery
+      ? { delaySeconds: delayStepsSeconds(MAX_DELAY_SECONDS, randomUnit()) }
+      : {}),
   });
   if (options.store !== false) {
     conversation.messages.push({
@@ -307,6 +313,19 @@ async function sendPayload(
     });
   }
   await persistVault();
+}
+
+/**
+ * The server's own cap is `MAX_DELIVERY_DELAY_SECONDS` and it clamps anything larger; two
+ * minutes is what the shipped default allows, and asking for more would be silently cut
+ * rather than honoured.
+ */
+const MAX_DELAY_SECONDS = 120;
+
+/** A uniform number in [0, 1) from the CSPRNG, for the two timing decisions. */
+export function randomUnit(): number {
+  const bytes = randomBytes(2);
+  return ((bytes[0] as number) * 256 + (bytes[1] as number)) / 65_536;
 }
 
 /** Refill when the pouch runs this low, so a send never waits for a batch. */

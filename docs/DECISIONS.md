@@ -2763,3 +2763,51 @@ tokens in its vault and refills when it runs low. `test/sealed_sender.test.ts` c
 delivery, the replay, the forged token, the expiry sweep, the columns, and the fact that a
 send token authorises nothing but a send. MD-4 is shipped; MD-2 (timing noise) is what is
 left of this section, and no token helps with it.
+
+## ADR-0085 — Timing noise: a jittered poll and an optional delivery delay
+
+**Status:** accepted (2026-09-03)
+
+**Context.** MD-2, and the last row of `docs/METADATA.md` that had no defence at all. Padding
+hid message length (MD-1), header encryption hid the routing fields (MD-3), and sealed sender
+took the account out of the send request (ADR-0084). What is left is *when*: an envelope
+appears at 12:00:03 and a device fetches at 12:00:05, forever, and an observer who sees both
+ends of the service can pair two accounts without reading a byte of ciphertext.
+
+**Decision.** Two mechanisms, deliberately of different strengths, and neither pretending to
+be the third one.
+
+1. **A jittered poll, on by default.** The tab redraws its interval after every fetch —
+   ±40% around ten seconds, from the CSPRNG — instead of ticking on a fixed beat. It costs
+   nothing, it is invisible, and it removes both the fingerprint of a perfectly regular
+   client and the predictability of "the next fetch is exactly N seconds after the last".
+2. **A delivery delay, opt-in.** `envelopes.available_at` (migration 023) holds an envelope
+   for a delay the *sending* client chooses, quantised to fifteen seconds and capped at
+   `MAX_DELIVERY_DELAY_SECONDS` (two minutes). With it on, the fetch that collects a message
+   is no longer adjacent to the post that created it. It is off by default because it makes
+   a messenger slower, and a privacy default that makes the product feel broken is a default
+   people switch off along with everything else next to it.
+
+Quantisation matters as much as the delay: a delay of 3,471 ms is a fingerprint of whoever
+chose it, so the wire carries one of eight values and the server rounds up — rounding down
+would silently turn the feature off for someone who asked for five seconds.
+
+**What this does not do.** It does not defeat an adversary who watches the whole service.
+Real protection against traffic analysis is constant-rate cover traffic: send a padded
+envelope on a fixed schedule whether or not anybody typed, so that sending and not sending
+look identical. That is the honest answer, and it is not shipped — on a phone it is a battery
+and bandwidth cost that never ends, and half-hearted cover traffic (a dummy "sometimes") is
+worse than none, because it teaches an analyst the shape of the exception. If this project
+ever takes it on, it will be as a whole design and its own ADR, not as noise sprinkled here.
+
+**Alternatives.** Server-chosen random delays (the server is the adversary in this model, so
+letting it pick how long to look innocent is backwards); delaying the notification as well as
+the envelope (an extra job and a table column, to hide a fact the envelope row already
+carries); batching sends into fixed rounds (a mixnet's design, and a mixnet needs more than
+one server to mean anything).
+
+**Consequences.** One column, one optional field on the send route, one setting in the
+account screen, and a poll that no longer ticks like a metronome. `test/timing.test.ts`
+covers the hold, the immediate case, the quantisation, the cap, and the two pure functions.
+MD-2 is shipped in the sense described above and nowhere near "timing analysis is solved" —
+`docs/METADATA.md` says which of those two it is.
