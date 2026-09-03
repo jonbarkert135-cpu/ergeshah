@@ -49,6 +49,7 @@ about the system is worse than no test, and the cheapest way to lie is to test a
 | `mechanisms.test.ts` | **Security** | The mechanism register is complete and honest — six columns per row, an implementation and a test that exist — plus the free-space floor in front of blob writes, and the quality bar and cycle in `docs/CHANGE_REVIEW.md` (points 96–100) |
 | `adr.test.ts` | Documentation | Every ADR is indexed under `docs/adr/`, every index link resolves, records keep their template, and `docs/CHANGE_REVIEW.md` carries both regression questions and the priority ladder in order (points 92–95) |
 | `docs.test.ts` | Documentation | Every route, table and environment variable is documented, and nothing documented has disappeared |
+| `features.test.ts` | Documentation | The completeness matrix covers every route file, screen and table, names tests that exist and still admits what is unfinished; every specification cited in `docs/` appears in `docs/SOURCES.md` with its labelled beliefs (points 103, 106) |
 
 The suites marked **Security** are the ones that would catch a regression an attacker
 could use directly. They are not separated into a different command on purpose: a security
@@ -92,11 +93,23 @@ The nine cryptographic test kinds of point 54 are mapped in the header comment o
 - No `.only` (the linter rejects it: it silently disables the suite while CI stays green).
 - No `Math.random` (the linter rejects it: use `node:crypto`, so a failure reproduces).
 - A regression test names the bug in the test name, not in a comment.
+- **Run the suite from a clean clone now and then**, on a different filesystem:
+
+  ```bash
+  git clone https://github.com/jonbarkert135-cpu/ergeshah.git /tmp/clean && cd /tmp/clean
+  npm ci && npm run check && npm test
+  ```
+
+  This is not ceremony. It caught a test that passed in the working copy and failed under
+  `/tmp`, because tmpfs reports an absurd amount of free space and the assertion depended on
+  the host's disk (`docs/SELF_CRITIQUE.md` finding 10). CI clones cleanly but always onto the
+  same runner image, so it cannot see that class of bug either.
 
 ## What is not covered, honestly
 
-- **PostgreSQL** is exercised only through the shared driver interface; CI runs SQLite.
-  A Postgres job in CI is OPS-2 in `docs/ROADMAP.md`.
+- **PostgreSQL** now runs the whole suite in CI (the `postgres` job) and locally with the
+  command at the top of this page. One assertion is skipped there — the query-plan check in
+  `test/search.test.ts`, which is about SQLite's planner — and nothing else is dialect-specific.
 - **The browser** is not driven end-to-end. The client is tested at the module level
   (`client.test.ts`) and by the shared crypto tests; there is no Playwright run, because a
   browser harness is a large dependency tree for the class of bug our CSP already forbids.

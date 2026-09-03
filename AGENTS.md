@@ -21,6 +21,15 @@ requirements conflict, resolve them with the priority order on that page: crypto
 correctness, security, privacy, data integrity, authorization, reliability, performance,
 maintainability, UX, visual effects. Security is never traded for an animation.
 
+Requirements arrive in numbered blocks, and every block is a continuation of the same
+system — `docs/CHANGE_REVIEW.md` §7 says how to start one (read `docs/FEATURES.md` and
+`docs/MECHANISMS.md` before writing anything; most of a block is usually already built), §8
+says what to do when an instruction conflicts with the standing brief (explain the conflict,
+propose the safer version, never ship the unsafe one silently), and §9 is the list of
+questions asked before the code. A feature that gains a route, a screen or a table needs its
+row in `docs/FEATURES.md`; a construction taken from a specification needs its line in
+`docs/SOURCES.md`. Both are enforced by `test/features.test.ts`.
+
 ## Branching: there is none
 
 The owner wants the whole project on `main`, not spread across branches. Commit and push

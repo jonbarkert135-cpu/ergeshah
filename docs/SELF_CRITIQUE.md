@@ -252,3 +252,30 @@ Test-side schema introspection that used `sqlite_master` and `PRAGMA` now goes t
 
 **Verification.** The `postgres` job in CI: 467 passing, 1 skipped (the query-plan assertion,
 which is about SQLite's planner). Locally: `TEST_DATABASE_URL=… npm run test:postgres`.
+
+## 10. A test that passed here and failed on a clean clone
+
+**Why it matters.** The free-space floor (finding 1's fix) is asserted by a test that used a
+floor of `Number.MAX_SAFE_INTEGER - 1`, on the reasoning that no disk is that large. tmpfs is:
+running the suite from a fresh clone under `/tmp`, `statfs` reported `bavail * bsize` of about
+9.2 × 10¹⁸, the floor was never crossed, and the test failed. The same value is what
+`availableBytes` invents when `statfs` throws — so on a machine where the filesystem could not
+be read at all, the assertion would have *passed* while proving nothing. A test whose result
+depends on the filesystem it runs on is not evidence about the code, in either direction.
+
+**Severity:** low for the product — the mechanism itself works, and CI would have caught the
+failing direction. Medium for the process: it means the suite was never run from a clean clone
+outside this working copy, which is the exact rehearsal point 107 asks for.
+
+**Attack scenario.** None directly. The realistic damage is a green suite that stops meaning
+anything on the machine an operator actually uses.
+
+**Proposed fix.** Make the assertion independent of the host, and make the clean-clone run a
+habit rather than an accident.
+
+**Implementation.** The floor in `test/mechanisms.test.ts` is now `Number.MAX_VALUE`, which no
+filesystem can report and which the `statfs`-failed fallback cannot reach either. The
+clean-clone rehearsal is written up in `docs/TESTING.md` with the command.
+
+**Verification.** The suite passes both in this working copy and in a fresh clone under
+`/tmp`; the previously failing test now fails only if the mechanism itself stops refusing.

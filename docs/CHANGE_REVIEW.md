@@ -143,3 +143,89 @@ case that is not handled, the name that lies.
 Then **reassess** — what did this change make possible, and what did it make worse? — and
 **improve**: the finding goes into `docs/SELF_CRITIQUE.md` or the roadmap with a severity, not
 into a private list of things somebody might get to.
+
+## 7. When a new block of requirements arrives
+
+Point 101. The requirements for this project arrive in numbered blocks, months of them, and
+each block is a continuation — never a fresh project, never a second system beside the first.
+The failure mode is not forgetting a requirement; it is quietly building a parallel
+implementation of something that already exists, so that the tree ends up with two session
+mechanisms, two validation styles and two answers to the same question.
+
+The repository is the memory, not the conversation. Before writing anything for a new block:
+
+1. **Find what already answers it.** `docs/MECHANISMS.md` lists every security mechanism,
+   `docs/adr/README.md` indexes every decision by area, `docs/FEATURES.md` says which parts of
+   a feature exist. Most blocks are half-implemented already; the honest report is "four of
+   these six points are done, here is where", not six new files.
+2. **Change the smallest set of components.** A requirement that seems to need a new subsystem
+   usually needs a column, a limit and a test. If it genuinely needs a subsystem, that is an
+   ADR before it is code.
+3. **Keep the seams compatible.** A released migration is never edited (ADR-0025); an API
+   response never loses a field without a version note (`docs/API.md`); a stored format that
+   changes needs a path for rows already written in the old one.
+4. **Re-run the regression questions above.** Section 1 for security, section 2 for
+   performance — a block that adds a feature is the most likely place for both to slip.
+5. **Say what the block did not do.** Anything left goes to `docs/ROADMAP.md` or
+   `docs/SELF_CRITIQUE.md` with a severity, in the same commit, not into a private list.
+
+Nothing about a new block resets a decision. If a block contradicts one, that is section 8.
+
+## 8. When a requirement conflicts with the brief
+
+Point 102. The master brief is the standing requirement; a later instruction can conflict with
+it, and the conflict is usually invisible to whoever wrote the instruction — it reads as a
+small feature and lands as a hole in the threat model. The rule is not "refuse", and it is
+certainly not "comply quietly". It is four steps, in order:
+
+**Detect it.** The tell is section 1's table: the instruction needs the server to read
+something it currently cannot, moves a check to the client, widens a limit, or makes a claim
+the code does not support.
+
+**Explain it.** In the reply and in the commit: what the instruction asks, which requirement
+it contradicts, and what an attacker gains from the difference. "That would let the server
+read message bodies" is the explanation; "that is not best practice" is not.
+
+**Propose the safe version.** Almost every conflict has one, because the *goal* behind the
+instruction is nearly always compatible with the brief even when the mechanism is not. Search
+for what the requirement is trying to achieve, then implement that.
+
+**Never ship the unsafe version silently.** If the owner, having read the explanation, still
+wants it, it goes in with an ADR that records the trade and the residual risk — never as an
+unremarked line in a diff. A requirement that can be implemented more safely at reasonable
+cost is implemented the safer way by default, and the reply says so.
+
+This has happened repeatedly here, and each time it produced a better feature than the literal
+reading would have:
+
+| The requirement | The conflict | What shipped |
+| --- | --- | --- |
+| Secure the WebSocket layer (point 87) | There is no WebSocket layer; adding one to secure it is the opposite of the point | Enforced absence — a test fails if `new WebSocketServer` appears — plus the nine-item checklist for whoever adds one (ADR-0051) |
+| Notify users about new messages (point 48) | A notification that describes a message puts its content in a row the server can read | Notifications that carry a type and a subject id, never a body (ADR-0032) |
+| Let users delete messages (point 74) | Nobody can delete a copy on a device they do not control; the honest word is "expire" | Four named mechanisms, and an interface that says an agreement is not a guarantee (ADR-0041) |
+| Stop registration abuse (point 71) | A CAPTCHA means a third party watching exactly the users this project refuses to expose | Client-side proof of work on the three abusable routes, no third party (ADR-0044) |
+| Show reviews on the marketplace (point 81) | A review that names its buyer links a purchase to an account, permanently and publicly | Rating, body and day, with no author, plus the distinct-buyer count as the honest signal (ADR-0045) |
+| Keep ADRs in `docs/adr/` (point 94) | Fifty-one records already existed in one file; splitting them would break every link that cites them | The records stay in one file; `docs/adr/README.md` is the index the point actually wanted (ADR-0054) |
+
+## 9. The questions asked before the code
+
+Point 108. "How do I implement this?" is the last question, not the first. The ones that come
+first are cheap to ask and expensive to skip, and each has an address in this repository where
+its answer must end up.
+
+| Before building | Where the answer lands |
+| --- | --- |
+| Why is this needed at all? | The ADR's context paragraph; a feature nobody can motivate is deleted, which is the cheapest security work available |
+| What threat does it create? | `docs/THREAT_MODEL.md`, and a row in `docs/MECHANISMS.md` if the answer needs a mechanism |
+| What new data comes into existence? Who can see it? | `docs/PRIVACY.md` — every field, its retention, and who reads it |
+| Can it work without that data? | The design; the answer is yes more often than it looks (a hash instead of a value, a count instead of a list, a bucket instead of a size) |
+| Can it be done more safely? More simply? | Section 4 above, in that order — safer first, then the laziest version of the safer design |
+| Is there an audited standard for this? | `docs/SOURCES.md`; if a published specification covers it, that is what gets implemented |
+| What happens when the server is compromised? | `docs/THREAT_MODEL.md`, "What an attacker gets, per starting point" — the row must stay true after the change |
+| When an account is compromised? A device? | The same table; the interesting question is what the *other* devices and the recovery path still protect |
+| When the database leaks? | `test/security.test.ts` dumps every table and fails on known plaintext, which is the mechanical half of this answer |
+| What metadata remains? | `docs/METADATA.md` — what the server necessarily learns, and what padding and bucketing blunt |
+| How will an attacker try to break it? | The test, written as the assertion that fails when the property disappears |
+
+The list is not a form to fill in. It is the reason this project keeps ending up with fewer
+features and fewer columns than the requirement implied — which is the intended outcome.

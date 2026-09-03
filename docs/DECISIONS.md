@@ -1771,3 +1771,59 @@ worth it: this is the only test that proves the whole path — snapshot, encrypt
 migrate, boot — works end to end. The drill is SQLite-only, like the backup script;
 PostgreSQL deployments use `pg_dump` and the same rules, and their drill is not automated
 yet.
+
+## ADR-0062 — A bibliography, and beliefs that carry a label
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Points 103 and 104 ask that critical decisions come from primary sources and that
+what is known stay distinguishable from what is assumed. The specifications were being followed
+— `docs/CRYPTO.md` names X3DH, the Double Ratchet, RFC 5869 — but the citations were scattered
+through prose, there was no single place a reviewer could see *which document we read for
+what*, and nothing separated "this reproduces published test vectors" from "we believe this
+composition is faithful". Those two sentences deserve very different amounts of trust, and in
+a document that mixes them the reader has to guess.
+
+**Decision.** `docs/SOURCES.md`: one table mapping every construction to its primary source and
+to the check that proves the code agrees, and a second table stating the project's load-bearing
+beliefs under five labels — FACT, ASSUMPTION, DESIGN CHOICE, RISK, UNKNOWN. `test/features.test.ts`
+fails if a specification cited anywhere in `docs/` is missing from the page, if a label
+disappears, or if a second hand-written cryptographic construction appears beside HKDF.
+
+**Rejected:** citations left inline only (they drift, and nobody can audit a bibliography that
+does not exist as a list); a `references.bib`-style file with no link to the tests (a
+bibliography whose entries nothing verifies is decoration); labelling every sentence in every
+document (the labels are worth something precisely because they are reserved for the beliefs
+the system rests on).
+
+**Consequences.** A new primitive or specification now has a place it must appear, and a change
+that invalidates one of the labelled beliefs is not finished until the label is corrected. The
+UNKNOWN rows are deliberately uncomfortable to read: two of the three say that nobody outside
+this project has checked the thing that matters most.
+
+## ADR-0063 — A feature is finished when nine parts exist, and a test counts them
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 106 asks for production-grade features rather than demonstrations: frontend,
+backend, database, authorization, validation, error handling, security, tests, documentation.
+The repository satisfied that in practice — `test/authorization.test.ts` walks the route table,
+`test/docs.test.ts` refuses an undocumented endpoint — but there was no place to *see* it, so
+the question "is the marketplace actually finished, or is it a screen?" could only be answered
+by reading the tree. That is also the question a new block of requirements (point 101) has to
+answer before adding anything.
+
+**Decision.** `docs/FEATURES.md`: one row per feature, with its client, server, tables,
+authorisation rule, tests and documentation, plus a closing section listing what is *not*
+finished. Validation and error handling are noted as cross-cutting rather than per-row, because
+in this codebase they are one module each and a per-feature variant would itself be the defect.
+`test/features.test.ts` fails if a route file, a screen or a table in the schema has no row, if
+the page names a test file that does not exist, or if the "what is missing" section is deleted.
+
+**Rejected:** a checkbox grid with nine columns (unreadable, and it would have invited ticking
+boxes rather than naming files); generating the page from the code (the interesting content is
+the judgement — which rule applies, what is missing — and a generator cannot write it).
+
+**Consequences.** Adding a route or a table now forces an edit to the matrix, which is the
+point: the cheapest moment to notice that a feature has no authorisation rule is while writing
+the row that has to name one.

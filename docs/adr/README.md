@@ -42,6 +42,7 @@ or if a record is missing a section.
 | [ADR-0014](../DECISIONS.md#adr-0014--a-random-master-key-wrapped-once-per-unlocking-route) | A random master key, wrapped once per unlocking route |
 | [ADR-0035](../DECISIONS.md#adr-0035--revocation-is-final-and-claiming-a-prekey-is-not-an-ordinary-read) | Revocation is final, and claiming a prekey is not an ordinary read |
 | [ADR-0060](../DECISIONS.md#adr-0060--a-one-time-prekey-is-claimed-by-one-statement) | A one-time prekey is claimed by one statement |
+| [ADR-0062](../DECISIONS.md#adr-0062--a-bibliography-and-beliefs-that-carry-a-label) | A bibliography, and beliefs that carry a label |
 
 ### Authentication and identity
 
@@ -133,3 +134,4 @@ or if a record is missing a section.
 | [ADR-0055](../DECISIONS.md#adr-0055--two-questions-before-a-commit-and-one-order-when-requirements-disagree) | Two questions before a commit, and one order when requirements disagree |
 | [ADR-0056](../DECISIONS.md#adr-0056--a-mechanism-carries-its-threat-and-a-file-has-a-ceiling) | A mechanism carries its threat, and a file has a ceiling |
 | [ADR-0058](../DECISIONS.md#adr-0058--the-criticism-of-this-project-lives-in-this-project) | The criticism of this project lives in this project |
+| [ADR-0063](../DECISIONS.md#adr-0063--a-feature-is-finished-when-nine-parts-exist-and-a-test-counts-them) | A feature is finished when nine parts exist, and a test counts them |

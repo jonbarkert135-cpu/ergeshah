@@ -78,6 +78,36 @@ first two. Splitting it out means it is fetched once, in the background, and the
 a year. Replacing it with WebCrypto plus a smaller Argon2 build is the only remaining lever,
 and it would be a cryptographic change, not a performance tweak — see `docs/ROADMAP.md`.
 
+## What it costs to run (point 105)
+
+A security architecture that needs a cluster is not a security architecture for this project,
+so the cost of running it is a requirement like any other. Measured on 2026-09-03 from a clean
+clone of `main` on an x86_64 development machine with a warm package cache — an ordinary VPS
+will be slower on the install and the build, and roughly the same on the rest:
+
+| | Measured |
+| --- | --- |
+| Clone → `npm ci` → `npm run check` → `npm test` → `npm run build` | about 30 s total (install 4 s, types + lint 3 s, 470 tests 8 s, build 13 s) |
+| Production dependencies on disk (`npm ci --omit=dev`) | 28 MB, 177 locked packages, 4 direct |
+| Repository without `node_modules` | 2.8 MB |
+| Time from process start to `/healthz` answering | 0.4 s, migrations included |
+| Resident memory after boot | ~185 MB (Node 22, Fastify, libsodium WASM) |
+| Resident memory after serving pages | unchanged to within a megabyte |
+| Empty database file | 348 kB |
+| Page served locally | 2.6 ms |
+
+That is the whole footprint: one Node process, one file, no queue, no cache server, no
+sidecar, no external service that has to be reachable for a login to work. **1 GB of RAM is
+enough** with room for the SQLite page cache and an upload or two; 2 GB is comfortable. Nothing
+here needs a second machine until availability itself becomes the requirement, which is
+`docs/ROADMAP.md`, not this page.
+
+Two honest caveats. These numbers come from a development machine, not from production —
+nobody has run this service on a real VPS yet (roadmap OPS-6), and the numbers under real
+concurrency are unknown rather than estimated (`docs/SOURCES.md`). And the memory figure is
+what Node reserves, not what the application needs; the useful comparison is between two runs
+of the same build, which is what `GET /api/admin/health` is for.
+
 ## Measuring it yourself
 
 ```

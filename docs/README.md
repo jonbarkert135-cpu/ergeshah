@@ -17,7 +17,7 @@ fact has exactly one home.
 | [testing/](testing/) | What is tested, how, and what is deliberately not |
 | [privacy/](privacy/) | What the server learns, refuses to learn, and forgets |
 
-Five documents sit above the sections because they cut across all of them:
+Eight documents sit above the sections because they cut across all of them:
 [`DECISIONS.md`](DECISIONS.md) (why things are the way they are, indexed by area in
 [`adr/`](adr/)), [`CHANGE_REVIEW.md`](CHANGE_REVIEW.md) (the two questions every change
 answers, and the order that settles a conflict between requirements) and
@@ -26,4 +26,7 @@ answers, and the order that settles a conflict between requirements) and
 failure mode) and [`SELF_CRITIQUE.md`](SELF_CRITIQUE.md) (the weaknesses this project found in
 itself, graded, with what was done about each) and
 [`EXTERNAL_REVIEW.md`](EXTERNAL_REVIEW.md) (the brief for the cryptographic review this
-project has not had).
+project has not had), [`SOURCES.md`](SOURCES.md) (the primary source behind every
+construction, and the project's beliefs labelled FACT, ASSUMPTION, DESIGN CHOICE, RISK or
+UNKNOWN) and [`FEATURES.md`](FEATURES.md) (each feature with its client, server, storage,
+authorisation, tests and documentation — and what is still missing).

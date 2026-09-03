@@ -128,8 +128,13 @@ describe("the quality bar (point 98)", () => {
 describe("the free-space floor", () => {
   it("refuses a write that would land on a nearly full filesystem", async () => {
     resetStorageCache();
-    // The floor is larger than any disk this runs on, so the check must refuse.
-    await expect(requireSpaceFor(root, 1_000, Number.MAX_SAFE_INTEGER - 1)).rejects.toMatchObject({
+    // The floor has to be larger than anything a filesystem can report, and
+    // `MAX_SAFE_INTEGER` is not that: tmpfs on this host reports `bavail * bsize` of about
+    // 9.2e18, so the old floor let a full-disk test pass on one machine and fail on another
+    // (found by running the suite from a clean clone under /tmp). It was also the exact value
+    // `availableBytes` invents when `statfs` fails, so the assertion could pass for the wrong
+    // reason. `MAX_VALUE` is unambiguous.
+    await expect(requireSpaceFor(root, 1_000, Number.MAX_VALUE)).rejects.toMatchObject({
       statusCode: 503,
       code: "storage_full",
     });
