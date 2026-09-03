@@ -16,6 +16,12 @@ here is *not implemented today*; the README table says what is.
 *Shipped: MD-3 header encryption and MD-1 message padding (PR #2). What remains here is
 timing and volume, which padding cannot touch.*
 
+*Shipped (points 74–80): disappearing messages with a server-side expiry the sender can
+shorten, client-side deletion of messages and conversations, skipped message keys that
+expire, typing indicators and read receipts as opt-in encrypted signals with no server
+state, client-encrypted attachments in blind storage, and client-side message search. The
+decision not to ship presence or push is in ADR-0042 and ADR-0044.*
+
 - **MD-2 — Delivery timing noise.** Randomised polling intervals and optional delayed
   delivery to blur send/fetch correlation.
 - **MD-4 — Sealed sender.** Today the sender is hidden from the database; the *sending
@@ -39,6 +45,10 @@ wrapped master key (PR #7), and AUTH-7 PGP challenge–response as a second fact
   gets from observing login.
 
 ## Marketplace
+
+*Shipped (points 81–84): reviews published without their author, a client-side block list,
+the moderation lanes separated and asserted by tests, and the payment architecture written
+down before the feature exists (`docs/PAYMENTS.md`).*
 
 - **PAY-1 — Optional payment adapters.** Isolated, replaceable, never required; the first
   candidate is a self-hosted Monero payment gateway, precisely because it needs no

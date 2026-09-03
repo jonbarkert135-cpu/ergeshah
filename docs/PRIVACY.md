@@ -60,10 +60,27 @@ clients), `payload` (ciphertext), `invite` (public handshake values), `created_a
   be grouped into sessions, and the length is a bucket (64/256/1024/4096·n), not the
   message's real size.
 - Rows are deleted when the recipient acknowledges delivery, and unconditionally after
-  `ENVELOPE_TTL_MS` (30 days by default).
+  `ENVELOPE_TTL_MS` (30 days by default) — or sooner, in whole hours, when the sender asked
+  for disappearing messages (`docs/DELETION.md`). The requested hour is the one thing that
+  choice tells the operator, which is why it is hours rather than minutes and why every
+  envelope in the conversation carries the same one.
 - The server can still see: which device an envelope is for, how large it is, and when it
   arrived and was collected. That is metadata we do not currently hide (see
   THREAT_MODEL.md).
+
+`attachments`: `id`, `ciphertext`, `created_at`, `expires_at`. A picture, a recording or a
+document a conversation carries (point 78) is encrypted in the browser, uploaded as an
+opaque blob under an id the *client* generated, and opened with a key that travels inside
+the message. There is no sender column, no recipient column, no conversation, no filename,
+no media type and no plaintext length — the id is the whole addressing scheme, and it is
+192 random bits. The operator learns that a blob exists, its padded size, and when it was
+stored and fetched.
+
+**Typing indicators, read receipts and presence are not columns anywhere.** They are
+messages between two clients, off until a person turns them on, and the settings themselves
+live in the encrypted vault rather than in a table — a row saying "this account has read
+receipts off" would be one more fact about a person on a server that is trying not to hold
+any. `docs/METADATA.md` takes each one in turn.
 
 ## Marketplace
 
@@ -117,6 +134,14 @@ exchanged in that channel and described to the moderator in words.
 Ratings are published as an average over distinct buyers with the number of buyers beside
 it, so a profile discloses "3 buyers" rather than a review timeline; the per-author
 calculation happens in SQL over rows that already exist and adds no column.
+
+**A review is published without its author** (point 81). `reviews.author_user_id` exists —
+it is what enforces one review per order and one rating per buyer — and no response returns
+it. Naming the reviewer would publish what a person bought to everyone who can read the
+listing, which is the single fact a marketplace buyer most reasonably expects to stay
+between the two parties. What a seller learns about a buyer stays at the minimum the
+transaction needs: a username, because the encrypted order chat is opened by name; what a
+buyer learns about a seller is what a seller published.
 
 ## Moderation
 

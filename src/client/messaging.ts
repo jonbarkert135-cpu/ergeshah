@@ -12,13 +12,17 @@ import {
   decodeIdentity,
   encodeIdentity,
   persistVault,
+  privacySettings,
   state,
+  type AttachmentRef,
+  type ChatMessage,
   type Conversation,
   type DeliveryKey,
 } from "./state.ts";
 import { fromBase64Url, toBase64Url } from "../shared/encoding.ts";
 import { safeFileName } from "../shared/uploads.ts";
 import { randomBytes } from "../shared/crypto/sodium.ts";
+import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../shared/crypto/file.ts";
 import {
   acceptSession,
   decryptText,
@@ -36,6 +40,36 @@ interface Bundle {
   signedPreKeySignature: string;
   oneTimePreKeyId: number | null;
   oneTimePreKey: string | null;
+}
+
+/**
+ * Typing indicators, remembered nowhere (point 76).
+ *
+ * A peer is "typing" for a few seconds after a signal arrives, and that fact lives in this
+ * module for exactly as long as it is true. It is never written to the vault, never sent to
+ * the server, and gone on reload — because a presence history is the thing this feature is
+ * most likely to accidentally become.
+ */
+const typingUntil = new Map<string, number>();
+const TYPING_SHOWN_MS = 8000;
+/** One typing signal per this interval, at most: a keystroke is not an event worth sending. */
+const TYPING_INTERVAL_MS = 6000;
+const typingSentAt = new Map<string, number>();
+
+export function peerIsTyping(channel: string, now = Date.now()): boolean {
+  return (typingUntil.get(channel) ?? 0) > now;
+}
+
+/**
+ * Bumped whenever something arrives that changes what a view should show but is not a
+ * message — a read receipt, a typing signal. Without it a receipt lands silently and the
+ * conversation only shows it the next time something else forces a redraw, which is how
+ * "read" appeared minutes late in the first real-browser run.
+ */
+let revision = 0;
+
+export function signalRevision(): number {
+  return revision;
 }
 
 export function conversations(): Conversation[] {
@@ -70,7 +104,81 @@ export async function startConversation(peer: string, channel?: string): Promise
 }
 
 export async function sendMessage(conversation: Conversation, text: string): Promise<void> {
+  if (isBlocked(conversation.peer)) throw new Error("you blocked this person; unblock them to write");
   await sendPayload(conversation, { text });
+}
+
+/**
+ * An attachment (point 78): a picture, a recording, a document, any file.
+ *
+ * The bytes are encrypted in this browser with a one-time key before anything leaves it,
+ * uploaded as an opaque blob under an id this browser chose, and the key travels to the
+ * peer inside the ordinary encrypted message — never beside the blob, never to the server.
+ * TLS is what protects the upload from the network; it is not what protects it from the
+ * operator, and this is the difference.
+ */
+export async function sendAttachment(
+  conversation: Conversation,
+  bytes: Uint8Array,
+  name: string,
+): Promise<void> {
+  if (isBlocked(conversation.peer)) throw new Error("you blocked this person; unblock them to write");
+  if (bytes.length > MAX_FILE_BYTES) throw new Error(`file: larger than ${MAX_FILE_BYTES} bytes`);
+  const id = toBase64Url(randomBytes(24));
+  const { key, nonce, ciphertext } = encryptFile(id, bytes);
+  await api("/api/attachments", { method: "POST", body: { id, ciphertext: toBase64Url(ciphertext) } });
+  const attachment: AttachmentRef = {
+    id,
+    key: toBase64Url(key),
+    nonce: toBase64Url(nonce),
+    name: safeFileName(name),
+    bytes: bytes.length,
+  };
+  // Upload first, key second: a key without a blob is a broken message, a blob without a
+  // key is unopenable noise that expires on its own.
+  await sendPayload(conversation, { text: attachment.name, attachment }, { attachment });
+}
+
+/** Fetch and open one attachment. The server hands over ciphertext and learns nothing more. */
+export async function openAttachment(reference: AttachmentRef): Promise<Uint8Array> {
+  const { ciphertext } = await api<{ ciphertext: string }>(
+    `/api/attachments/${encodeURIComponent(reference.id)}`,
+  );
+  return decryptFile(
+    reference.id,
+    fromBase64Url(reference.key),
+    fromBase64Url(reference.nonce),
+    fromBase64Url(ciphertext),
+  );
+}
+
+/**
+ * "They are typing" (points 75-76), sent only if this device was told to.
+ *
+ * It is an ordinary encrypted message with no text, so the server cannot tell it from
+ * anything else — and that is also the honest cost: it *is* an envelope, so turning this on
+ * multiplies how often the operator sees you send something. Hence off by default, throttled
+ * hard, and documented in docs/METADATA.md rather than sold as harmless.
+ */
+export async function sendTyping(conversation: Conversation, now = Date.now()): Promise<void> {
+  if (!privacySettings().typingIndicators || isBlocked(conversation.peer)) return;
+  if (now - (typingSentAt.get(conversation.channel) ?? 0) < TYPING_INTERVAL_MS) return;
+  typingSentAt.set(conversation.channel, now);
+  await sendPayload(conversation, { signal: { type: "typing" } }, { store: false });
+}
+
+/**
+ * "Read up to here" (point 77). Configurable, off by default, and one signal per batch
+ * rather than one per message — a receipt per message would be a keystroke-level timeline
+ * of when someone reads.
+ */
+export async function sendReadReceipt(conversation: Conversation): Promise<void> {
+  if (!privacySettings().readReceipts || isBlocked(conversation.peer)) return;
+  const last = conversation.messages.filter((message) => !message.mine).at(-1);
+  if (!last || (conversation.readUpTo ?? 0) >= last.at) return;
+  // Remembered locally so the same receipt is not resent on every render.
+  conversation.readUpTo = last.at;
+  await sendPayload(conversation, { signal: { type: "read", upTo: last.at } }, { store: false });
 }
 
 /**
@@ -92,9 +200,13 @@ export async function sendDeliveryKey(
 }
 
 interface OutgoingPayload {
-  text: string;
+  /** Absent on a control message: a signal has nothing to say, and says it in fewer bytes. */
+  text?: string;
   delivery?: DeliveryKey & { orderId: string };
   shipping?: { orderId: string; details: string };
+  attachment?: AttachmentRef;
+  /** A control message between two clients. Carries no text and is never stored. */
+  signal?: { type: "typing" } | { type: "read"; upTo: number };
 }
 
 /**
@@ -115,13 +227,42 @@ export async function sendShippingDetails(
   });
 }
 
-async function sendPayload(conversation: Conversation, payload: OutgoingPayload): Promise<void> {
+/**
+ * Disappearing messages, in hours (point 74): the conversation's own setting when it has
+ * one, the account default otherwise, and `null` for "keep until deleted".
+ */
+export function disappearHours(conversation: Conversation): number | null {
+  return conversation.disappearHours === undefined
+    ? privacySettings().disappearHours
+    : conversation.disappearHours;
+}
+
+export async function setDisappearing(
+  conversation: Conversation,
+  hours: number | null,
+): Promise<void> {
+  conversation.disappearHours = hours;
+  await persistVault();
+}
+
+async function sendPayload(
+  conversation: Conversation,
+  payload: OutgoingPayload,
+  options: { store?: boolean; attachment?: AttachmentRef } = {},
+): Promise<void> {
   const identity = decodeIdentity(state.vault!.identity);
   const { bundles } = await api<{ bundles: Bundle[] }>(
     `/api/keys/bundle/${encodeURIComponent(conversation.peer)}`,
   );
   const at = Date.now();
-  const plaintext = JSON.stringify({ from: state.account!.username, at, ...payload });
+  const hours = disappearHours(conversation);
+  const expiresAt = hours === null ? undefined : at + hours * 3_600_000;
+  const plaintext = JSON.stringify({
+    from: state.account!.username,
+    at,
+    ...payload,
+    ...(expiresAt === undefined ? {} : { expiresAt }),
+  });
   // Sessions are keyed by the peer's identity key, never by the server's device id:
   // the directory is untrusted, so nothing cryptographic may depend on its bookkeeping.
   const messages = bundles.map((bundle) => {
@@ -147,10 +288,33 @@ async function sendPayload(conversation: Conversation, payload: OutgoingPayload)
 
   await api("/api/messages", {
     method: "POST",
-    body: { to: conversation.peer, channel: conversation.channel, messages },
+    body: {
+      to: conversation.peer,
+      channel: conversation.channel,
+      messages,
+      // The same expiry for every envelope in this conversation, signals included: asking
+      // for a shorter one only when a message disappears would tell the server which
+      // envelopes are chat and which are receipts.
+      ...(hours === null ? {} : { ttlHours: hours }),
+    },
   });
-  conversation.messages.push({ from: state.account!.username, text: payload.text, at, mine: true });
+  if (options.store !== false) {
+    conversation.messages.push({
+      id: localId(),
+      from: state.account!.username,
+      text: payload.text ?? "",
+      at,
+      mine: true,
+      ...(expiresAt === undefined ? {} : { expiresAt }),
+      ...(options.attachment ? { attachment: options.attachment } : {}),
+    });
+  }
   await persistVault();
+}
+
+/** A local handle for one stored message. Never sent, so it identifies nothing to anyone. */
+function localId(): string {
+  return toBase64Url(randomBytes(9));
 }
 
 interface Envelope {
@@ -168,7 +332,11 @@ export async function receiveMessages(): Promise<number> {
   const { envelopes } = await api<{ envelopes: Envelope[] }>(
     `/api/messages?deviceId=${encodeURIComponent(deviceId)}`,
   );
-  if (envelopes.length === 0) return 0;
+  const swept = pruneExpired();
+  if (envelopes.length === 0) {
+    if (swept) await persistVault();
+    return 0;
+  }
 
   let decrypted = 0;
   const handled: string[] = [];
@@ -180,21 +348,37 @@ export async function receiveMessages(): Promise<number> {
         from: string;
         text: string;
         at: number;
+        expiresAt?: number;
+        attachment?: AttachmentRef;
+        signal?: { type: string; upTo?: number };
         delivery?: DeliveryKey & { orderId: string };
         shipping?: { orderId: string; details: string };
       };
       conversation.sessions[opened.sessionKey] = serializeState(opened.state);
       if (conversation.peer === "unknown") conversation.peer = plaintext.from;
+      handled.push(envelope.id);
+      // A blocked peer's message is decrypted (the ratchet has to advance or the session
+      // desynchronises) and then dropped without being stored or shown (point 84). The
+      // server is told nothing: it never knew who sent it, and a block it could see would
+      // be the social graph this design refuses to hand over.
+      if (isBlocked(plaintext.from)) continue;
+      if (plaintext.signal) {
+        applySignal(conversation, plaintext.signal);
+        continue;
+      }
       if (plaintext.delivery) storeDeliveryKey(plaintext.delivery);
       if (plaintext.shipping) storeShipping(plaintext.shipping);
+      const at = plaintext.at || envelope.receivedAt;
       conversation.messages.push({
+        id: localId(),
         from: plaintext.from,
         text: plaintext.text,
-        at: plaintext.at || envelope.receivedAt,
+        at,
         mine: false,
+        ...expiryFor(conversation, at, plaintext.expiresAt),
+        ...(validAttachment(plaintext.attachment) ? { attachment: plaintext.attachment } : {}),
       });
       decrypted += 1;
-      handled.push(envelope.id);
     } catch {
       // Undecryptable envelope: acknowledge it anyway so that a malformed or hostile
       // message cannot wedge the inbox, but keep it out of the conversation.
@@ -204,6 +388,141 @@ export async function receiveMessages(): Promise<number> {
   await persistVault();
   await api("/api/messages/ack", { method: "POST", body: { deviceId, ids: handled } });
   return decrypted;
+}
+
+/**
+ * Whichever expiry is sooner: the one the sender asked for, or this side's own setting for
+ * the conversation. A sender can shorten the life of what they wrote; they cannot extend it
+ * past what the reader chose.
+ */
+function expiryFor(
+  conversation: Conversation,
+  at: number,
+  requested: unknown,
+): { expiresAt?: number } {
+  const hours = disappearHours(conversation);
+  const mine = hours === null ? null : at + hours * 3_600_000;
+  const theirs =
+    typeof requested === "number" && Number.isFinite(requested) && requested > at ? requested : null;
+  const soonest = mine === null ? theirs : theirs === null ? mine : Math.min(mine, theirs);
+  return soonest === null ? {} : { expiresAt: soonest };
+}
+
+/** A peer sends this, so it is validated rather than trusted, exactly like a delivery key. */
+function validAttachment(value: unknown): value is AttachmentRef {
+  const reference = value as AttachmentRef | undefined;
+  if (!reference || typeof reference !== "object") return false;
+  return (
+    /^[A-Za-z0-9_-]{8,64}$/.test(String(reference.id)) &&
+    typeof reference.key === "string" &&
+    typeof reference.nonce === "string"
+  );
+}
+
+/**
+ * Control messages: applied, never stored, never shown as text. An unknown signal type is
+ * ignored — a future client saying something this one does not understand must not become a
+ * blank message in somebody's history.
+ */
+function applySignal(conversation: Conversation, signal: { type: string; upTo?: number }): void {
+  if (signal.type === "typing") {
+    typingUntil.set(conversation.channel, Date.now() + TYPING_SHOWN_MS);
+    revision += 1;
+    return;
+  }
+  if (signal.type === "read" && typeof signal.upTo === "number") {
+    for (const message of conversation.messages) {
+      if (message.mine && message.at <= signal.upTo) message.readAt = signal.upTo;
+    }
+    revision += 1;
+  }
+}
+
+/**
+ * Disappearing messages, applied locally (point 74).
+ *
+ * This is the whole mechanism: both clients drop the plaintext when the agreed time passes,
+ * and the server's copy was already gone at acknowledgement. What it is not is a guarantee —
+ * see docs/DELETION.md. Returns whether anything was removed, so the caller can decide
+ * whether the vault needs rewriting.
+ */
+export function pruneExpired(now = Date.now()): boolean {
+  let changed = false;
+  for (const conversation of Object.values(state.vault?.conversations ?? {})) {
+    const kept = conversation.messages.filter(
+      (message) => message.expiresAt === undefined || message.expiresAt > now,
+    );
+    if (kept.length === conversation.messages.length) continue;
+    conversation.messages = kept;
+    changed = true;
+  }
+  return changed;
+}
+
+/** Delete one message from this device. Nobody else is asked, and nobody else is told. */
+export async function deleteMessage(conversation: Conversation, id: string): Promise<void> {
+  conversation.messages = conversation.messages.filter((message) => message.id !== id);
+  await persistVault();
+}
+
+/**
+ * Delete a conversation: its history *and* its ratchet state, which is the part that
+ * matters — the session keys are what could open anything still in flight for it. The next
+ * message from that peer starts a new session.
+ */
+export async function deleteConversation(channel: string): Promise<void> {
+  const conversation = state.vault?.conversations[channel];
+  if (!conversation) return;
+  conversation.messages = [];
+  conversation.sessions = {};
+  delete state.vault!.conversations[channel];
+  await persistVault();
+}
+
+export function blockedPeers(): string[] {
+  return [...(state.vault?.blocked ?? [])].sort();
+}
+
+export function isBlocked(peer: string): boolean {
+  return (state.vault?.blocked ?? []).includes(peer.toLowerCase());
+}
+
+/** Blocking is this device's decision and stays here: the server is never told (point 84). */
+export async function setBlocked(peer: string, blocked: boolean): Promise<void> {
+  const name = peer.toLowerCase();
+  const current = new Set(state.vault!.blocked ?? []);
+  if (blocked) current.add(name);
+  else current.delete(name);
+  state.vault!.blocked = [...current];
+  await persistVault();
+}
+
+export interface SearchHit {
+  channel: string;
+  peer: string;
+  message: ChatMessage;
+}
+
+/**
+ * Search, in the browser, over what this device has already decrypted (point 79).
+ *
+ * There is no server-side equivalent and there cannot be one: the server holds ciphertext
+ * and no keys, so an index there would either be useless or would require handing it the
+ * plaintext. The ceiling is honest — this searches what this device holds, not what another
+ * device holds, and not what has already disappeared.
+ */
+export function searchMessages(query: string, limit = 50): SearchHit[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) return [];
+  const hits: SearchHit[] = [];
+  for (const conversation of conversations()) {
+    for (const message of conversation.messages) {
+      if (!message.text.toLowerCase().includes(needle)) continue;
+      hits.push({ channel: conversation.channel, peer: conversation.peer, message });
+      if (hits.length >= limit) return hits;
+    }
+  }
+  return hits;
 }
 
 function resolveConversation(envelope: Envelope): Conversation {

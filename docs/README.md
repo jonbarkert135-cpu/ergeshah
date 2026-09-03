@@ -15,7 +15,7 @@ fact has exactly one home.
 | [database/](database/) | The schema, migrations and what each column is allowed to hold |
 | [api/](api/) | Every endpoint, its limit and its authentication |
 | [testing/](testing/) | What is tested, how, and what is deliberately not |
-| [privacy/](privacy/) | What the server learns, and what it refuses to learn |
+| [privacy/](privacy/) | What the server learns, refuses to learn, and forgets |
 
 Two documents sit above the sections because they cut across all of them:
 [`DECISIONS.md`](DECISIONS.md) (why things are the way they are) and

@@ -41,6 +41,18 @@ const HEADER_BYTES = 40;
 
 export const MAX_SKIP_PER_CHAIN = 1000;
 const MAX_STORED_SKIPPED_KEYS = 2000;
+/**
+ * How long a skipped message key may wait for the message it opens (point 74).
+ *
+ * A skipped key is a decryption key sitting in the vault, and until this bound existed the
+ * only thing that removed one was two thousand newer keys arriving after it: a key derived
+ * for a message that was dropped in transit could stay openable for the life of the
+ * conversation, which is the opposite of what a ratchet is for. A week is far longer than a
+ * reordering, and far shorter than forever. Expired keys are wiped and the message they
+ * would have opened simply no longer decrypts — the honest outcome, and the same one the
+ * peer sees for any other lost message.
+ */
+export const MAX_SKIPPED_KEY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface MessageHeader {
   /** Sender's current ratchet public key. */
@@ -61,6 +73,8 @@ export interface RatchetMessage {
 interface SkippedKey {
   headerKey: Uint8Array;
   messageKey: Uint8Array;
+  /** When it was derived, so it can be destroyed on age rather than only on volume. */
+  at: number;
 }
 
 export interface RatchetState {
@@ -257,6 +271,10 @@ export function ratchetEncrypt(state: RatchetState, plaintext: Uint8Array): Ratc
  * against a conversation, and a trap the naive reading of the specification walks into.
  */
 export function ratchetDecrypt(state: RatchetState, message: RatchetMessage): Uint8Array {
+  // Destroy stale keys before anything else, on the real state rather than on the clone:
+  // expiry does not depend on this message, and a message that fails to decrypt must not
+  // leave keys behind that should already be gone.
+  pruneSkipped(state);
   const working = cloneState(state);
   const padded = decryptInto(working, message);
   commitState(state, working);
@@ -324,6 +342,7 @@ function cloneState(state: RatchetState): RatchetState {
         {
           headerKey: new Uint8Array(entry.headerKey),
           messageKey: new Uint8Array(entry.messageKey),
+          at: entry.at,
         },
       ]),
     ),
@@ -404,13 +423,25 @@ function skipMessageKeys(state: RatchetState, until: number): void {
     state.skipped.set(skippedKeyId(state.receiveHeaderKey, state.receiveCount), {
       headerKey: new Uint8Array(state.receiveHeaderKey),
       messageKey,
+      at: Date.now(),
     });
     state.receiveCount += 1;
     pruneSkipped(state);
   }
 }
 
-function pruneSkipped(state: RatchetState): void {
+/**
+ * Two bounds, both destructive: keys older than `MAX_SKIPPED_KEY_AGE_MS`, and keys beyond
+ * `MAX_STORED_SKIPPED_KEYS` oldest-first. Every removal zeroes the key material before
+ * dropping the entry — which is worth doing and is not a guarantee, because the same bytes
+ * were already serialised into the vault (see docs/DELETION.md).
+ */
+function pruneSkipped(state: RatchetState, now = Date.now()): void {
+  for (const [id, entry] of state.skipped) {
+    if (now - entry.at < MAX_SKIPPED_KEY_AGE_MS) continue;
+    entry.messageKey.fill(0);
+    state.skipped.delete(id);
+  }
   while (state.skipped.size > MAX_STORED_SKIPPED_KEYS) {
     const oldest = state.skipped.keys().next();
     if (oldest.done) return;
@@ -463,7 +494,7 @@ export interface SerializedRatchetState {
   sendCount: number;
   receiveCount: number;
   previousSendCount: number;
-  skipped: Array<{ id: string; headerKey: string; messageKey: string }>;
+  skipped: Array<{ id: string; headerKey: string; messageKey: string; at?: number }>;
   associatedData: string;
 }
 
@@ -488,6 +519,7 @@ export function serializeState(state: RatchetState): SerializedRatchetState {
       id,
       headerKey: toBase64Url(entry.headerKey),
       messageKey: toBase64Url(entry.messageKey),
+      at: entry.at,
     })),
     associatedData: toBase64Url(state.associatedData),
   };
@@ -516,6 +548,9 @@ export function deserializeState(data: SerializedRatchetState): RatchetState {
         {
           headerKey: fromBase64Url(entry.headerKey),
           messageKey: fromBase64Url(entry.messageKey),
+          // A vault written before keys had an age: treat it as new rather than as
+          // expired, so an upgrade does not silently drop messages in flight.
+          at: entry.at ?? Date.now(),
         },
       ]),
     ),

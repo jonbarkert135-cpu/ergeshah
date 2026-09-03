@@ -1189,3 +1189,209 @@ a review checklist (this ADR exists because a checklist is what failed).
 **Consequences.** A control cannot be removed while the paragraph describing it stays.
 The cost is that the test knows the shape of the compose file: reorganising it means
 updating the reader. That is the intended cost — noticing is the feature.
+
+## ADR-0041 — Disappearing messages are an agreement, not a guarantee
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 74 asks for message deletion — disappearing messages, client-side
+deletion, server-side deletion of ciphertext, key destruction, retention — and adds the
+constraint that matters: do not promise cryptographic destruction where every copy cannot
+be reached. Most messengers ship "delete for everyone" and a shredder icon, both of which
+describe an outcome the software cannot produce.
+
+**Decision.** Four mechanisms, each named for what it actually does.
+
+1. **Disappearing messages** — a per-conversation lifetime in whole hours. The expiry
+   travels inside the ciphertext so both clients agree without the server being told; both
+   drop the plaintext when it passes; the sender additionally asks for a shorter envelope
+   TTL (`ttlHours`, clamped to `ENVELOPE_TTL_MS`) so an undelivered copy is not held for
+   thirty days. When the two sides disagree, the sooner expiry wins.
+2. **Client-side deletion** — one message, or a whole conversation. Deleting a conversation
+   destroys its ratchet state as well as its history: the session keys are the part that
+   could still open something.
+3. **Server-side deletion** — unchanged and already strong: an envelope is deleted at
+   acknowledgement, and by expiry regardless.
+4. **Key destruction** — skipped message keys now expire after seven days
+   (`MAX_SKIPPED_KEY_AGE_MS`) rather than only when two thousand newer keys push them out. A
+   key derived for a message that never arrived used to stay openable for the life of the
+   conversation.
+
+**Rejected:** "delete for everyone" (it asks the other client to cooperate and reports
+success either way — a lie in the reassuring direction); minute-granularity expiry (the TTL
+is visible to the operator, and precision there is a fingerprint); a shorter TTL for control
+messages, which would have let the operator tell a typing signal from a sentence by its
+expiry.
+
+**Consequences.** `docs/DELETION.md` states the ceiling in the same document as the feature:
+JavaScript cannot reliably zero a string, `localStorage` is not a shredder, an operator's
+encrypted backup may still hold a deleted envelope, and a recipient can always copy what
+they can read. The UI says "delete from this device", because that is what the button does.
+
+## ADR-0042 — Typing, read receipts and presence are messages, and they are off
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Points 75–77. A messenger's metadata features are usually server state:
+a presence table, a `read_at` column, a websocket that broadcasts "typing". Each is a
+continuous record of when a person is awake and paying attention, held by the party this
+architecture trusts least.
+
+**Decision.** No server state for any of them, and nothing on by default.
+
+- **Presence does not exist.** No `last_seen`, no heartbeat, no route that answers "is she
+  online". The nearest thing in the schema is `sessions.last_seen_day`, which is a day and
+  is read only to expire idle sessions.
+- **Typing and read receipts are ordinary encrypted messages** — a payload with a `signal`
+  field and no text, carried by the same ratchet, padded the same way, with the same expiry
+  as everything else in the conversation. The server cannot tell one from a sentence.
+- **Both are off until a person turns them on**, and the settings live in the encrypted
+  vault rather than in a table, because "this account has read receipts off" is itself a
+  fact about a person.
+- Typing is throttled to one signal per six seconds, shown for eight, and never written to
+  the vault: a presence *history* is what this feature becomes if nobody stops it.
+- Read receipts are "read up to this timestamp", once per batch — not one per message.
+
+**Rejected:** a presence service (the feature this system is least able to make private); a
+`read_at` column (it would make the server the authority on when someone read something);
+per-message receipts; syncing the settings server-side so they follow a linked device — a
+new device starts with everything off, which is the right direction for a default to fail in.
+
+**Consequences.** Turning typing indicators on is a real cost, and `docs/METADATA.md` says
+so: the operator sees envelopes while you compose. The inverse cost is small and accepted —
+the unread badge lights up for a signal, because the server coalesces one "something
+arrived" hint per account and must not be able to tell what the something was.
+
+## ADR-0043 — Attachments are blind blobs with a client-chosen id
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 78: if images, files, audio or video are supported, encrypt them
+client-side, and do not treat HTTPS as a substitute for end-to-end encryption. The order
+delivery path already stores blobs the server cannot open, but it is bound to an order.
+
+**Decision.** One new table (`attachments`) and three routes, sharing `crypto/file.ts` with
+deliveries. The browser generates a 192-bit id, encrypts the bytes under a fresh key with
+that id as associated data, uploads `{ id, ciphertext }` and nothing else, and sends the
+key inside the encrypted message. There is no sender column, no recipient column, no
+conversation, no filename, no media type and no plaintext length. Fetching needs the id and
+opening needs the key; the server has neither to give away. Its own bucket
+(`attachment`: 12 burst, 3/minute) is the quota, because a per-account quota needs an owner
+column.
+
+**Rejected:** embedding media in the envelope (a 64 kB cap and megabytes of base64 in
+`localStorage`); a recipient column so the server can authorise fetches (it is the social
+graph, written down); a server-assigned id (the client must know the id *before* it
+encrypts, since the id is the associated data); inline image previews, which would need
+`blob:` in the CSP and would point the browser's image decoder at bytes a stranger chose —
+attachments are saved, never rendered.
+
+**Consequences.** An attachment outlives its conversation by up to `DELIVERY_TTL_MS` and is
+not reached by account deletion, because there is no owner to cascade from. Deleting the
+conversation destroys the only copy of the key, so what remains is unopenable bytes on a
+clock. Anyone holding the id may delete the blob early — a recipient deleting bytes they
+already have is a smaller risk than the column that would prevent it.
+
+## ADR-0044 — Search happens in the browser, and push does not happen at all
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Points 79 and 80 are two conveniences with one shape: both are easy if the
+server knows more, and both are the reason products quietly end up reading messages.
+
+**Decision.** **Search** over private messages runs on the client, against what that device
+has already decrypted. There is no route that searches envelopes and no index of message
+content anywhere on the server; the marketplace's inverted index (ADR-0030) covers listings,
+which are public by nature. **Push notifications** are not implemented: the client polls,
+and the internal inbox says "something arrived" and nothing else (ADR-0032).
+
+**Rejected:** encrypted-search schemes (searchable encryption leaks access patterns, and
+the honest version of it here is a client that already holds the plaintext); a third-party
+push service, which would give a company outside this system a per-device timing feed of
+one person's conversations keyed to a token that survives reinstalls — for a notification
+tone.
+
+**Consequences.** Search sees what this device holds: not another device's history, and not
+what has already disappeared. No push means no notification when the tab is closed, which
+is a real product cost and the reason the requirements for ever adding it are written down
+now (`docs/METADATA.md`): opaque payload, no plaintext, self-hosted first, opt-in per
+device, deletable token, and the residual disclosed.
+
+## ADR-0045 — A review does not name its buyer
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 81 asks the marketplace to minimise data in both directions: do not
+require what a feature does not need, do not tell a seller more about a buyer than the
+transaction needs, and do not tell a buyer more about a seller either. Auditing what the
+API actually returned turned up a leak nobody had noticed: `GET /api/market/listings/:id`
+published each review's author username, and no client rendered it.
+
+**Decision.** Reviews are returned with a rating, a body and a day, and no author.
+`reviews.author_user_id` stays in the table — it enforces one review per order and one
+rating per buyer, and it is read by nothing that answers a request.
+
+**Rejected:** a per-listing pseudonym (it still links repeat purchases, and it invites the
+belief that the reviewer is anonymous when a seller can identify them from their own order
+list anyway); dropping the author column (it is what makes reputation hard to buy).
+
+Two request bodies were tightened in the same pass, for the same reason uploads were
+(ADR-0033): `POST /api/market/orders` and `POST /api/market/seller-applications` now refuse
+an unexpected field instead of ignoring it. Silently dropping a `shippingAddress` leaves a
+buyer believing their parcel has somewhere to go; silently dropping a `legalName` invites
+the next version of that client to depend on a field this server will never store.
+
+**Consequences.** A reader sees the average, the number of distinct buyers, and the reviews
+themselves — which is the signal — without learning who bought what. The seller still knows
+who ordered from them, because the encrypted order chat is opened by username; that is the
+minimum the transaction needs, and it is stated in `docs/PRIVACY.md` rather than dressed up.
+
+## ADR-0046 — Payment state is designed before it is built, and stays outside the messenger
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 82. Payments are not implemented, and the temptation when they are is to
+put a payment reference on the order, a card field behind it, and a webhook handler that
+logs everything it receives — at which point the system holds identity.
+
+**Decision.** Write the architecture now and enforce what can be enforced before the feature
+exists. `docs/PAYMENTS.md` fixes the rules: payment state in its own module and tables,
+joined to an order by id and to nothing else; never a card number, expiry, CVV, bank
+account, billing address or raw webhook body; no import between the payment domain and
+messaging; card data never touching this origin. `test/payments.test.ts` dumps the schema
+and fails on a card-shaped column, and checks that no route accepts one.
+
+**Rejected:** building a payment adapter speculatively (YAGNI, and the wrong feature to
+guess at); a hosted processor as the default choice — the preference order is no processor,
+then a self-hosted cryptocurrency gateway (roadmap PAY-1), then a conventional processor
+with its disclosure written into the threat model.
+
+**Consequences.** Today an order records what was bought and how it ended, and the money is
+arranged between the parties in their encrypted channel. Escrow stays blocked on payments,
+and if it arrives a moderator's power stays what it is now: settle the order, never move the
+money.
+
+## ADR-0047 — Blocking is the recipient's decision, and the server is not told
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Points 83 and 84. Abuse protection has to exist, and the obvious block list is
+a server-side table of who refuses whom — which is the social graph, written down, for the
+component that is not supposed to have it. The messaging design has no sender column
+precisely to avoid holding that.
+
+**Decision.** A block is client-side and lives in the encrypted vault. A blocked peer's
+envelopes are decrypted (the ratchet must advance or the session desynchronises), then
+discarded without being stored or shown, and sending to a blocked peer is refused locally.
+Moderation stays in its four separate lanes (`docs/MODERATION.md`): marketplace, public
+content, reports and disputes — and private messages, which have no lane, no route and no
+key. A report about private abuse carries only the words the reporter chose to write.
+
+**Rejected:** server-enforced blocking (it would need the pair, and the pair is the graph);
+shadow-banning; content scanning of messages or attachments, which is impossible here and
+would not be added if it were possible.
+
+**Consequences.** A blocked sender can still consume rate-limit allowance and briefly occupy
+storage, and a block applies per device rather than per account. `test/abuse.test.ts` asserts
+the structural half: no moderation route reads `envelopes`, `vaults`, `deliveries` or
+`attachments`, and the moderation queue never returns an order's channel.

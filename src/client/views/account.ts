@@ -6,9 +6,12 @@ import {
   deriveKeys,
   forgetLocalVault,
   lock,
+  privacySettings,
   sealedVaultNow,
+  setPrivacy,
   state,
 } from "../state.ts";
+import { blockedPeers, setBlocked } from "../messaging.ts";
 import { authoriseDevice, parseDeviceCode, type ParsedDeviceCode } from "../linking.ts";
 import { setRecoveryPhrase } from "../recovery.ts";
 import { generatePhrase } from "../../shared/crypto/mnemonic.ts";
@@ -103,6 +106,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
       ),
     );
 
+    body.append(el("h2", {}, "Metadata you emit"), privacyCard());
     body.append(el("h2", {}, "Recovery phrase"), recoveryCard(me.recoveryConfigured));
     body.append(el("h2", {}, "PGP key"), pgpCard(me.username, me.pgpFingerprint));
     body.append(el("h2", {}, "Link a device"), linkCard());
@@ -235,6 +239,110 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
    * is generated here, shown once, confirmed here, and never sent to the server — only a
    * public key derived from it, plus a copy of the master key wrapped with it.
    */
+  /**
+   * The three signals this product can emit about you, and the switch for each (points
+   * 75-77). All three are off until turned on, all three are messages between two clients
+   * rather than server state, and the settings themselves are kept in the encrypted vault —
+   * a preference stored server-side would be one more fact about you on the server.
+   */
+  function privacyCard(): HTMLElement {
+    const settings = privacySettings();
+    const card = el(
+      "div",
+      { class: "card" },
+      el(
+        "p",
+        { class: "muted" },
+        "Nothing here is on by default. Each one is an ordinary encrypted message to the person you are talking to — the server cannot read it, and cannot tell it apart from anything else you send. That is also the cost: every signal is one more envelope the operator sees you send.",
+      ),
+    );
+
+    const toggle = (
+      label: string,
+      hint: string,
+      on: boolean,
+      apply: (value: boolean) => Promise<void>,
+    ) => {
+      const button = el(
+        "button",
+        { type: "button", class: on ? "primary" : "ghost", "aria-pressed": on ? "true" : "false" },
+        on ? "On" : "Off",
+      );
+      button.addEventListener("click", () => {
+        button.disabled = true;
+        void apply(!on)
+          .then(() => load())
+          .catch((error: Error) => toast(error.message, "error"));
+      });
+      return el("div", { class: "row spaced" }, el("div", {}, el("strong", {}, label), el("div", { class: "muted" }, hint)), button);
+    };
+
+    card.append(
+      toggle(
+        "Read receipts",
+        "Tell people when you have read what they wrote.",
+        settings.readReceipts,
+        (value) => setPrivacy({ readReceipts: value }),
+      ),
+      toggle(
+        "Typing indicators",
+        "Tell the person you are writing to that you are typing. Sends an envelope every few seconds while you type.",
+        settings.typingIndicators,
+        (value) => setPrivacy({ typingIndicators: value }),
+      ),
+    );
+
+    const choices: Array<[string, number | null]> = [
+      ["Keep until deleted", null],
+      ["1 hour", 1],
+      ["24 hours", 24],
+      ["7 days", 168],
+      ["30 days", 720],
+    ];
+    const select = el(
+      "select",
+      { name: "disappear", "aria-label": "Default disappearing-message lifetime" },
+      ...choices.map(([label, value]) =>
+        el("option", { value: String(value), ...(value === settings.disappearHours ? { selected: true } : {}) }, label),
+      ),
+    ) as HTMLSelectElement;
+    select.addEventListener("change", () => {
+      const value = select.value === "null" ? null : Number(select.value);
+      void setPrivacy({ disappearHours: value })
+        .then(() => toast("Saved. New conversations use this; existing ones keep their own setting."))
+        .catch((error: Error) => toast(error.message, "error"));
+    });
+    card.append(
+      field(
+        "Disappearing messages, by default",
+        select,
+        "Both sides delete the message when the time is up, and the server is asked to drop an undelivered copy at the same hour. It cannot stop someone copying what they can already read.",
+      ),
+    );
+
+    const blocked = blockedPeers();
+    card.append(
+      el("h3", { class: "tight" }, "Blocked"),
+      blocked.length === 0
+        ? el("p", { class: "muted" }, "Nobody. Blocking happens in a conversation, and stays in this browser — the server is never told.")
+        : el(
+            "div",
+            { class: "row" },
+            ...blocked.map((peer) => {
+              const button = el("button", { type: "button", class: "ghost" }, `${peer} · unblock`);
+              button.addEventListener("click", () => {
+                button.disabled = true;
+                void setBlocked(peer, false)
+                  .then(() => load())
+                  .catch((error: Error) => toast(error.message, "error"));
+              });
+              return button;
+            }),
+          ),
+    );
+    return card;
+  }
+
   function recoveryCard(configured: boolean): HTMLElement {
     const message = el("div", { class: "muted" });
     const holder = el("div", {});

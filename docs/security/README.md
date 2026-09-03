@@ -9,6 +9,10 @@
 - [`../INCIDENT_RESPONSE.md`](../INCIDENT_RESPONSE.md) — credential rotation, session
   revocation, compromised server, database breach, dependency vulnerability, key
   compromise.
+- [`../MODERATION.md`](../MODERATION.md) — the four moderation lanes kept apart, why private
+  messages have none, and every control that stops abuse without watching everybody.
+- [`../PAYMENTS.md`](../PAYMENTS.md) — payments do not exist yet; this is the architecture
+  they have to follow if they ever do.
 - [`../HARDENING.md`](../HARDENING.md) — hardening the host the service runs on.
 - [`../NETWORK.md`](../NETWORK.md) — the network tiers, and what the application container
   cannot reach.
@@ -26,4 +30,6 @@ class in point 53), `test/sessions.test.ts` (lifetime, rotation, revocation and 
 identifier split), `test/antiautomation.test.ts` (the proof-of-work gate and uniform
 recovery answers), `test/deployment.test.ts` (the containers and networks the service runs
 in), `test/limits.test.ts`, `test/hardening.test.ts`, `test/defaults.test.ts`,
-`test/incident.test.ts`.
+`test/incident.test.ts`, `test/abuse.test.ts` (moderation cannot reach a message, and the
+report lanes stay separate), `test/payments.test.ts` (no card-shaped column, no route that
+takes one).

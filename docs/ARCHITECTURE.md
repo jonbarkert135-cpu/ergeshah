@@ -75,10 +75,10 @@ in `src/` and fails if one crosses a line in the table below.
 | --- | --- | --- |
 | AUTH | `routes/auth.ts`, `lib/sessions.ts`, `lib/password.ts`, `lib/pgp.ts` | accounts, sessions, second factor, recovery, deletion |
 | IDENTITY | `routes/keys.ts`, `shared/crypto/identity.ts`, `vault.ts` | devices, prekeys, the sealed vault, device linking |
-| MESSAGING | `routes/messages.ts`, `client/messaging.ts` | store-and-forward envelopes, delivery, acknowledgement |
+| MESSAGING | `routes/messages.ts`, `client/messaging.ts` | store-and-forward envelopes, delivery, acknowledgement, disappearing-message expiry. Typing indicators, read receipts and search live entirely on the client side of this line (`docs/METADATA.md`) |
 | CRYPTO | `shared/crypto/*` | the protocol: one implementation, imported by both sides, imports neither |
 | MARKETPLACE / SELLERS / ORDERS / REVIEWS | `routes/market.ts`, `lib/reputation.ts`, `lib/search.ts` | listings, applications, the order state machine, reviews and reputation |
-| DELIVERY (STORAGE) | `routes/deliveries.ts` | blind blobs for digital goods, and their deletion |
+| STORAGE (BLIND BLOBS) | `routes/deliveries.ts` | ciphertext the server cannot open: order deliveries and message attachments (point 78), and their deletion |
 | MODERATION / ADMIN | `routes/moderation.ts`, `lib/audit.ts` | reports and disputes, decisions, roles, the audit trail |
 | SECURITY | `app.ts`, `security.ts`, `lib/rate_limit.ts`, `lib/validate.ts` | authentication of requests, CSRF, CSP, limits, input validation at the boundary |
 | INFRASTRUCTURE | `db/*`, `config.ts`, `main.ts`, `routes/static.ts` | drivers, migrations, configuration, the built client and its digests |

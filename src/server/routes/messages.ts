@@ -5,6 +5,10 @@
  * clients chose, the ciphertext, and an expiry. What it does not store: the sender, the
  * plaintext, a conversation participant list, a read state, or a delivery history.
  * Envelopes are deleted the moment the recipient acknowledges them.
+ *
+ * Read receipts, typing indicators and presence are absent from this file on purpose
+ * (points 75-77). They exist in the product as ordinary encrypted messages between the two
+ * clients, so there is no state here to leak and no route to ask "is she online".
  */
 import type { FastifyInstance } from "fastify";
 import { badRequest, notFound } from "../lib/errors.ts";
@@ -49,6 +53,13 @@ export async function registerMessageRoutes(app: FastifyInstance): Promise<void>
     const channel = asBase64Url(body.channel, "channel", 32);
     const messages = asArray(body.messages, "messages", 20);
     if (messages.length === 0) throw badRequest("messages must contain at least one entry");
+    // Disappearing messages, server side (point 74): a sender may ask for an expiry shorter
+    // than the default. Whole hours only — a precise TTL would be a per-conversation
+    // fingerprint — and never longer than the deployment's own limit.
+    const ttlMs =
+      body.ttlHours === undefined || body.ttlHours === null
+        ? config.envelopeTtlMs
+        : Math.min(asInteger(body.ttlHours, "ttlHours", 1, 720) * 3_600_000, config.envelopeTtlMs);
 
     const target = await db.get<{ id: string; status: string }>(
       "SELECT id, status FROM users WHERE username = ?",
@@ -78,7 +89,7 @@ export async function registerMessageRoutes(app: FastifyInstance): Promise<void>
         await tx.run(
           `INSERT INTO envelopes (id, recipient_device_id, channel, payload, invite, created_at, expires_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [id, deviceId, channel, payload, invite, now, now + config.envelopeTtlMs],
+          [id, deviceId, channel, payload, invite, now, now + ttlMs],
         );
         accepted.push(id);
       }

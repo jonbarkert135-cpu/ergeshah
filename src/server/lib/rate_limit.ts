@@ -60,6 +60,13 @@ export const DEFAULT_LIMITS = {
   sensitive: { burst: 10, perMinute: 2 },
   /** Sending an envelope. High, because a real conversation is bursty. */
   message_send: { burst: 60, perMinute: 60 },
+  /**
+   * Uploading an encrypted attachment. Megabytes per call and no owner column to charge a
+   * quota against (see migration 011), so the bucket is the quota: a dozen at once, three a
+   * minute sustained. A person sharing photographs does not notice; a script filling the
+   * operator's disk pays for every one.
+   */
+  attachment: { burst: 12, perMinute: 3 },
   /** Applying to become a seller. A human does this once. */
   seller_application: { burst: 3, perMinute: 0.2 },
   /** Creating or editing a listing. */

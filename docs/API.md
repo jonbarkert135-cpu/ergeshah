@@ -93,9 +93,22 @@ exist. Drifted API documentation is worse than none, because people trust it.
 
 | Method & path | Auth | Limit | Purpose |
 | --- | --- | --- | --- |
-| `POST /api/messages` | session | `message_send` | Deliver an envelope to a recipient device. Padded ciphertext only |
+| `POST /api/messages` | session | `message_send` | Deliver an envelope to a recipient device. Padded ciphertext only. Optional `ttlHours` (1–720) asks for an expiry shorter than `ENVELOPE_TTL_MS` — disappearing messages, whole hours, applied to every envelope in the conversation so the expiry cannot single out a control message (point 74) |
 | `GET /api/messages` | session | `read` | Fetch envelopes addressed to this account's devices |
 | `POST /api/messages/ack` | session (owner) | `write` | Acknowledge envelopes, which deletes them |
+
+## Attachments
+
+Blind blob storage for anything a conversation carries that is not text — a picture, a
+recording, a document (point 78). The client encrypts before uploading, chooses the id, and
+sends the key inside the encrypted message; the server stores bytes it cannot open and is
+told nothing about them. No filename, no media type, no sender, no recipient.
+
+| Method & path | Auth | Limit | Purpose |
+| --- | --- | --- | --- |
+| `POST /api/attachments` | session | `attachment` | Store one blob: `{ id, ciphertext }` and nothing else — any other field is refused with `unexpected_field`. `id` is the client's own 192-bit random handle and the value the ciphertext is authenticated against; a colliding id is refused with `id_taken`. `ciphertext` is capped in decoded bytes by `MAX_DELIVERY_BYTES` |
+| `GET /api/attachments/:id` | session | `read` | Fetch the ciphertext. Deliberately not scoped to a party: scoping needs a recipient column, and that column is the social graph. The id is the capability, and the key is still needed to open it |
+| `DELETE /api/attachments/:id` | session | `write` | Delete it early. Whoever holds the id may delete: the sender and the people they sent it to |
 
 ## Notifications
 
@@ -154,5 +167,16 @@ result, including refusals (`docs/PRIVACY.md`, ADR-0024).
 
 No endpoint returns another user's address, timestamps finer than a day where a day is
 enough, a message plaintext, a private key, or a list of who talks to whom. There is no
-search over users, no "who is online", no read receipts and no typing indicators — each is a
-metadata channel with no way to make it private.
+search over users and no search over messages: private search happens in the browser, over
+what that device has already decrypted, because a server-side index of end-to-end encrypted
+messages either does nothing or requires the plaintext (point 79).
+
+There is no presence, no "last seen" and no delivery-state route. Typing indicators and read
+receipts exist only as ordinary encrypted messages between two clients, off by default —
+the server has no state for either and cannot tell such an envelope from any other
+(`docs/METADATA.md`). There is no push endpoint, no device token and no third-party
+notification service: the client polls, and the inbox says only that something arrived.
+
+Reviews are returned without their author. A review proves a completed order happened;
+naming the buyer would publish what someone bought to everyone who can read the page
+(point 81).

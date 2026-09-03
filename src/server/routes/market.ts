@@ -21,6 +21,7 @@ import {
   asText,
   CURRENCIES,
   LISTING_KINDS,
+  onlyKeys,
 } from "../lib/validate.ts";
 import { recordAudit } from "../lib/audit.ts";
 import { listingRating, sellerReputation } from "../lib/reputation.ts";
@@ -67,6 +68,11 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const user = await app.authenticate(request);
     await app.limit(request, "seller_application");
     const body = (request.body ?? {}) as Record<string, unknown>;
+    // A seller is asked for a name to trade under and a statement of intent, and for
+    // nothing else — no legal name, no company number, no tax id, no document (point 81).
+    // Refused rather than ignored: a client that sends `legalName` and gets a 200 believes
+    // it was recorded, and the next version of that client will rely on it.
+    onlyKeys(body, ["displayName", "statement"]);
     const displayName = asString(body.displayName, "displayName", 40, 3);
     const statement = asText(body.statement, "statement", 2000, 20);
 
@@ -286,14 +292,20 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       [id],
     );
     if (!row || row.status !== "active") throw notFound("no such listing");
+    // Reviews are published without their author (point 81). A review is proof that a
+    // *completed order* happened, and naming the buyer publishes what someone bought to
+    // everyone who reads the page — the one fact a marketplace buyer most reasonably
+    // expects to stay between the two parties. The rating still counts once per buyer and
+    // the buyer count is published beside the average (ADR-0029), so the signal a reader
+    // needs survives; `author_user_id` stays in the table, unread by any response, because
+    // that is what enforces one review per order.
     const reviews = await db.all<{
       rating: number;
       body: string;
       created_day: number;
-      username: string;
     }>(
-      `SELECT r.rating, r.body, r.created_day, u.username
-         FROM reviews r JOIN users u ON u.id = r.author_user_id
+      `SELECT r.rating, r.body, r.created_day
+         FROM reviews r
         WHERE r.listing_id = ? AND r.status = 'visible'
         ORDER BY r.created_day DESC LIMIT 50`,
       [id],
@@ -303,7 +315,6 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       reviews: reviews.map((review) => ({
         rating: review.rating,
         body: review.body,
-        author: review.username,
         postedOn: dayToIsoDate(review.created_day),
       })),
     };
@@ -315,6 +326,10 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const user = await app.authenticate(request);
     await app.limit(request, "order_write");
     const body = (request.body ?? {}) as Record<string, unknown>;
+    // Placing an order takes a listing id. A delivery address, a phone number or a note to
+    // the seller is a *message* (ADR-0021), and this route says so instead of dropping it
+    // quietly into a 200.
+    onlyKeys(body, ["listingId"]);
     const listingId = asId(body.listingId, "listingId");
     const listing = await db.get<{
       id: string;

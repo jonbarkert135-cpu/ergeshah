@@ -31,10 +31,28 @@ import { fromBase64Url, toBase64Url, utf8, fromUtf8 } from "../shared/encoding.t
 import type { SerializedRatchetState } from "../shared/crypto/ratchet.ts";
 
 export interface ChatMessage {
+  /** Local, random, never sent: what "delete this one" refers to on this device. */
+  id?: string;
   from: string;
   text: string;
   at: number;
   mine: boolean;
+  /** Disappearing messages: when this device drops it, agreed by the sender (point 74). */
+  expiresAt?: number;
+  /** Set on a message of mine when the peer chose to send a read receipt (point 77). */
+  readAt?: number;
+  /** An encrypted blob in blind storage, openable only with the key kept here. */
+  attachment?: AttachmentRef;
+}
+
+/** Everything needed to fetch and open one attachment; the key exists only in vaults. */
+export interface AttachmentRef {
+  id: string;
+  key: string;
+  nonce: string;
+  name: string;
+  /** Plaintext size, for the label. The server sees only the padded ciphertext. */
+  bytes: number;
 }
 
 export interface Conversation {
@@ -45,7 +63,35 @@ export interface Conversation {
   sessions: Record<string, SerializedRatchetState>;
   /** Peer identity keys whose safety number the user compared, and when. */
   verifiedKeys?: Record<string, number>;
+  /** Disappearing messages for this conversation: hours, or null for "keep". */
+  disappearHours?: number | null;
+  /** The peer has told us they read everything up to this timestamp (point 77). */
+  readUpTo?: number;
 }
+
+/**
+ * Metadata the product could emit and does not, unless asked (points 75-77).
+ *
+ * Every one of these is off by default, and every one of them is a message between two
+ * clients rather than a column on the server — which is also why these settings live in the
+ * vault: a preference stored server-side would itself be metadata ("this account cares
+ * about read receipts"), and a preference the server enforces is a preference the server
+ * can read.
+ */
+export interface PrivacySettings {
+  /** Tell a peer when their messages were read. */
+  readReceipts: boolean;
+  /** Tell a peer that you are typing. Costs one envelope per burst — see docs/METADATA.md. */
+  typingIndicators: boolean;
+  /** Default disappearing-message lifetime for new conversations, in hours. */
+  disappearHours: number | null;
+}
+
+export const DEFAULT_PRIVACY: PrivacySettings = {
+  readReceipts: false,
+  typingIndicators: false,
+  disappearHours: null,
+};
 
 /**
  * The key to one delivered file, received over the encrypted channel and kept in the
@@ -76,6 +122,10 @@ export interface VaultContents {
   shipments?: Record<string, { text: string; at: number }>;
   /** True on a device that was linked rather than signed in: it does not own the backup. */
   linked?: boolean;
+  /** Absent on vaults written before the settings existed: the defaults apply. */
+  privacy?: Partial<PrivacySettings>;
+  /** Usernames whose messages this device discards on arrival (point 84). */
+  blocked?: string[];
 }
 
 export interface Account {
@@ -284,6 +334,17 @@ export async function publishDevice(label: string | null = null): Promise<void> 
       },
     });
   }
+  await persistVault();
+}
+
+/** The settings as they actually apply: stored values over `DEFAULT_PRIVACY`. */
+export function privacySettings(): PrivacySettings {
+  return { ...DEFAULT_PRIVACY, ...(state.vault?.privacy ?? {}) };
+}
+
+export async function setPrivacy(patch: Partial<PrivacySettings>): Promise<void> {
+  if (!state.vault) throw new Error("unlock the vault first");
+  state.vault.privacy = { ...privacySettings(), ...patch };
   await persistVault();
 }
 

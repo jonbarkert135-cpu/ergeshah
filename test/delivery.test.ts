@@ -182,11 +182,20 @@ describe("shipping details for a physical order", () => {
 
     const buyer = await register(server, "physicalbuyer");
     const address = "12 Rue des Lilas, 75011 Paris";
-    // A naive (or hostile) client sends the address anyway: the route must simply drop it.
-    const order = await buyer.post<{ id: string }>("/api/market/orders", {
+    // A naive (or hostile) client sends the address anyway. The route refuses the request
+    // rather than dropping the field quietly: silently accepting it would leave a buyer
+    // believing their parcel has somewhere to go, and would let the next version of that
+    // client depend on a field this server will never store (point 81, ADR-0045).
+    const refused = await buyer.post<{ error: string }>("/api/market/orders", {
       listingId: listing.body.id,
       shippingAddress: address,
       note: address,
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toBe("unexpected_field");
+
+    const order = await buyer.post<{ id: string }>("/api/market/orders", {
+      listingId: listing.body.id,
     });
     expect(order.status).toBe(200);
 

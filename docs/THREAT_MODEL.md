@@ -103,6 +103,11 @@ to be a residual risk.
 | Error logs | Method, route and error message only — no bodies, no identifiers |
 | Backups | Contain no plaintext messages by construction; still encrypt them (see DEPLOYMENT.md) |
 | Message timing/size | Sizes are padded to buckets (64/256/1024/4096·n) and headers are encrypted, so ratchet keys, counters and exact lengths are hidden. **Timing, count and bucket remain visible to the operator** — no cover traffic or delayed delivery (roadmap MD-2) |
+| Typing, read receipts, presence | No server state exists for any of them: no presence table, no read column, no route that answers "is she online". Typing and read receipts are ordinary encrypted messages between two clients, off by default, and indistinguishable to the server from a sentence. **Residual: an envelope is still an envelope** — turning typing indicators on multiplies how often the operator sees a device send something while its owner composes (`docs/METADATA.md`) |
+| Push notifications | None. No device token, no third-party push service, no service worker; the client polls and the inbox says only "something arrived". Adding push would hand a company outside this system a per-device timing feed, which is why the requirements for ever doing so are written down before the feature is wanted |
+| Message search | Client-side only, over what the device has already decrypted. There is no server-side index of message content and no route that could build one (point 79). Residual: search sees what *this* device holds, and nothing that has already disappeared |
+| Attachments | Encrypted in the browser before upload, stored as a blob with no sender, recipient, filename, type or plaintext length, and opened with a key that never reaches the server. **Residual: the operator sees a blob appear, its padded size, and when it was fetched**, and can withhold or delete it (denial of service, not disclosure). An attachment also outlives the conversation that carried it, by up to `DELIVERY_TTL_MS`, because the table has no owner to cascade from |
+| Marketplace purchases | Reviews are published without an author, so reading a listing does not tell you who bought it. The parties still know each other's usernames — the encrypted order chat is opened by name — and the operator still sees that an order exists, between whom, and for how much |
 | Delivery addresses (physical orders) | Never sent to the server: encrypted to the seller in the order channel, kept in the seller's vault. The operator sees an order, not where it is going |
 | Delivered files | Stored as ciphertext only, padded to 4 KB, with no filename or type; the key never reaches the server. **The operator learns that an order was delivered, the padded size, and the upload and pickup times**, and can delete or withhold a blob (denial of service, not disclosure) |
 | Client network location | Hidden from the operator only for users who arrive over the onion service (`docs/DEPLOYMENT.md`). On the clearnet the reverse proxy sees an address, uses it as rate-limit input, and does not store it |
@@ -143,8 +148,10 @@ exclusive, and this project chose the encryption. `test/uploads.test.ts` covers 
    and detect a bundle served to one person only. None of that is a substitute for reading
    the source, and this document will not pretend otherwise. **Every security property
    described here is a claim about code you cannot read.**
-2. **Metadata.** Who is online, when, how often, and roughly how large their messages
-   are (the bucket, not the byte count).
+2. **Metadata.** When a device connects, how often, and roughly how large its messages are
+   (the bucket, not the byte count). Not *who is online* — there is no presence anywhere in
+   this system — but a server that receives requests necessarily knows when it receives
+   them, and no feature here hides that.
 3. **Classical-only handshake.** Recorded traffic today may be decryptable by a future
    quantum adversary.
 4. **Unverified identities.** A first contact is still trust-on-first-use: the key comes

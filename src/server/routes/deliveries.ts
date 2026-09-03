@@ -1,17 +1,23 @@
 /**
- * Digital delivery: blind storage for one file per order.
+ * Blind storage: bytes the server holds and cannot open.
  *
- * The seller encrypts the file in the browser with a one-time key, uploads the
- * ciphertext, and sends the key to the buyer through the order's encrypted channel. The
- * server therefore stores a blob it cannot open, addressed to an order it already knows
- * about — it learns that a delivery happened and roughly how large it is (the padding
- * bucket), which is stated in `docs/THREAT_MODEL.md`, and nothing else.
+ * Two customers, one idea. A **delivery** is one file per order: the seller encrypts it in
+ * the browser with a one-time key, uploads the ciphertext, and sends the key to the buyer
+ * through the order's encrypted channel. An **attachment** is the same thing for a
+ * conversation (point 78) — a picture, a recording, a document — except that it is not
+ * addressed to anything at all: its unguessable id *is* the capability, and that id travels
+ * to the recipient inside the ciphertext of an ordinary message.
  *
- * Retention is the other half of the design: the blob is deleted when the buyer
- * acknowledges it, when the order reaches a terminal status, or when it expires.
+ * The server therefore learns that a blob exists and roughly how large it is (the padding
+ * bucket), which is stated in `docs/THREAT_MODEL.md`, and nothing else — no type, no name,
+ * no sender, and for an attachment no recipient either.
+ *
+ * Retention is the other half of the design: a delivery is deleted when the buyer
+ * acknowledges it, when the order reaches a terminal status, or when it expires; an
+ * attachment is deleted when someone who holds its id says so, or when it expires.
  */
 import type { FastifyInstance } from "fastify";
-import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
+import { badRequest, conflict, forbidden, notFound, orConflict } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { asBase64Url, asId, onlyKeys } from "../lib/validate.ts";
 
@@ -116,11 +122,84 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     await db.run("DELETE FROM deliveries WHERE order_id = ?", [order.id]);
     return { deleted: true };
   });
+
+  /* --------------------------- attachments (point 78) --------------------------- */
+
+  /**
+   * Upload one encrypted attachment and get its id back.
+   *
+   * HTTPS is not a substitute for end-to-end encryption, so this route refuses to be one:
+   * it accepts an id and a base64url blob, and nothing that would describe either. There is
+   * no `filename`, no `mimeType`, no `to` and no `channel` — the name and the kind are part
+   * of the message the recipient decrypts, and the recipient is not the server's business.
+   *
+   * The **client** chooses the id, from 192 bits of its own randomness, because the id is
+   * both the capability and the value the ciphertext is authenticated against: the browser
+   * has to know it before it encrypts. A client that picks a colliding id is refused by the
+   * primary key rather than overwriting anything, and a client that picks a guessable one
+   * has only exposed its own blob.
+   */
+  app.post("/api/attachments", async (request) => {
+    await app.authenticate(request);
+    await app.limit(request, "attachment");
+    const body = (request.body ?? {}) as { id?: unknown; ciphertext?: unknown };
+    onlyKeys(body, ["id", "ciphertext"]);
+    const id = asId(body.id, "id");
+    const ciphertext = asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
+    const now = Date.now();
+    await orConflict(
+      db.run("INSERT INTO attachments (id, ciphertext, created_at, expires_at) VALUES (?, ?, ?, ?)", [
+        id,
+        ciphertext,
+        now,
+        now + config.deliveryTtlMs,
+      ]),
+      conflict("that attachment id is already taken", "id_taken"),
+    );
+    return { id, expiresAt: now + config.deliveryTtlMs };
+  });
+
+  /**
+   * Fetch one, by an id only the conversation knows. Authenticated so that the store is not
+   * open to the internet, but deliberately *not* scoped to a party: scoping it would mean
+   * storing who may read it, which is the recipient column this table exists without.
+   */
+  app.get("/api/attachments/:id", async (request) => {
+    await app.authenticate(request);
+    await app.limit(request, "read");
+    await sweep(app);
+    const id = asId((request.params as { id: string }).id, "id");
+    const row = await db.get<{ ciphertext: string; expires_at: number }>(
+      "SELECT ciphertext, expires_at FROM attachments WHERE id = ?",
+      [id],
+    );
+    if (!row) throw notFound("no such attachment");
+    return { ciphertext: row.ciphertext, expiresAt: row.expires_at };
+  });
+
+  /**
+   * Delete one early. The id is the only credential there is, so whoever holds it can
+   * delete — which is the sender and the people they sent it to. That is a smaller risk
+   * than the alternative (an owner column): the worst a recipient can do is remove bytes
+   * they already have, and the sender is the one who wanted them gone anyway.
+   */
+  app.delete("/api/attachments/:id", async (request) => {
+    await app.authenticate(request);
+    await app.limit(request, "write");
+    const id = asId((request.params as { id: string }).id, "id");
+    const gone = await db.all<{ id: string }>(
+      "DELETE FROM attachments WHERE id = ? RETURNING id",
+      [id],
+    );
+    return { deleted: gone.length };
+  });
 }
 
 /** Expired blobs are removed opportunistically; there is no scheduler to compromise. */
 export async function sweep(app: FastifyInstance): Promise<void> {
-  await app.db.run("DELETE FROM deliveries WHERE expires_at < ?", [Date.now()]);
+  const now = Date.now();
+  await app.db.run("DELETE FROM deliveries WHERE expires_at < ?", [now]);
+  await app.db.run("DELETE FROM attachments WHERE expires_at < ?", [now]);
 }
 
 async function orderFor(

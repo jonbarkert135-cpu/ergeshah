@@ -53,7 +53,8 @@ to prove the runner is idempotent, and checks the indexes hot queries depend on.
 
 | Table | What it holds | Notes |
 | --- | --- | --- |
-| `envelopes` | id, recipient **device**, channel, `payload`, optional `invite`, created, expires | Addressed to a device, not a person. Deleted on acknowledgement, and expired by housekeeping regardless. No sender column — who sent it is inside the ciphertext |
+| `envelopes` | id, recipient **device**, channel, `payload`, optional `invite`, created, expires | Addressed to a device, not a person. Deleted on acknowledgement, and expired by housekeeping regardless. No sender column — who sent it is inside the ciphertext. `expires_at` may be sooner than the default when the sender asked for disappearing messages (point 74) |
+| `attachments` | id, `ciphertext`, created, expires | Blind blobs for messages (point 78): no sender, no recipient, no conversation, no filename, no media type, no plaintext length. The id is chosen by the client and *is* the capability; the key never reaches the server. Expired by `DELIVERY_TTL_MS`, and deletable by anyone who holds the id |
 
 ### Marketplace
 
@@ -127,6 +128,10 @@ counter; `notifications_inbox_idx (user_id, created_at, id)` serves the paginate
 
 - Envelopes: on acknowledgement, or at `ENVELOPE_TTL_MS` (30 days).
 - Deliveries: at `DELIVERY_TTL_MS` (30 days).
+- Attachments: at `DELIVERY_TTL_MS` (30 days), or when someone holding the id deletes them.
+  They are **not** removed by account deletion, because there is no owner column to remove
+  them by — the absence of that column is the point, and the expiry is what bounds it
+  (`docs/DELETION.md`).
 - Sessions: at expiry, and immediately on logout.
 - Audit entries: at `AUDIT_RETENTION_MS` (one year).
 - Notifications: at `NOTIFICATION_RETENTION_MS` (90 days), read or unread.

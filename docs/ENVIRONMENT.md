@@ -57,11 +57,13 @@ the server remembers anything.
 
 ### `RATE_LIMITS`
 
-Fifteen scopes: `register`, `login`, `account_attempt`, `recovery`, `sensitive`,
-`message_send`, `seller_application`, `listing_write`, `order_write`, `review`,
+Sixteen scopes: `register`, `login`, `account_attempt`, `recovery`, `sensitive`,
+`message_send`, `attachment`, `seller_application`, `listing_write`, `order_write`, `review`,
 `moderation`, `search`, `key_bundle`, `read`, `write`. Each has a `burst` (tokens available at once) and
 `perMinute` (refill rate). `key_bundle` is separate from `read` because claiming a prekey
-bundle *consumes* one of the target's one-time prekeys (ADR-0035).
+bundle *consumes* one of the target's one-time prekeys (ADR-0035). `attachment` is separate
+from `message_send` because an attachment is megabytes and there is no per-account quota to
+charge it against — the bucket *is* the quota (`docs/MODERATION.md`).
 Override any subset:
 
 ```

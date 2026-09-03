@@ -8,3 +8,4 @@ sha256-OF/1bwSioHX9MY6zXX9gOQBoCjT9zCXwNDnBOyghu5Q=  007_integrity.sql
 sha256-N28dAc9XL3VheU6KZkncLWvgrITBUx2ORmL+JX1lHAg=  008_search.sql
 sha256-zy7f0C2/G6jmDp2Pzh1kWtNDNBCTHEm8EU5wBD5NjzQ=  009_notifications.sql
 sha256-GCJQcBCxwyCwBO2jsJc9HxLJLdgqaaD5gu1KIZqLS3g=  010_session_rotation.sql
+sha256-jSynnG7+s8R1eC7e6r0NSkXAAfpORpnJtG8SZ5hm/F8=  011_attachments.sql
