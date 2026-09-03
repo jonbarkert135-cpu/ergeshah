@@ -17,6 +17,8 @@ fact has exactly one home.
 | [testing/](testing/) | What is tested, how, and what is deliberately not |
 | [privacy/](privacy/) | What the server learns, refuses to learn, and forgets |
 
-Two documents sit above the sections because they cut across all of them:
-[`DECISIONS.md`](DECISIONS.md) (why things are the way they are) and
+Three documents sit above the sections because they cut across all of them:
+[`DECISIONS.md`](DECISIONS.md) (why things are the way they are, indexed by area in
+[`adr/`](adr/)), [`CHANGE_REVIEW.md`](CHANGE_REVIEW.md) (the two questions every change
+answers, and the order that settles a conflict between requirements) and
 [`ROADMAP.md`](ROADMAP.md) (what is known to be missing).

@@ -12,7 +12,14 @@ disagree, the threat model wins — and the extra code gets a comment saying why
 
 Then read `docs/ARCHITECTURE.md` and `docs/THREAT_MODEL.md`. New security claims belong
 in the threat model with their residual risk, or nowhere. `docs/DECISIONS.md` records why
-things are the way they are; add an ADR when you change one of them.
+things are the way they are (indexed by area in `docs/adr/`); add an ADR when you change one
+of them.
+
+Before you commit, answer the two questions in `docs/CHANGE_REVIEW.md` — *did this change
+reduce security?* and *did this change create a performance regression?* — and, when two
+requirements conflict, resolve them with the priority order on that page: cryptographic
+correctness, security, privacy, data integrity, authorization, reliability, performance,
+maintainability, UX, visual effects. Security is never traded for an animation.
 
 ## Branching: there is none
 

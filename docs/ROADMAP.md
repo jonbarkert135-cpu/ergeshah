@@ -69,6 +69,12 @@ count published, and an audited `order.settled` action.*
 
 ## Operations
 
+*Shipped (points 90–95): migrations that declare whether they can be undone, with the rollback
+plan written down instead of improvised (ADR-0052); three environments that fail loudly at the
+boundary between them (ADR-0053); every ADR indexed by area under `docs/adr/` (ADR-0054); and
+the two regression questions plus the priority order that settles a conflict between
+requirements, in `docs/CHANGE_REVIEW.md` (ADR-0055).*
+
 *Shipped (points 85–89): an administrator-only health endpoint with uptime, CPU, memory,
 disk, database latency, error rate and latency percentiles, over in-memory counters that hold
 nothing but numbers (`docs/OBSERVABILITY.md`, ADR-0048); connection, timeout and PostgreSQL

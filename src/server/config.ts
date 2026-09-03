@@ -67,15 +67,39 @@ function secretFromEnv(name: string): string | undefined {
   return process.env[name];
 }
 
+/** The prefix that makes a development fallback obviously not a secret, on sight and in code. */
+const DEVELOPMENT_SECRET_PREFIX = "development-only-";
+
 function requiredSecret(name: string, env: string): string {
   const value = secretFromEnv(name);
-  if (value && value.length >= 32) return value;
+  if (value && value.length >= 32) {
+    // A development value that reached production is the failure mode point 91 is about:
+    // it is long enough to pass the length check, it is in a `.env` somebody copied, and
+    // nothing else would ever notice. The name says what it is, so this can be checked.
+    if (env === "production" && value.startsWith(DEVELOPMENT_SECRET_PREFIX)) {
+      throw new Error(
+        `${name} is a development placeholder and must not be used in production — generate one with 'openssl rand -base64 48'`,
+      );
+    }
+    return value;
+  }
   if (env === "production") {
     throw new Error(
       `${name} (or ${name}_FILE) must be set to at least 32 random characters in production (see .env.example)`,
     );
   }
-  return `development-only-${name}-not-secret-0000000000`;
+  return `${DEVELOPMENT_SECRET_PREFIX}${name}-not-secret-0000000000`;
+}
+
+/**
+ * Three environments, and no fourth (point 91). A typo — `NODE_ENV=prod`, `Production` —
+ * currently reads as "not production", which silently turns off every strict check the
+ * production path adds. That is the wrong direction for a mistake to fail in.
+ */
+export function parseEnvironment(value: string | undefined): Config["env"] {
+  if (value === undefined || value.trim() === "") return "development";
+  if (value === "development" || value === "test" || value === "production") return value;
+  throw new Error(`NODE_ENV must be development, test or production (got ${JSON.stringify(value)})`);
 }
 
 /**
@@ -130,7 +154,7 @@ function onionHostname(value: string | undefined): string {
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
-  const env = (process.env.NODE_ENV as Config["env"]) ?? "development";
+  const env = parseEnvironment(process.env.NODE_ENV);
   return {
     env,
     host: process.env.HOST ?? "127.0.0.1",

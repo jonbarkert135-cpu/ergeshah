@@ -20,6 +20,10 @@
   history, migrations, supply chain) and what each one refuses.
 - [`../LOGGING.md`](../LOGGING.md) — what is written down, and for how long.
 
+**Also:** [`../CHANGE_REVIEW.md`](../CHANGE_REVIEW.md) — the security-regression question
+every change answers before it is committed, and the priority order when two requirements
+conflict.
+
 **Code:** `src/server/security.ts` (CSP, headers, CSRF), `src/server/app.ts`
 (authentication, roles, limits), `src/server/lib/rate_limit.ts`, `lib/validate.ts`,
 `lib/audit.ts`, `scripts/incident.mjs`.

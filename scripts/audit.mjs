@@ -259,6 +259,13 @@ function migrations(update = false) {
   const dir = join(root, "src/server/db/migrations");
   const files = readdirSync(dir).filter((name) => name.endsWith(".sql")).sort();
   const problems = [];
+  const manifestPath = join(dir, "CHECKSUMS.txt");
+  const recorded = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : "";
+  // Released migrations are never edited, so the reversibility rule can only apply to the
+  // ones that have not shipped yet — which is the only moment the answer is still cheap.
+  const released = new Set(
+    recorded.split("\n").filter(Boolean).map((line) => line.split("  ")[1]),
+  );
 
   files.forEach((name, index) => {
     if (!/^\d{3}_[a-z0-9_]+\.sql$/.test(name)) {
@@ -276,9 +283,16 @@ function migrations(update = false) {
         `${name}: contains ${destructive[0].toUpperCase()} — say why in a '-- destructive: …' comment`,
       );
     }
+    // Point 90: a migration says whether it can be undone, while the author still knows.
+    // "no" is a valid answer — the point is that the rollback plan is decided before the
+    // deployment that needs it, not discovered during one (docs/DATABASE.md).
+    if (!released.has(name) && !/--\s*reversible:\s*(yes|no)\b/i.test(sql)) {
+      problems.push(
+        `${name}: declare '-- reversible: yes — <the statements that undo it>' or '-- reversible: no — <why>'`,
+      );
+    }
   });
 
-  const manifestPath = join(dir, "CHECKSUMS.txt");
   const current = files
     .map((name) => `${sha256(readFileSync(join(dir, name)))}  ${name}`)
     .join("\n") + "\n";
@@ -289,7 +303,6 @@ function migrations(update = false) {
     return;
   }
 
-  const recorded = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : "";
   if (recorded !== current) {
     const recordedLines = new Map(
       recorded.split("\n").filter(Boolean).map((line) => line.split("  ")).map(([h, n]) => [n, h]),

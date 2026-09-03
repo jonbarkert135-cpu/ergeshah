@@ -122,6 +122,9 @@ describe("the documents point 31 requires are present and not empty", () => {
       ["docs/DELETION.md", 60],
       ["docs/MODERATION.md", 40],
       ["docs/PAYMENTS.md", 40],
+      ["docs/OBSERVABILITY.md", 40],
+      ["docs/CHANGE_REVIEW.md", 60],
+      ["docs/adr/README.md", 60],
     ] as const) {
       const lines = read(path).split("\n").length;
       expect(lines, path).toBeGreaterThanOrEqual(minimumLines);

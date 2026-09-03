@@ -31,6 +31,8 @@ about the system is worse than no test, and the cheapest way to lie is to test a
 | `observability.test.ts` | **Security** | Health is administrator-only, and the document it returns is numbers, booleans and four fixed words — a field that names a route or an account fails here (point 85) |
 | `resources.test.ts` | **Security** | The ceilings a token bucket cannot enforce: concurrent connections, socket timeouts, body size, PostgreSQL statement and idle-transaction timeouts (point 86) |
 | `api.test.ts` | **Security** | The interface itself: the `/api/v1` prefix, `X-API-Version`, every error code documented, one error envelope everywhere, `Retry-After` on a 429, no database structure in a message, and no WebSocket anywhere (points 87–89) |
+| `environments.test.ts` | **Security** | Development, test and production are separated: production refuses a missing secret and a `development-only-` placeholder, `NODE_ENV` typos stop the boot, and a test database is in memory (point 91) |
+| `adr.test.ts` | Documentation | Every ADR is indexed under `docs/adr/`, every index link resolves, records keep their template, and `docs/CHANGE_REVIEW.md` carries both regression questions and the priority ladder in order (points 92–95) |
 | `docs.test.ts` | Documentation | Every route, table and environment variable is documented, and nothing documented has disappeared |
 
 The suites marked **Security** are the ones that would catch a regression an attacker

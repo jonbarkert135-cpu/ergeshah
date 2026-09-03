@@ -54,7 +54,11 @@ that CI is red for everyone until it is fixed.
    which risk remains — `docs/THREAT_MODEL.md` has the vocabulary.
 5. **Tests belong with the change**, and the interesting ones assert on what is *not* in the
    database (`docs/TESTING.md`).
-6. **Documentation is checked by machine.** `test/docs.test.ts` fails if a route, table or
+6. **Two questions before the commit message** (`docs/CHANGE_REVIEW.md`): *did this change
+   reduce security?* and *did this change create a performance regression?* Both have a
+   mechanical answer in this repository, and both have a priority order to settle the
+   argument when they disagree with each other.
+7. **Documentation is checked by machine.** `test/docs.test.ts` fails if a route, table or
    environment variable exists that `docs/API.md`, `docs/DATABASE.md` or
    `docs/ENVIRONMENT.md` does not mention. Adding an endpoint means documenting it.
 
@@ -62,7 +66,9 @@ that CI is red for everyone until it is fixed.
 
 New file `src/server/db/migrations/NNN_name.sql`, then `npm run migrate:checksums`, then
 commit both. A migration that has been released is never edited — write another one. Anything
-destructive needs a `-- destructive: why` comment, which the audit checks for.
+destructive needs a `-- destructive: why` comment, and every new migration declares
+`-- reversible: yes — <what undoes it>` or `-- reversible: no — <why>`. The audit checks for
+both; `docs/DATABASE.md` explains what rolling back actually means here.
 
 ## Secrets
 

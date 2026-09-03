@@ -35,6 +35,29 @@ is how a *new* one is registered. Destructive statements require a `-- destructi
 comment. `test/migrations.test.ts` applies the whole set to an empty database, runs it twice
 to prove the runner is idempotent, and checks the indexes hot queries depend on.
 
+### Rolling back (point 90)
+
+A migration that has shipped is never edited, so "rolling back" means one of three things,
+and which one applies is decided *before* the deployment, not during it. From migration 012
+on, every new file declares the answer in its own header — `-- reversible: yes — <the
+statements that undo it>` or `-- reversible: no — <why>` — and `npm run audit:migrations`
+refuses a new migration that does not say (a released one cannot be edited to add it, which
+is why the rule applies to unreleased files only).
+
+| Kind of change | Reversible? | How it is undone |
+| --- | --- | --- |
+| A new table or index (001–005, 008, 009, 011) | yes | `DROP` it. Nothing else read it, and the rows are the feature |
+| A new column with a default (006, 010) | in practice | `ALTER TABLE … DROP COLUMN` on PostgreSQL; on SQLite the column is left in place and ignored, which is cheaper than a table rebuild and harmless |
+| A new constraint over existing rows (007) | yes, structurally | Dropping the constraint restores the old shape; rows that were rejected while it was in force are not restored, because they were never written |
+| Anything that deletes or rewrites data | no | Restore from a backup (`npm run backup:restore`, `docs/BACKUPS.md`). This is why destructive statements need a `-- destructive: why` comment: they are the migrations whose rollback plan is the backup |
+
+The runner applies each migration inside a transaction, so a migration that fails leaves the
+schema as it was; there is no half-applied state to unwind by hand. What there is no support
+for — deliberately — is a `down` script per migration: a down script is code that runs once,
+under pressure, having never been tested against production data, and it invites editing a
+released migration to "fix" its reverse. The backup is the tested path, and it is exercised
+quarterly (`docs/HARDENING.md`).
+
 ## Tables
 
 ### Identity

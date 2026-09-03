@@ -7,6 +7,25 @@ whole surface, and `test/docs.test.ts` fails if a variable is read that is not l
 Everything has a safe default except the secret, which has no default in production: the
 server refuses to start rather than run with a guessable pepper.
 
+## Three environments (point 91)
+
+`NODE_ENV` picks one of exactly three, and a value that is not one of them stops the server
+at boot — `NODE_ENV=prod` used to read as "not production", which silently turned off every
+strict check the production path adds.
+
+| | `development` | `test` | `production` |
+| --- | --- | --- | --- |
+| Secrets | a placeholder prefixed `development-only-`, generated at boot | a random pepper per run (`test/helpers.ts`) | **required**, at least 32 characters, and a `development-only-` value is refused |
+| Database | `data/symvolon.sqlite` | `:memory:`, per test file | `SQLITE_PATH` or `DATABASE_URL`, and a backup policy |
+| Proof of work | 16 bits, as shipped | 4 bits, so a suite is not a mining pool | 16 bits unless an attack says otherwise |
+| Cookies | `Secure`, unless `BEHIND_TLS=false` for plain-HTTP localhost | not `Secure` (no TLS in the harness) | `Secure`, except on a `.onion` origin |
+| Failure mode | loud and local | a failed assertion | refuses to start rather than run weakened |
+
+A development or test value must never be a production one, and the reverse matters just as
+much: never point a development server at a production database or a production pepper. The
+placeholder secret carries its own warning in its value, which is what lets the production
+path refuse it by name (`test/environments.test.ts`).
+
 ## Secrets
 
 Any secret may be given as a file instead of a value by appending `_FILE` to the name

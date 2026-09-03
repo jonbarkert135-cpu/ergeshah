@@ -1499,3 +1499,104 @@ applicable" and no test, which is how a "we do not do that" becomes untrue in a 
 **Consequences.** A message can be up to one polling interval late, and Tor pays a round trip
 for each poll. In exchange the server holds no open connection per user, and there is no
 second authentication path to secure.
+
+## ADR-0052 — Rolling back a migration is a restore, not a down script
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 90 asks for migrations that are versioned, reversible where practical, and
+tested. Two of the three were already true: `NNN_name.sql` applied in order inside a
+transaction, checksummed once released, and `test/migrations.test.ts` applies the whole set to
+an empty database and proves the runner is idempotent. Reversibility was neither implemented
+nor decided, which meant the plan for a bad deployment was improvisation.
+
+**Decision.** Every new migration declares its own answer in a header comment —
+`-- reversible: yes — <the statements that undo it>` or `-- reversible: no — <why>` — and
+`npm run audit:migrations` refuses a new file that does not. The rule applies only to files
+absent from `CHECKSUMS.txt`, because a released migration is never edited; the eleven that
+predate the rule are classified by kind in the rollback table in `docs/DATABASE.md`. There are
+no `down` scripts. For anything that deletes or rewrites data, the rollback is a restore from
+an encrypted backup, which is a path that is actually exercised (`docs/BACKUPS.md`).
+
+**Rejected:** a `down` section per migration (code that runs once, under pressure, having
+never been tested against production data — and it invites editing a released migration to fix
+its reverse); a migration tool with an opinion about all this, which is a dependency for a
+directory of eleven SQL files.
+
+**Consequences.** Recovering from a destructive migration takes as long as a restore takes,
+which is the number to know before deploying one rather than after. Adding a migration now
+costs one line of thought about how it would be undone — which is the point, since the author
+is the only person who will ever have that answer cheaply.
+
+## ADR-0053 — Three environments, and a placeholder that says what it is
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 91. The three configurations already differed in the right ways, but
+`NODE_ENV` was cast, not parsed: `NODE_ENV=prod` read as "not production" and silently turned
+off the strict checks the production path adds. And the development fallback secret — long
+enough to pass the length check — would have been accepted in production had anyone copied a
+`.env` between machines, which is exactly how that mistake is made.
+
+**Decision.** `NODE_ENV` is parsed into `development | test | production` and anything else
+stops the boot. The development fallback keeps the prefix `development-only-`, and production
+refuses any secret that starts with it, by name, with a message that says how to generate a
+real one. `test/environments.test.ts` asserts all of it, and `docs/ENVIRONMENT.md` states how
+the three differ in one table.
+
+**Rejected:** a fourth `staging` environment (it is a production deployment with its own
+secrets, and pretending otherwise is how staging ends up with production data); detecting a
+"weak" secret by entropy (a guess with false positives, where a prefix is a fact).
+
+**Consequences.** A deployment that used a non-standard `NODE_ENV` value now fails at boot
+rather than running in a weaker mode nobody chose. The placeholder is recognisable in a
+process listing and in a `.env`, which is the property that makes the check possible.
+
+## ADR-0054 — The records stay in one file, and `docs/adr/` is the way in
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 94 asks for ADRs in `docs/adr/`. Fifty-one of them already existed, in
+`docs/DECISIONS.md`, in numeric order, each citing the ones it narrows or supersedes.
+
+**Decision.** Keep the records in one file and add `docs/adr/README.md` as the index: every
+record, grouped by area — architecture, cryptographic protocol, authentication, database,
+deployment, privacy, security, marketplace, client, process. `test/adr.test.ts` fails if a
+record is missing from the index, if the index links to an anchor that does not resolve, if a
+record appears twice, or if a record since ADR-0011 is missing its template sections.
+
+**Rejected:** splitting into fifty-one files (fifty-one places to grep, a link-rot surface,
+and a set of cross-references to keep in step, in exchange for nothing a reader gains);
+generating the index from the source (a build step for a table that changes once a week, and
+one more thing that can be stale in a checkout).
+
+**Consequences.** Adding a record means two edits in one commit — the record and its row —
+and the test says so immediately if the second is forgotten. A record long enough to deserve
+its own document gets one and is linked from the index.
+
+## ADR-0055 — Two questions before a commit, and one order when requirements disagree
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Points 92, 93 and 95. "Did this change reduce security?" and "did this change
+create a performance regression?" are the two questions that catch what a test suite cannot
+see — a check moved to the client, a claim that outran the code, a page that got heavier for
+a nicer animation. And when requirements genuinely conflict, an unstated priority order gets
+resolved by whoever argues longest.
+
+**Decision.** `docs/CHANGE_REVIEW.md` holds both questions with the mechanical answer for each
+(which suites, which budgets, which audit), what to do when the answer is yes — redesign, or
+optimise without weakening security — and the ten-item priority order from point 95:
+cryptographic correctness, security, privacy, data integrity, authorization, reliability,
+performance, maintainability, user experience, visual effects. `AGENTS.md` and
+`CONTRIBUTING.md` point at it, and `test/adr.test.ts` fails if either question disappears or
+if the ladder is reordered.
+
+**Rejected:** a pull-request template (there are no pull requests here — ADR-0026); a
+checklist that duplicates what the audit already enforces, which trains people to tick boxes;
+leaving the priority order implicit "because it is obvious", which it is right up until a
+deadline.
+
+**Consequences.** Two rows of the ladder are now settled rather than negotiable: a security
+measure is not removed to make an interface smoother, and a rate limit is not widened to make
+a demo feel faster. An exception needs an ADR, which is the cost that keeps exceptions rare.
