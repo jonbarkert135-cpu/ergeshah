@@ -6,7 +6,7 @@
  * the `default-src 'self'` Content-Security-Policy possible.
  */
 import { announce, clear, el, skeleton } from "./ui.ts";
-import { lock, ready, state } from "./state.ts";
+import { lock, ready, rotateStaleKeys, state } from "./state.ts";
 import { applyTheme, currentTheme, nextTheme, setTheme, themeLabel } from "./theme.ts";
 import { sodiumReady } from "../shared/crypto/sodium.ts";
 import { renderAuth } from "./views/auth.ts";
@@ -53,6 +53,14 @@ async function main(): Promise<void> {
     void paintUnread();
   }, 10_000);
   void paintUnread();
+  // A signed prekey is rotated weekly, and a browser that stays signed in for months used to
+  // keep the same one for months (ADR-0078). Checked once on load and daily after that, in
+  // the background, best-effort: the private half never leaves this device.
+  void rotateStaleKeys();
+  window.setInterval(() => {
+    if (!state.vault || document.hidden) return;
+    void rotateStaleKeys();
+  }, 24 * 60 * 60 * 1000);
 }
 
 /** The frame, immediately: header, a placeholder, footer. No blank page, ever. */

@@ -107,6 +107,14 @@ export interface Config {
   moneroWalletRpcUrl: string | null;
   /** Confirmations before a top-up is credited. Three is about six minutes. */
   depositConfirmations: number;
+  /**
+   * A top-up at or below this is credited after **one** confirmation instead of
+   * `DEPOSIT_CONFIRMATIONS` (ADR-0077): two minutes rather than six, for the amounts where
+   * waiting costs more in abandoned purchases than a one-block reorganisation could cost the
+   * platform. Zero confirmations is not an option at any amount — an unconfirmed transfer is
+   * not money. Set it to 0 to give every top-up the full count.
+   */
+  fastCreditMaxPico: number;
   /** How often the watcher asks the wallet what arrived. */
   walletPollMs: number;
   /**
@@ -346,6 +354,11 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       "DEPOSIT_CONFIRMATIONS",
       process.env.DEPOSIT_CONFIRMATIONS,
       3,
+    ),
+    fastCreditMaxPico: picoFromEnv(
+      "FAST_CREDIT_MAX_XMR",
+      process.env.FAST_CREDIT_MAX_XMR,
+      "0.1",
     ),
     walletPollMs:
       positiveInteger("WALLET_POLL_SECONDS", process.env.WALLET_POLL_SECONDS, 45) * 1000,

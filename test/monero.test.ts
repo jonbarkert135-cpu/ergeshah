@@ -203,6 +203,37 @@ describe("the watcher credits what the chain confirmed, once", () => {
     expect(await server.db.all("SELECT id FROM deposits")).toHaveLength(1);
   });
 
+  it("credits a small top-up at one confirmation and makes a large one wait (ADR-0077)", async () => {
+    const { user, subaddress_index } = await watchedUser("hasty");
+    const fast = { minConfirmations: 3, minPico: server.config.minDepositPico, fastCreditMaxPico: xmr("0.1") };
+
+    // 0.05 XMR with a single confirmation: the fast lane, about two minutes.
+    wallet.transfers.push({ txid: "1".repeat(64), amount: xmr("0.05"), minor: subaddress_index, confirmations: 1 });
+    // 0.5 XMR with the same single confirmation: not yet — above the fast-lane ceiling.
+    wallet.transfers.push({ txid: "2".repeat(64), amount: xmr("0.5"), minor: subaddress_index, confirmations: 1 });
+    expect(await scanDeposits(server.db, walletRpc(wallet.url), fast)).toMatchObject({ credited: 1 });
+    expect((await user.get<{ availableXmr: string }>("/api/wallet")).body.availableXmr).toBe("0.05");
+
+    // The large one lands on the pass where it reaches three.
+    wallet.transfers[1]!.confirmations = 3;
+    expect(await scanDeposits(server.db, walletRpc(wallet.url), fast)).toMatchObject({ credited: 1 });
+    expect((await user.get<{ availableXmr: string }>("/api/wallet")).body.availableXmr).toBe("0.55");
+  });
+
+  it("credits nothing from the transaction pool, whatever the amount (ADR-0077)", async () => {
+    const { user, subaddress_index } = await watchedUser("mempooler");
+    // Zero confirmations is not a fast lane, it is a transaction that may never be mined.
+    wallet.transfers.push({ txid: "3".repeat(64), amount: xmr("0.01"), minor: subaddress_index, confirmations: 0 });
+    const result = await scanDeposits(server.db, walletRpc(wallet.url), {
+      minConfirmations: 3,
+      minPico: server.config.minDepositPico,
+      fastCreditMaxPico: xmr("1"),
+    });
+    expect(result).toMatchObject({ credited: 0 });
+    expect((await user.get<{ availableXmr: string }>("/api/wallet")).body.availableXmr).toBe("0");
+    expect(await server.db.all("SELECT id FROM deposits")).toHaveLength(0);
+  });
+
   it("records a below-minimum top-up without crediting it (ADR-0067)", async () => {
     const { user, subaddress_index } = await watchedUser("dusty");
     wallet.transfers.push({ txid: "d".repeat(64), amount: xmr("0.005"), minor: subaddress_index, confirmations: 4 });

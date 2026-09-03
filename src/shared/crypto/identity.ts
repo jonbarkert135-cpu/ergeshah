@@ -11,7 +11,12 @@
 import { fromBase64Url, toBase64Url, utf8 } from "../encoding.ts";
 import { sodium } from "./sodium.ts";
 
-const SIGNED_PREKEY_ROTATION_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * How long a signed prekey may be used before the browser replaces it. Exported because the
+ * server reports staleness against the same number (ADR-0078) — two constants would drift and
+ * the drift would be invisible: a key the client thinks is fresh and the server calls old.
+ */
+export const SIGNED_PREKEY_ROTATION_MS = 7 * 24 * 60 * 60 * 1000;
 const SPK_SIGNATURE_CONTEXT = utf8("ergeshah-signed-prekey-v1");
 
 export interface KeyPair {

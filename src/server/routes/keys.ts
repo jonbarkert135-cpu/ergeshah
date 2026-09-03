@@ -10,6 +10,10 @@ import type { FastifyInstance } from "fastify";
 import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { today } from "../lib/time.ts";
+import { SIGNED_PREKEY_ROTATION_MS } from "../../shared/crypto/identity.ts";
+
+/** The client's own rotation window, in days: the server reports staleness against it. */
+const SIGNED_PREKEY_ROTATION_DAYS = Math.floor(SIGNED_PREKEY_ROTATION_MS / 86_400_000);
 import {
   asArray,
   asBase64Url,
@@ -88,7 +92,14 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
     return { oneTimePreKeysStored: await countUnclaimed(db, device.id) };
   });
 
-  /** How healthy is this device's key material? Drives client-side top-up and rotation. */
+  /**
+   * How healthy is this device's key material? Drives client-side top-up and rotation.
+   *
+   * `signedPreKeyStale` is the fact that was missing (ADR-0078): the age was published and
+   * nothing acted on it, so a browser left signed in for months kept one signed prekey the
+   * whole time. The threshold is the client's own rotation window, imported rather than
+   * repeated, because two copies of a number like this drift and the drift is invisible.
+   */
   app.get("/api/keys/status", async (request) => {
     const user = await app.authenticate(request);
     const devices = await db.all<{ id: string; label: string | null; rotated_day: number }>(
@@ -101,6 +112,7 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
           deviceId: device.id,
           label: device.label,
           signedPreKeyAgeDays: today() - device.rotated_day,
+          signedPreKeyStale: today() - device.rotated_day >= SIGNED_PREKEY_ROTATION_DAYS,
           oneTimePreKeysAvailable: await countUnclaimed(db, device.id),
         })),
       ),

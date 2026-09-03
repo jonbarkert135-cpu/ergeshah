@@ -2437,3 +2437,108 @@ can raise a payout limit could raise this one too).
 is the point, and is also a real operational cost: a single-admin deployment must either raise
 `DUAL_APPROVAL_ABOVE_XMR` deliberately or appoint a second admin before the first large payout.
 That is a decision worth making in daylight rather than during an incident.
+
+## ADR-0077 — A faster lane for small top-ups: one confirmation, never zero
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Every top-up waits for `DEPOSIT_CONFIRMATIONS` (3, about six minutes) before it is
+credited (ADR-0070). For a 40 XMR deposit that is obviously right. For someone paying 0.03 XMR
+for a file it is most of the reason they abandon the purchase, and it was the real complaint
+behind a proposal to credit anything under 10 XMR with **zero** confirmations (ADR-0075, item
+6). Zero confirmations means crediting a transaction that may never be mined, and at 10 XMR the
+attack is one transaction wide: deposit, buy a digital good, withdraw.
+
+**Decision.** Tier the wait by size, and never go below one confirmation.
+
+- A transfer at or below `FAST_CREDIT_MAX_XMR` (default **0.1**) is credited at **one**
+  confirmation — about two minutes. Everything above it keeps the full count.
+- `confirmationsFor()` is one function in `lib/deposits.ts` and the scan asks it per transfer,
+  so there is no second place where a confirmation policy can disagree with the first.
+- **Zero is not a setting.** The floor is one confirmation at any amount, and
+  `test/monero.test.ts` asserts that a transfer with `confirmations: 0` is not credited and
+  not even recorded, whatever the fast-lane ceiling is set to.
+- The exposure is bounded and stated: a one-block reorganisation could orphan a credited
+  transfer, and the most that costs the platform per attempt is `FAST_CREDIT_MAX_XMR`. An
+  operator who does not want that sets it to `0` and every top-up takes the full count.
+
+**Rejected:** zero confirmations under any ceiling (a transaction in the pool is not money, and
+this is the mechanism every zero-conf merchant eventually gets robbed through); crediting from
+the pool but holding the balance unspendable until confirmed (the buyer cannot spend it, so it
+buys them nothing, and it doubles the states every balance can be in); a per-account fast lane
+for trusted buyers (trust computed from on-platform volume is a thing an attacker earns
+cheaply — and the whole value here is the *first* purchase being quick).
+
+**Consequences.** Small purchases feel like a payment rather than a wait, and the platform
+takes a small, bounded, configurable risk to make that true. It also means two answers to "how
+long does a top-up take", which is why `GET /api/wallet` publishes the ceiling and the
+confirmation count and the wallet screen states both.
+
+## ADR-0078 — A signed prekey rotates on a live session, not only at sign-in
+
+**Status:** accepted (2026-09-03)
+
+**Context.** `signedPreKeyNeedsRotation` has existed since the messaging work: a device's
+signed prekey is replaced after seven days, in the browser, and `publishDevice` does it. The
+gap is *when* `publishDevice` runs — sign-in, registration, device linking. A browser left
+signed in for three months therefore kept one signed prekey for three months. That key is what
+protects the first message of every new conversation before the ratchet moves, so its
+compromise is worth exactly the window it was live for. The server published
+`signedPreKeyAgeDays` and nothing ever acted on it.
+
+This is the salvageable half of a proposal for daily PGP rotation with server-held private keys
+(ADR-0075, item 2). The private-key half is refused permanently; the "long-lived key material
+that nobody ever changes" half was a real finding.
+
+**Decision.** The server names the staleness and the browser acts on it.
+
+- `GET /api/keys/status` gains `signedPreKeyStale`, computed against
+  `SIGNED_PREKEY_ROTATION_MS` **imported from the client's own module** rather than restated —
+  two copies of that number would drift, and the drift would be invisible: a key the client
+  calls fresh and the server calls old.
+- The client checks on load and once a day thereafter (`rotateStaleKeys`), and on a stale key
+  generates a new pair and publishes the public half through the route it already used. The
+  private half never leaves the device; nothing about the server's storage changes.
+- It is best-effort and silent: a failed rotation is retried on the next check, never surfaced
+  as a broken account. The account screen shows the age and says "rotating on next load".
+
+**Rejected:** rotating on the server (it would need the private key — the refusal that this
+whole review turns on); a shorter window such as daily (a rotation is a write and a prekey
+bundle change for every correspondent's next session; weekly already bounds the exposure and
+matches what the client was designed for); refusing to hand out a bundle with a stale signed
+prekey (it would break messaging for people whose browser has not rotated yet — punishing the
+correspondent for the recipient's tab being old).
+
+**Consequences.** The exposure window for a signed prekey is now a week in practice and not
+just on paper. What it does not fix is a device that is never opened again: its last signed
+prekey stays in the bundle until the device is revoked, which is correct — somebody has to be
+able to send to it — and is why device revocation, not rotation, is the answer to a lost phone.
+
+## ADR-0079 — Background work: ordered by importance, isolated from each other
+
+**Status:** accepted (2026-09-03)
+
+**Context.** A proposal for in-memory priority queues (ADR-0075, item 1) does not fit this
+system — the queues that matter are tables, and an in-memory one would only add a way to lose
+an order at a restart. But reading the hourly housekeeping to answer that question found a
+real bug: six prunes ran inside one `try`. A statement timeout on the session prune was
+therefore silently also an audit-log, notification, envelope and rate-limit prune that never
+ran, with no symptom until a disk filled months later.
+
+**Decision.** `lib/jobs.ts`: `runJobs(jobs)` runs each job in the order given, gives each its
+own `try`, logs a failure as `job.failed.<name>`, and never throws — its caller is a timer, and
+a timer that rejects is an unhandled rejection and no cleanup for an hour. Order *is* priority:
+sessions and rate limits first because stale ones are worth something to an attacker, then the
+sweeps whose purpose is to stop holding data, and the seller-level decay last because a
+catalogue ranking a day out of date is nobody's emergency.
+
+**Rejected:** a job table with retries and schedules (a scheduler nobody asked for; these
+sweeps are idempotent and run again next hour, and anything that must not be lost already
+lives in a table); parallel execution with `Promise.allSettled` (on SQLite these are writes
+competing for one lock, and the ordering is the feature); keeping the deposit watcher in the
+same list (it runs on a 45-second clock, not hourly, and it is already best-effort by
+construction).
+
+**Consequences.** One failing sweep is now one log line with a name in it instead of five
+silent omissions. The module is deliberately 50 lines and has no state; if this project ever
+needs retries or fan-out, that is a queue in the database and a different decision.

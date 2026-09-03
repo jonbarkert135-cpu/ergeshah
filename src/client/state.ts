@@ -286,6 +286,33 @@ export function forgetLocalVault(): void {
 }
 
 /**
+ * Rotates this device's signed prekey when the server says it is old (ADR-0078).
+ *
+ * `publishDevice` has always rotated a stale key, but it only runs at sign-in, so a browser
+ * left signed in for months kept one signed prekey for months — the compromise of that one
+ * key would decrypt the first message of every conversation started in that window. This is
+ * the same rotation, triggered from a live session, and it is best-effort on purpose: a
+ * network failure here must never look like a broken account.
+ */
+export async function rotateStaleKeys(): Promise<boolean> {
+  if (!state.vault) return false;
+  try {
+    const status = await api<{ devices: Array<{ deviceId: string; signedPreKeyStale: boolean }> }>(
+      "/api/keys/status",
+    );
+    const mine = status.devices.find((device) => device.deviceId === state.vault?.deviceId);
+    if (!mine?.signedPreKeyStale) return false;
+    // The private half never leaves this browser: rotation is a new key pair here and a new
+    // public key published, exactly as at sign-in.
+    await publishDevice();
+    await persistVault();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Publishes this device's public key material and tops up one-time prekeys when the
  * server reports that they are running out (each one is used exactly once).
  */

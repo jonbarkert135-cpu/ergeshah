@@ -36,7 +36,7 @@ password
 
 device identity (Ed25519)
   ├── X25519 identity key (converted)          used in DH1/DH2
-  ├── signed prekey (X25519, signed, rotated weekly)
+  ├── signed prekey (X25519, signed, rotated weekly — in the browser, on a live session too)
   └── one-time prekeys (X25519, deleted on use)
 ```
 

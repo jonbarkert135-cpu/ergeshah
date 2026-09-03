@@ -103,6 +103,19 @@ admin account, stolen or otherwise, releases a large sum on its own. A deploymen
 admin has to raise the threshold deliberately or appoint a second admin — before the first
 large payout, not during it.
 
+## How long a top-up waits
+
+| Amount | Confirmations | About |
+| --- | --- | --- |
+| ≤ `FAST_CREDIT_MAX_XMR` (0.1) | 1 | 2 minutes |
+| more | `DEPOSIT_CONFIRMATIONS` (3) | 6 minutes |
+
+Tiered because a six-minute wait is right for 40 XMR and is most of the reason someone paying
+0.03 XMR for a file gives up (ADR-0077). **Zero confirmations is not available at any amount**
+— a transaction in the pool may never be mined, and that is the mechanism zero-conf merchants
+get robbed through. The platform's exposure in the fast lane is one orphaned block, bounded by
+the ceiling per attempt; `FAST_CREDIT_MAX_XMR=0` turns it off.
+
 ## Limits
 
 The minimums exist because a payment smaller than the fee to move it is not a payment:

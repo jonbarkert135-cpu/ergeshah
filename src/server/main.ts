@@ -10,6 +10,7 @@ import { pruneNotifications } from "./lib/notify.ts";
 import { decaySellerLevels } from "./lib/reputation.ts";
 import { scanDeposits, solvency } from "./lib/deposits.ts";
 import { quietly } from "./lib/monero.ts";
+import { runJobs } from "./lib/jobs.ts";
 import { log } from "./lib/log.ts";
 
 const config = loadConfig();
@@ -18,24 +19,32 @@ await migrate(db);
 await backfillSearchIndex(db);
 const app = await buildApp(config, db);
 
-/** Housekeeping: expired sessions, envelopes, buckets, audit entries and notifications. */
+/**
+ * Housekeeping, hourly: expired sessions, envelopes, buckets, audit entries, notifications,
+ * and the seller-level decay sweep.
+ *
+ * Ordered by importance and individually isolated (ADR-0079). Before that they shared one
+ * `try`, which meant the first failure cancelled every job after it — a statement timeout on
+ * the session prune was silently also a notification, audit and rate-limit prune that never
+ * ran. `runJobs` never throws, so a failing sweep is a log line and the timer survives.
+ */
 const housekeeping = setInterval(
   () => {
-    void (async () => {
-      try {
-        await pruneSessions(db, config.sessionIdleDays);
-        await pruneRateLimits(db);
-        await db.run("DELETE FROM envelopes WHERE expires_at < ?", [Date.now()]);
-        await pruneAuditLog(db, config.auditRetentionMs);
-        await pruneNotifications(db, config.notificationRetentionMs);
-        // A seller's level falls if they stop trading (ADR-0072). Hourly rather than daily
-        // because it is cheap and idempotent, and an hourly job that is a no-op 23 times a
-        // day needs no scheduler of its own.
-        await decaySellerLevels(db, { decayDays: config.sellerLevelDecayDays });
-      } catch (error) {
-        log({ level: "error", event: "housekeeping.failed", message: (error as Error).message });
-      }
-    })();
+    void runJobs([
+      // Security first: a session that should have expired is the one piece of stale state
+      // here that is worth something to an attacker.
+      { name: "sessions", run: () => pruneSessions(db, config.sessionIdleDays) },
+      { name: "rate_limits", run: () => pruneRateLimits(db) },
+      // Then the things whose whole purpose is to stop holding data (docs/DELETION.md).
+      { name: "envelopes", run: () => db.run("DELETE FROM envelopes WHERE expires_at < ?", [Date.now()]) },
+      { name: "audit_log", run: () => pruneAuditLog(db, config.auditRetentionMs) },
+      { name: "notifications", run: () => pruneNotifications(db, config.notificationRetentionMs) },
+      // Last: a catalogue ranking that is a day stale is nobody's emergency (ADR-0072).
+      {
+        name: "seller_levels",
+        run: () => decaySellerLevels(db, { decayDays: config.sellerLevelDecayDays }),
+      },
+    ]);
   },
   60 * 60 * 1000,
 );
@@ -55,6 +64,7 @@ const watcher = app.wallet
           scanDeposits(db, app.wallet!, {
             minConfirmations: config.depositConfirmations,
             minPico: config.minDepositPico,
+            fastCreditMaxPico: config.fastCreditMaxPico,
           }),
         );
         // Solvency on the same clock: the comparison is one RPC call and one SUM, and its

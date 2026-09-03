@@ -72,8 +72,10 @@ export interface ScanResult {
 /**
  * One pass over the wallet's incoming transfers.
  *
- * A transfer is credited when it has reached `minConfirmations` and its subaddress belongs
- * to an account. Everything else is counted and left alone: an unconfirmed transfer will be
+ * A transfer is credited when it has reached the confirmations its *size* requires and its
+ * subaddress belongs to an account. Small top-ups take one confirmation and larger ones take
+ * `minConfirmations` (ADR-0077); nothing is ever credited from the transaction pool, because
+ * an unconfirmed transfer is not money. Everything else is counted and left alone: an unconfirmed transfer will be
  * confirmed on a later pass, and a transfer to a subaddress this database does not know is
  * an operator's problem (a wallet used for something else, an address handed out by hand)
  * rather than a payment this platform may credit to somebody.
@@ -81,7 +83,7 @@ export interface ScanResult {
 export async function scanDeposits(
   db: Db,
   wallet: WalletRpc,
-  options: { minConfirmations: number; minPico: number },
+  options: { minConfirmations: number; minPico: number; fastCreditMaxPico?: number },
 ): Promise<ScanResult> {
   const transfers = await wallet.incoming();
   const result: ScanResult = { seen: transfers.length, credited: 0, belowMinimum: 0, unattributed: 0 };
@@ -103,7 +105,7 @@ export async function scanDeposits(
   );
 
   for (const transfer of transfers) {
-    if (transfer.confirmations < options.minConfirmations) continue;
+    if (transfer.confirmations < confirmationsFor(transfer.amountPico, options)) continue;
     if (known.has(`${transfer.txid}:${transfer.subaddressIndex}:${transfer.amountPico}`)) continue;
     const userId = owners.get(transfer.subaddressIndex);
     if (!userId) {
@@ -129,6 +131,19 @@ export async function scanDeposits(
     log({ level: "info", event: "deposit.unattributed", metrics: { count: result.unattributed } });
   }
   return result;
+}
+
+/**
+ * How many confirmations this amount has to have. One for a small top-up, the configured
+ * count for everything else, and never zero: the fast lane is faster, not free (ADR-0077).
+ */
+export function confirmationsFor(
+  amountPico: number,
+  options: { minConfirmations: number; fastCreditMaxPico?: number },
+): number {
+  const fastMax = options.fastCreditMaxPico ?? 0;
+  if (fastMax > 0 && amountPico <= fastMax) return Math.min(1, options.minConfirmations);
+  return options.minConfirmations;
 }
 
 export interface Solvency {

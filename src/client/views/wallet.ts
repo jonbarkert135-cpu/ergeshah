@@ -22,6 +22,8 @@ interface Wallet {
   belowMinimumXmr: string;
   minRefundXmr: string;
   canRefund: boolean;
+  fastCreditMaxXmr: string;
+  confirmations: number;
   minWithdrawalXmr: string;
   reviewAboveXmr: string;
   orderFeePercent: number;
@@ -132,7 +134,9 @@ export function renderWallet(root: HTMLElement): void {
       el(
         "p",
         {},
-        "Send XMR to the address below. It belongs to your account only and does not change, so you can save it and use it again; anything that arrives is credited after three confirmations — about six minutes.",
+        wallet.fastCreditMaxXmr === "0"
+          ? `Send XMR to the address below. It belongs to your account only and does not change, so you can save it and use it again; anything that arrives is credited after ${wallet.confirmations} confirmations — about ${wallet.confirmations * 2} minutes.`
+          : `Send XMR to the address below. It belongs to your account only and does not change, so you can save it and use it again. Up to ${price(wallet.fastCreditMaxXmr)} is credited after one confirmation — about two minutes; more than that waits for ${wallet.confirmations}, about ${wallet.confirmations * 2} minutes.`,
       ),
       address,
       el("div", { class: "row" }, copy),

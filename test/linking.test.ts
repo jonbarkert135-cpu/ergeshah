@@ -5,7 +5,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { publishDevice, register, startTestServer, TestClient, type TestServer } from "./helpers.ts";
-import { createDeviceIdentity, signSignedPreKey } from "../src/shared/crypto/identity.ts";
+import {
+  createDeviceIdentity,
+  rotateSignedPreKey,
+  signSignedPreKey,
+} from "../src/shared/crypto/identity.ts";
 import { sodium } from "../src/shared/crypto/sodium.ts";
 import { toBase64Url } from "../src/shared/encoding.ts";
 
@@ -157,5 +161,47 @@ describe("linking a second device", () => {
     expect(Object.keys(rows[0]!).sort()).toEqual(["expires_at", "label", "link_hash", "user_id"]);
     expect(JSON.stringify(rows[0])).not.toContain(toBase64Url(laptop.secret));
     expect(rows[0]!.link_hash).toBe(laptop.linkHash);
+  });
+});
+
+describe("a signed prekey that nobody rotated (ADR-0078)", () => {
+  it("is reported stale once it passes the client's own rotation window", async () => {
+    const alice = await register(server, "stalealice");
+    // Published the way the browser does it, so that rotation later re-uses the *same*
+    // identity key and updates one device rather than creating a second one.
+    const identity = createDeviceIdentity(2);
+    const publish = (signedPreKey = identity.signedPreKey, signature = identity.signedPreKeySignature) =>
+      alice.post("/api/keys/device", {
+        identityKey: toBase64Url(identity.identity.publicKey),
+        signedPreKeyId: signedPreKey.keyId,
+        signedPreKey: toBase64Url(signedPreKey.keyPair.publicKey),
+        signedPreKeySignature: toBase64Url(signature),
+        oneTimePreKeys: [],
+      });
+    expect((await publish()).status).toBe(200);
+    const fresh = await alice.get<{
+      devices: Array<{ deviceId: string; signedPreKeyAgeDays: number; signedPreKeyStale: boolean }>;
+    }>("/api/keys/status");
+    expect(fresh.body.devices[0]).toMatchObject({ signedPreKeyAgeDays: 0, signedPreKeyStale: false });
+
+    // Eight days without a sign-in: the state a browser left open used to stay in forever,
+    // because rotation only ever happened at sign-in.
+    await server.db.run("UPDATE devices SET rotated_day = rotated_day - 8");
+    const stale = await alice.get<{
+      devices: Array<{ signedPreKeyAgeDays: number; signedPreKeyStale: boolean }>;
+    }>("/api/keys/status");
+    expect(stale.body.devices[0]).toMatchObject({ signedPreKeyAgeDays: 8, signedPreKeyStale: true });
+
+    // Publishing a new signed prekey — which is what the browser now does in the background,
+    // with the private half never leaving it — clears the flag.
+    const rotatedIdentity = rotateSignedPreKey(identity);
+    expect(
+      (await publish(rotatedIdentity.signedPreKey, rotatedIdentity.signedPreKeySignature)).status,
+    ).toBe(200);
+    expect(await server.db.all("SELECT id FROM devices")).toHaveLength(1);
+    const rotated = await alice.get<{ devices: Array<{ signedPreKeyStale: boolean }> }>(
+      "/api/keys/status",
+    );
+    expect(rotated.body.devices[0]?.signedPreKeyStale).toBe(false);
   });
 });

@@ -37,6 +37,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
         deviceId: string;
         label: string | null;
         signedPreKeyAgeDays: number;
+        signedPreKeyStale: boolean;
         oneTimePreKeysAvailable: number;
       }>;
     }>("/api/keys/status");
@@ -70,7 +71,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
           el(
             "div",
             { class: "muted" },
-            `signed prekey age: ${device.signedPreKeyAgeDays}d · one-time prekeys left: ${device.oneTimePreKeysAvailable}`,
+            `signed prekey age: ${device.signedPreKeyAgeDays}d${device.signedPreKeyStale ? " (rotating on next load)" : ""} · one-time prekeys left: ${device.oneTimePreKeysAvailable}`,
           ),
           revokeButton(device.deviceId),
         ),

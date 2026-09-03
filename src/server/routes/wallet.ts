@@ -70,6 +70,10 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
       // than an address nobody controls.
       depositAddress: address ?? null,
       minDepositXmr: xmrString(config.minDepositPico),
+      // How long the payer waits, by size (ADR-0077). Published so the screen states the
+      // deployment's own rule instead of a hard-coded "about six minutes".
+      fastCreditMaxXmr: xmrString(config.fastCreditMaxPico),
+      confirmations: config.depositConfirmations,
       // Enforced, not advertised (ADR-0067): a smaller transfer is recorded and not credited.
       // The total sits here so the owner sees it on their own screen instead of finding a
       // balance that does not match what they sent.

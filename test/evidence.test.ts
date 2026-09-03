@@ -80,6 +80,13 @@ describe("a party can commit to bytes the server never sees", () => {
       reason: "The archive will not open and the seller has stopped replying to me.",
     });
     expect(disputed.status).toBe(200);
+    // Requests in one test land inside the same millisecond, and a tie counts as "before"
+    // (the committer gets the benefit of a 1 ms doubt — `lib/evidence.ts`). Age the seller's
+    // commitment by a second so the sequence under test is the real one: committed, then
+    // disputed, then the buyer's digest published after the argument started.
+    await server.db.run(
+      "UPDATE order_evidence SET created_at = created_at - 1000 WHERE kind = 'delivery'",
+    );
     const buyerCommit = await buyer.post(`/api/market/orders/${orderId}/evidence`, {
       digest: digestFor(orderId, "the broken file the buyer received"),
       kind: "attachment",
