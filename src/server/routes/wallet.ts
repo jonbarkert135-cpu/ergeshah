@@ -26,6 +26,8 @@ import {
   requestWithdrawal,
   type LedgerKind,
 } from "../lib/ledger.ts";
+import { depositAddressFor } from "../lib/deposits.ts";
+import { quietly } from "../lib/monero.ts";
 import { xmrString } from "../../shared/money.ts";
 
 /** Ledger kinds as a person reads them, so the client renders a word rather than a code. */
@@ -52,9 +54,11 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
     await app.limit(request, "read");
     const user = await app.authenticate(request);
     const balance = await balanceOf(db, accountFor(user.id));
-    const deposit = await db.get<{ address: string }>(
-      "SELECT address FROM deposit_addresses WHERE user_id = ?",
-      [user.id],
+    // Created on first sight of this screen, from the wallet itself, and stored for good: an
+    // account keeps one address for its lifetime, so a payer who saved it can use it again
+    // (lib/deposits.ts). A wallet that is down answers null and the screen says so.
+    const address = await quietly("wallet.address_failed", () =>
+      depositAddressFor(db, app.wallet, user.id),
     );
     return {
       availableXmr: xmrString(balance.availablePico),
@@ -62,7 +66,7 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
       // Null until this deployment has a wallet: the address is one the wallet generated,
       // never one this server invented. A client shows "top-ups are not open yet" rather
       // than an address nobody controls.
-      depositAddress: deposit?.address ?? null,
+      depositAddress: address ?? null,
       minDepositXmr: xmrString(config.minDepositPico),
       // Enforced, not advertised (ADR-0067): a smaller transfer is recorded and not credited.
       // The total sits here so the owner sees it on their own screen instead of finding a

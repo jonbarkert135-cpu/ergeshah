@@ -187,6 +187,50 @@ hide: message timing and volume, anything a compromised client would leak, and t
 that the same account can be used from both entrypoints — the onion service and the
 clearnet site share one database, so an operator can still correlate activity across them.
 
+## The Monero tier
+
+Optional, and off by default: with `MONERO_WALLET_RPC_URL` unset the marketplace runs exactly
+as it did before ADR-0070 — orders, escrow and balances all work, and nobody can top up.
+Turning it on is three decisions, and the first two happen off this machine.
+
+**1. Make the deposit wallet somewhere else.** On a machine that is not the server, create the
+wallet that will receive top-ups and write down the seed. Then export a *view-only* copy —
+`monero-wallet-cli --generate-from-view-key` with the address and the private view key — and
+copy **only that** to the server. The spend key stays where you made it; it is the key that
+can empty the marketplace.
+
+**2. Start the node and the view-only wallet.** Uncomment the `node` and `wallet` services in
+`deploy/docker-compose.yml`, put the view-only wallet file in the `monero-wallet` volume, the
+wallet password in `deploy/secrets/wallet_password`, and set
+`MONERO_WALLET_RPC_URL=http://wallet:18082`. The daemon needs ~90 GB pruned and a day to sync
+before the first deposit address is worth handing out. `app` still has no egress: the daemon is
+the container with the route out, which is the point of putting it in its own tier
+(`docs/NETWORK.md`).
+
+**3. Run the payout worker on another host.** Payouts queue whether or not a worker exists —
+they simply wait. To send them, on a *different* machine with the hot wallet (a float of 1–2%
+of liabilities, no more):
+
+```bash
+SYMVOLON_URL=https://example.org \
+PAYOUT_WORKER_TOKEN=$(cat /etc/symvolon/payout-token) \
+WALLET_RPC_URL=http://127.0.0.1:18083 \
+MAX_PAYOUT_XMR=5 \
+node scripts/payout-worker.mjs
+```
+
+Set the same token as `PAYOUT_WORKER_TOKEN` (or `PAYOUT_WORKER_TOKEN_FILE`) on the server. The
+worker refuses anything above `MAX_PAYOUT_XMR` and returns it to the owner's balance, so the
+float is a ceiling on what a compromise of that host can cost.
+
+**Then watch two numbers.** `GET /api/admin/treasury` reports `liabilitiesXmr` against
+`walletXmr`; `shortfallXmr` must stay `0`. The watcher compares them every
+`WALLET_POLL_SECONDS` and writes a `treasury.shortfall` error line when it does not — that is
+the line to alert on, before a seller finds it for you.
+
+**This has never been run against a real node** (roadmap PAY-6). Do a stagenet pass first:
+same configuration, `--stagenet` on both Monero containers, a top-up, an order, a payout.
+
 ## Backups
 
 `scripts/backup.mjs` takes an encrypted, verified, versioned snapshot, and prunes old ones on

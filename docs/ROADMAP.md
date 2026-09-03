@@ -56,23 +56,24 @@ down before the feature exists (`docs/PAYMENTS.md`).*
 exchange rate anywhere (ADR-0064) — and the Monero settlement design in `docs/PAYMENTS.md`
 (ADR-0065).*
 
-- **PAY-2 — The Monero tier.** Balances, escrow, the 5% fee, payout queueing, limits and the
-  treasury total are shipped (ADR-0066, migration 014, `test/wallet.test.ts`). What is missing is
-  the part that touches the chain, and it is three processes and one decision:
-  1. **A wallet tier in the deployment**: `monerod` plus `monero-wallet-rpc` on the internal
-     network, the daemon holding the only egress, ideally over Tor — the application container
-     still reaches nothing but them (`docs/NETWORK.md`). Sized for a pruned node: ~4 GB RAM and
-     an SSD with room for ~90 GB and growth.
-  2. **A watcher**, with the private **view key** only: `get_transfers` on an interval inside
-     the housekeeping timer, `creditDeposit` at three confirmations, `create_address` to fill
-     `deposit_addresses` on demand. It can see money and cannot move it.
-  3. **A payout worker** on its own host with a spend key and a working float: takes `queued`
-     rows, calls `validate_address` then `transfer`, and reports back through
-     `markWithdrawalSent` / `markWithdrawalFailed`. Everything above the float is swept to a
-     cold wallet the operator alone controls (`docs/PAYMENTS.md` §Keys).
-  4. **Solvency in the open**: the treasury total compared against what the wallet actually
-     holds, on a schedule, with a loud failure — a custodial platform that discovers a shortfall
-     from a seller has already lost the argument.
+*Shipped (PAY-2, 2026-09-03, ADR-0070): the Monero tier. A view-only wallet beside the
+application with three calls and no others (`create_address`, `get_transfers`,
+`get_balance`), one permanent subaddress per account, a watcher on its own clock that credits
+confirmed transfers exactly once, a solvency comparison published on the treasury endpoint and
+logged when it diverges, and a payout worker on another host that pulls the queue, holds the
+only spend key and refuses anything above its float. `deploy/docker-compose.yml` carries the
+node and wallet services; `docs/DEPLOYMENT.md` §The Monero tier is the operator's path.*
+
+- **PAY-6 — Run it against a node.** Every Monero test in this repository speaks to a fake
+  `monero-wallet-rpc` (`test/monero.test.ts`). What that proves is this code's behaviour, not
+  that the wallet's answers have the shape assumed: `subaddr_index.minor`, atomic-unit
+  amounts, `confirmations` on an incoming transfer. A stagenet pass — sync, address, top-up,
+  order, payout — is the first thing to do before any of this touches mainnet.
+- **PAY-7 — A stuck `sending` payout needs a screen.** Nothing re-queues one automatically and
+  that is deliberate (ADR-0070), but today resolving it means reading the wallet's history and
+  an `UPDATE`. An admin view that shows the row, the amount and the address hint, and lets a
+  human mark it sent or failed with an audit entry, is the missing half.
+
 *Shipped (PAY-3, 2026-09-03): the guarantee is escrow and only escrow, and the interface says
 so on every listing before an order is placed. A seller's level (0–3) is computed from settled
 on-platform orders alone and the catalogue is sorted by it (ADR-0068); a listing may not carry

@@ -87,6 +87,10 @@ what each one protects.
 | `ORDER_FEE_BPS` | `500` (5%) | The marketplace's cut of a completed order, in basis points, charged to the seller and rounded down in their favour. `0` is supported. Boot refuses anything above `2000` (20%), because `5000` where `500` was meant is a typo nothing downstream would question |
 | `MIN_WITHDRAWAL_XMR` | `0.02` (≈$10) | Smallest payout the server will queue. Enforced: below it the network fee dominates the transfer |
 | `MIN_DEPOSIT_XMR` | `0.02` | The smallest top-up this platform credits, and it is enforced (ADR-0067). A smaller transfer is recorded as `below_minimum`, left off the balance, shown to its owner, and refunded by hand on request |
+| `MONERO_WALLET_RPC_URL` | *(none)* | Where the **view-only** `monero-wallet-rpc` answers on the internal network, e.g. `http://wallet:18082`. Unset means this deployment has no Monero tier: no deposit address is handed out, no scan runs, and the wallet screen says top-ups are not open. The wallet at the other end holds a private view key and nothing that can sign (ADR-0070) |
+| `DEPOSIT_CONFIRMATIONS` | `3` | Confirmations before a top-up is credited — about six minutes. Lower is faster and cheaper to attack; higher is a longer wait for every payer |
+| `WALLET_POLL_SECONDS` | `45` | How often the watcher asks the wallet what arrived, and compares the books against it. A block is ~2 minutes, so anything under 30 is asking more often than the chain changes |
+| `PAYOUT_WORKER_TOKEN` | *(none)* | Shared secret the payout worker authenticates with (`openssl rand -base64 32`, at least 32 characters). Unset closes the payout queue endpoints entirely. It is the only credential that can read a payout destination, so it belongs in a file mounted from a secret store — `PAYOUT_WORKER_TOKEN_FILE` works like every other secret here |
 | `AUTO_PAYOUT_MAX_XMR` | `2` (≈$1,000) | Default ceiling on automatic payouts, per request and per rolling 24 hours, for an account with no ceiling of its own. Above it a payout is queued for an administrator, never refused. Per-account overrides are set through the admin API and audited |
 
 ### `RATE_LIMITS`

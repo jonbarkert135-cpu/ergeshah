@@ -130,7 +130,7 @@ export function renderWallet(root: HTMLElement): void {
       el(
         "p",
         {},
-        "Send XMR to the address below. It belongs to your account only, so anything that arrives is credited to you after three confirmations — about six minutes.",
+        "Send XMR to the address below. It belongs to your account only and does not change, so you can save it and use it again; anything that arrives is credited after three confirmations — about six minutes.",
       ),
       address,
       el("div", { class: "row" }, copy),

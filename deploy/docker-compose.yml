@@ -129,12 +129,58 @@ services:
   #   mem_limit: 256m
   #   pids_limit: 128
 
+  # Uncomment for the Monero tier (ADR-0070). Two containers: a daemon with the only egress
+  # in this deployment besides ACME, and a *view-only* wallet the application polls. Set
+  # MONERO_WALLET_RPC_URL=http://wallet:18082 in .env once they are up.
+  #
+  # The wallet is opened from a file the operator created *elsewhere* with the private view
+  # key of the deposit wallet (`monero-wallet-cli --generate-from-view-key`) — the spend key
+  # never goes near this machine, and the payout wallet is not in this file at all: it runs on
+  # another host and pulls the queue (scripts/payout-worker.mjs, docs/PAYMENTS.md §Keys).
+  #
+  # Sized for a pruned node: ~4 GB RAM and room for ~90 GB with growth.
+  # node:
+  #   # sethsimmons/simple-monerod:v0.18.3.4 — a third-party image; building monerod from
+  #   # source and pinning your own is the stricter option (docs/DEPLOYMENT.md).
+  #   image: sethsimmons/simple-monerod@sha256:a17e6e72c8eafb05d04a4dc5f2dda8a9f0c237c7013b0936fcee180c4a284104
+  #   restart: unless-stopped
+  #   command: ["--prune-blockchain", "--restricted-rpc", "--rpc-bind-ip=0.0.0.0",
+  #             "--rpc-bind-port=18081", "--confirm-external-bind", "--non-interactive"]
+  #   volumes: [monero-node:/home/monero/.bitmonero]
+  #   # `edge` is the point: the daemon is the tier that talks to the Monero network, so that
+  #   # `app` still has no route to the internet. Route it over Tor if the operator can.
+  #   networks: [internal, edge]
+  #   security_opt: ["no-new-privileges:true"]
+  #   cap_drop: [ALL]
+  #   mem_limit: 4g
+  #   pids_limit: 256
+  # wallet:
+  #   # sethsimmons/simple-monero-wallet-rpc:v0.18.3.4
+  #   image: sethsimmons/simple-monero-wallet-rpc@sha256:13fd4f6914b15ad34239a9dbc5a5c599b9adad38af803353854052318830ec67
+  #   restart: unless-stopped
+  #   depends_on: [node]
+  #   command: ["--wallet-file=/wallet/deposits", "--password-file=/run/secrets/wallet_password",
+  #             "--daemon-address=node:18081", "--rpc-bind-ip=0.0.0.0", "--rpc-bind-port=18082",
+  #             "--confirm-external-bind", "--disable-rpc-login", "--trusted-daemon",
+  #             "--non-interactive"]
+  #   volumes: [monero-wallet:/wallet]
+  #   secrets: [wallet_password]
+  #   # No `ports:` and no `edge`: the only thing that can reach this RPC is `app`, which is
+  #   # why `--disable-rpc-login` is acceptable here and nowhere else.
+  #   networks: [internal]
+  #   security_opt: ["no-new-privileges:true"]
+  #   cap_drop: [ALL]
+  #   mem_limit: 512m
+  #   pids_limit: 128
+
 volumes:
   app-data:
   caddy-data:
   caddy-config:
   # db-data:
   # tor-data:
+  # monero-node:
+  # monero-wallet:
 
 # How to hand a secret to a container without putting it in the environment: mount it as a
 # file and point the `_FILE` variable at it. `config.ts` reads either form. See the secrets

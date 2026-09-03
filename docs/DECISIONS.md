@@ -2094,3 +2094,61 @@ that is stated rather than hidden: it raises the cost of advertising the bypass 
 and ADR-0068 is what makes taking it unattractive. Buyers also get the rule in words on the
 listing itself: ordering here holds the price; paying directly has no escrow, no dispute and no
 refund.
+
+## ADR-0070 — The Monero tier: a watcher that cannot spend, a worker that cannot be called
+
+**Status:** accepted (2026-09-03)
+
+**Context.** ADR-0066 built the books and left the chain out: balances, escrow, the fee, the
+payout queue and the treasury total all worked against a `deposits` table nothing ever wrote.
+Roadmap PAY-2 is the missing half, and it is where a marketplace like this one usually gets
+robbed — not through the cryptography, through a spend key in the same process as an HTTP
+router.
+
+Four constraints already in this repository decide most of it (`docs/PAYMENTS.md` §How the
+Monero tier must work): the application container has no route to the internet, there are no
+WebSockets, the server keeps no key that moves anything, and the dependency list is closed.
+
+**Decision.** Split the wallet in two along the line of what each half can do, and let the
+network topology enforce it.
+
+- **The watcher lives in the application process** and speaks to `monero-wallet-rpc` over the
+  internal network with three calls and no others: `create_address`, `get_transfers`,
+  `get_balance` (`src/server/lib/monero.ts`; `test/monero.test.ts` asserts the vocabulary is
+  exactly those three). The wallet it talks to is opened with a **private view key**, so the
+  worst an attacker who owns the web process can do is read what arrived.
+- **A subaddress per account, created on demand and kept forever.** The index is the whole of
+  the attribution — a Monero transfer names no sender — so a second address for one account
+  would make a payment unattributable and a reused address would credit the wrong person.
+- **Crediting is idempotent three times over**: the scan skips rows already recorded, the
+  unique key on `deposits` refuses a duplicate, and `creditDeposit` treats that refusal as
+  success. A deposit credited twice is money the platform does not have.
+- **Confirmations before credit, never the pool.** `DEPOSIT_CONFIRMATIONS`, default 3 (~6
+  minutes). An unconfirmed transfer is not money.
+- **The payout worker is a separate process on a separate host** with the spend key and a
+  working float (`scripts/payout-worker.mjs`). It *pulls*: `POST /api/payouts/claim` hands it
+  one payout and marks the row `sending` in the same statement; it sends; it reports `sent` or
+  `failed`. Nothing calls the worker, so a compromised web tier has nothing to ask.
+- **`sending` is a one-way door.** No timeout re-queues a payout, because only the process
+  holding the key knows whether a transaction was signed, and an automatic retry on an
+  uncertain outcome pays somebody twice. A stuck row is an operator with a wallet history.
+- **Solvency is compared on the same clock as the scan** and published on
+  `GET /api/admin/treasury`: liabilities against what the wallet holds, with the shortfall as
+  its own number and a loud log line. The worker refuses anything above its float, which
+  returns the money to the owner's balance rather than parking it invisibly.
+
+**Rejected:** a wallet library (a dependency for what is `fetch` and JSON-RPC); one wallet per
+account (every subaddress derives from one spend key — a thousand keys is a thousand backups);
+ZMQ or `--tx-notify` as the mechanism rather than as an optimisation (a push that is missed is
+a top-up that never appears; polling is dull and self-healing); crediting from the transaction
+pool (fast, and it pays for transactions that never land); a push API where the marketplace
+tells the worker to send (it makes the web tier's compromise worth a wallet); automatic
+re-queueing of a `sending` payout (double payment); mutual TLS between worker and marketplace
+(right answer at scale, a certificate authority to run today — the bearer token is compared in
+constant time and the endpoint is closed when it is unset).
+
+**Consequences.** A deployment can now take money, and everything that follows is real: an
+operator has a node to run, a float to keep topped up, a cold reserve to sweep to, and a
+shortfall number somebody has to look at. What this decision does *not* buy is confidence in
+the RPC vocabulary — every test here runs against a fake wallet, so the first stagenet run is a
+roadmap item (PAY-6) and not a formality.

@@ -30,6 +30,8 @@ that needed its own error style or its own parser would be a defect, not a row.
 | Marketplace: seller applications, listings | `views/market.ts` | `routes/market.ts` (11 routes) | `sellers`, `seller_applications`, `listings`, `listing_terms` | Seller role for writes, ownership per row | `market.test.ts`, `search.test.ts` | `docs/API.md`, `docs/PRIVACY.md` |
 | Orders, delivery, disputes | `views/orders.ts` | `routes/market.ts`, `routes/deliveries.ts` | `orders`, `order_events`, `deliveries` | Buyer or seller, and a state machine on the server | `market.test.ts`, `payments.test.ts` | `docs/PAYMENTS.md` |
 | Balances, escrow and payouts | `views/wallet.ts` | `routes/wallet.ts` (5 routes), `lib/ledger.ts` | `balances`, `ledger_entries`, `deposits`, `deposit_addresses`, `withdrawals` | Owner only for a balance; escrow moves with the order's own state machine; payouts above an account's limit need an admin, and the app holds no spend key | `wallet.test.ts`, `payments.test.ts` | `docs/PAYMENTS.md`, ADR-0066 |
+| Monero tier: deposit addresses, the watcher, solvency | `views/wallet.ts` (the address and the notice when there is none) | `lib/monero.ts`, `lib/deposits.ts`, watcher interval in `main.ts` | `deposit_addresses`, `deposits` | No route creates money: a credit needs a confirmed transfer the wallet saw, and the wallet holds a view key only | `monero.test.ts`, `payments.test.ts` | `docs/PAYMENTS.md`, ADR-0070 |
+| Payout queue for the worker | (none — another host, not a browser) | `routes/payouts.ts` (3 routes), `scripts/payout-worker.mjs` | `withdrawals` | Bearer token compared in constant time; closed entirely when unset. A session is not accepted | `monero.test.ts`, `authorization.test.ts` | `docs/API.md` §The payout queue, ADR-0070 |
 | Reviews and reputation | `views/market.ts` | `routes/market.ts`, `lib/listings.ts` | `reviews` | One per completed order; author never published | `market.test.ts`, `abuse.test.ts` | `docs/MODERATION.md`, ADR-0045 |
 | Seller level and catalogue rank | `views/market.ts` (the level beside a seller) | `lib/reputation.ts`, settled inside `routes/market.ts` | `sellers.settled_pico`, `sellers.level`, `listings.rank_key` | Written only by an order settling; no route sets a level | `market.test.ts` | `docs/PAYMENTS.md` §Guarantee, ADR-0068 |
 | Listing publishing rules | error shown on the listing form | `lib/listing_policy.ts` | none — a refusal stores nothing | Applies to listings and seller statements; never to messages | `market.test.ts` | `docs/MODERATION.md`, ADR-0069 |
@@ -53,10 +55,11 @@ Stated here rather than left for a reader to notice:
 - **The onion address and the deployment itself have never run outside a rehearsal**
   (roadmap OPS-6).
 - **No feature has been through an external security review** (roadmap CRY-1).
-- **The Monero tier does not exist yet** (roadmap PAY-2): balances, escrow, the fee and payout
-  queueing are built and tested, but no node watches for top-ups and no worker sends payouts,
-  so `deposit_addresses` is empty and `GET /api/wallet` says top-ups are not open. The custody
-  risk that comes with the rest is stated in `docs/PAYMENTS.md` §Custody.
+- **The Monero tier has never met Monero** (roadmap PAY-6): the watcher, the deposit
+  addresses, the solvency comparison and the payout queue are built and tested against a fake
+  `monero-wallet-rpc` (`test/monero.test.ts`), not against a node. Until a stagenet run
+  happens, what is proven is the behaviour of this code, not the shape of the wallet's
+  answers. The custody risk is stated in `docs/PAYMENTS.md` §Custody.
 
 `test/features.test.ts` keeps this page from drifting: every route file, every view and every
 table in the schema has to appear somewhere in the matrix, and every file the matrix names has

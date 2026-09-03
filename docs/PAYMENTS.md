@@ -10,10 +10,12 @@ The payment state is in three places and nowhere else: `balances` (what each acc
 where money crosses the boundary between this database and the Monero network). Migration 014
 creates them; ADR-0066 records why the platform is custodial at all.
 
-**What is not built yet:** the Monero tier itself — a node, a view-only wallet that watches for
-top-ups, and a payout worker that sends. Everything above that line works and is tested;
-`deposit_addresses` is empty until a wallet exists, so `GET /api/wallet` honestly reports that
-top-ups are not open. Roadmap PAY-2 is that work.
+**The Monero tier exists as of ADR-0070**: a view-only watcher inside the application, a
+subaddress per account, a scan that credits confirmed transfers, a solvency comparison on the
+same clock, and a payout worker on another host that pulls the queue. It has never run against
+a real node — every test uses a fake `monero-wallet-rpc` — so the first stagenet run is roadmap
+PAY-6. A deployment with no `MONERO_WALLET_RPC_URL` behaves exactly as before: no address is
+handed out and `GET /api/wallet` reports that top-ups are not open.
 
 ## The rule that has not changed
 
@@ -149,6 +151,27 @@ they are unlinkable to each other on the chain. The vocabulary that requirements
 usually confuse: *stealth addresses* are the protocol's one-time output keys, automatic in
 every transaction and not something an integration creates; *subaddresses* are what a merchant
 issues; *integrated addresses* embed a payment id and cannot serve two payments at once.
+
+## The watcher, the worker, and what each may do
+
+| | Watcher | Payout worker |
+| --- | --- | --- |
+| Where | inside the application process (`lib/monero.ts`, `lib/deposits.ts`) | its own host, no inbound reachability (`scripts/payout-worker.mjs`) |
+| Key | private **view key**, in the wallet it talks to | a spend key with a working float |
+| Calls it may make | `create_address`, `get_transfers`, `get_balance` — and `test/monero.test.ts` fails if a fourth appears | `validate_address`, `transfer`, against its own wallet |
+| Direction | polls the wallet every `WALLET_POLL_SECONDS` | polls *the marketplace* for a payout; nothing calls it |
+| Worst case if compromised | reads what arrived, hands out addresses | loses the float, which is why the float is 1–2% of liabilities |
+
+The worker claims one payout at a time (`POST /api/payouts/claim`), which marks the row
+`sending` in the same statement. **Nothing moves it back.** A worker that dies after signing
+and before reporting leaves a row an operator resolves by reading their own wallet history —
+slower than an automatic retry, and it does not pay anybody twice. A payout larger than the
+worker's own float is reported failed, which returns the money to its owner's spendable
+balance and tells the operator to top the float up.
+
+Solvency runs beside the scan: liabilities (every balance, the platform's fee account
+included) against `get_balance`. The difference is on `GET /api/admin/treasury` as
+`walletXmr` and `shortfallXmr`, and a shortfall writes an error line an operator can alert on.
 
 **Detection is polling, and it has to be.** A payment cannot be recognised by reading a block
 and comparing an address to a transaction, because a Monero transaction contains no recipient

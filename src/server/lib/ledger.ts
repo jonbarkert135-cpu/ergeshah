@@ -456,6 +456,31 @@ export async function decideWithdrawal(
 }
 
 /**
+ * Hands the payout worker the next queued payout, and marks it `sending` in the same
+ * statement so a second worker — or the same worker after a restart it did not notice —
+ * cannot be given the same row.
+ *
+ * `sending` is deliberately a one-way door. Nothing in this codebase moves a payout back to
+ * `queued`, because the only process that knows whether a transaction was signed is the one
+ * that holds the key, and a row automatically re-queued after a timeout is how a platform
+ * pays somebody twice. A payout stuck in `sending` is an operator with a wallet history to
+ * read (docs/PAYMENTS.md §The payout worker), which is slower and correct.
+ */
+export async function claimWithdrawal(
+  db: Db,
+): Promise<{ id: string; amountPico: number; address: string } | null> {
+  const row = await db.get<{ id: string; amount_pico: number; address: string | null }>(
+    `UPDATE withdrawals SET status = 'sending'
+      WHERE id = (SELECT id FROM withdrawals WHERE status = 'queued'
+                   ORDER BY requested_at LIMIT 1)
+        AND status = 'queued'
+      RETURNING id, amount_pico, address`,
+  );
+  if (!row?.address) return null;
+  return { id: row.id, amountPico: row.amount_pico, address: row.address };
+}
+
+/**
  * The payout left the wallet. Called by the payout worker with the transaction id, which is
  * the only thing about a sent Monero payment worth keeping: the destination is deleted here,
  * because after this moment it is a permanent link between an account and a wallet and it

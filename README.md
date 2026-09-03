@@ -56,7 +56,8 @@ Design philosophy, in priority order:
 | Single-VPS deployment: Docker Compose + reverse proxy + TLS, SQLite or PostgreSQL | working |
 | Tor onion service: one instance serves both entrypoints, headers and cookies adapt, `Onion-Location` advertised | working |
 | Money: balances, escrow on an order, a 5% fee, payout queue with per-account limits, double-entry ledger | working |
-| The Monero tier itself (node, deposit watcher, payout worker) | **not implemented** — the wallet screen says top-ups are not open; see `docs/ROADMAP.md` PAY-2 |
+| Monero tier: a subaddress per account, a view-only watcher that credits confirmed top-ups, a solvency check | working — optional; without a wallet configured the screen says top-ups are not open |
+| Payouts: a queue the marketplace cannot send from, pulled by a worker on another host that holds the key | working — **never yet run against a real node**, see `docs/ROADMAP.md` PAY-6 |
 | Post-quantum hybrid handshake (PQXDH-style) | **planned** — see `docs/ROADMAP.md` |
 
 ## Quick start (development)

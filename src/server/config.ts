@@ -77,6 +77,23 @@ export interface Config {
    * honest way to say so is a rule at the door, not a surprise in the balance.
    */
   minDepositPico: number;
+  /**
+   * Where `monero-wallet-rpc` answers, on the internal network — `http://wallet:18082`.
+   * Null means this deployment has no wallet tier: no deposit address is handed out, no scan
+   * runs, and `GET /api/wallet` says top-ups are not open rather than inventing an address.
+   * The wallet at the other end is opened with a private **view key** (docs/PAYMENTS.md §Keys).
+   */
+  moneroWalletRpcUrl: string | null;
+  /** Confirmations before a top-up is credited. Three is about six minutes. */
+  depositConfirmations: number;
+  /** How often the watcher asks the wallet what arrived. */
+  walletPollMs: number;
+  /**
+   * The shared secret the payout worker authenticates with. Null closes the queue endpoints
+   * completely — which is the right default, because a deployment without a payout worker has
+   * no reason to expose a queue at all.
+   */
+  payoutWorkerToken: string | null;
   /** v3 onion address of this service, advertised to Tor Browser. Empty = not published. */
   onionHostname: string;
   behindTls: boolean;
@@ -209,6 +226,42 @@ function picoFromEnv(name: string, value: string | undefined, fallback: string):
   return pico;
 }
 
+/**
+ * The wallet RPC endpoint, validated at boot. `http://` is correct and deliberate: this is an
+ * internal Docker network with no gateway, the alternative is a certificate for a name only
+ * two containers can resolve, and a typo that pointed this at the internet would be a wallet
+ * address handed out by a stranger — so the host has to be a private name, never a public one.
+ */
+function walletRpcUrl(value: string | undefined): string | null {
+  if (!value || !value.trim()) return null;
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error("MONERO_WALLET_RPC_URL must be a URL, for example http://wallet:18082");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("MONERO_WALLET_RPC_URL must be http or https");
+  }
+  return url.origin;
+}
+
+/**
+ * The payout worker's token. Long, or absent: a short one is a queue an attacker can guess
+ * their way into, and the queue hands out payout destinations.
+ */
+function workerToken(value: string | undefined, env: Config["env"]): string | null {
+  if (!value || !value.trim()) return null;
+  const token = value.trim();
+  if (token.length < 32) {
+    throw new Error("PAYOUT_WORKER_TOKEN must be at least 32 characters (openssl rand -base64 32)");
+  }
+  if (env === "production" && token.startsWith(DEVELOPMENT_SECRET_PREFIX)) {
+    throw new Error("PAYOUT_WORKER_TOKEN is a development placeholder and must not be used in production");
+  }
+  return token;
+}
+
 const ONION_V3 = /^[a-z2-7]{56}\.onion$/;
 
 /**
@@ -256,6 +309,15 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     minWithdrawalPico: picoFromEnv("MIN_WITHDRAWAL_XMR", process.env.MIN_WITHDRAWAL_XMR, "0.02"),
     autoPayoutMaxPico: picoFromEnv("AUTO_PAYOUT_MAX_XMR", process.env.AUTO_PAYOUT_MAX_XMR, "2"),
     minDepositPico: picoFromEnv("MIN_DEPOSIT_XMR", process.env.MIN_DEPOSIT_XMR, "0.02"),
+    moneroWalletRpcUrl: walletRpcUrl(process.env.MONERO_WALLET_RPC_URL),
+    depositConfirmations: positiveInteger(
+      "DEPOSIT_CONFIRMATIONS",
+      process.env.DEPOSIT_CONFIRMATIONS,
+      3,
+    ),
+    walletPollMs:
+      positiveInteger("WALLET_POLL_SECONDS", process.env.WALLET_POLL_SECONDS, 45) * 1000,
+    payoutWorkerToken: workerToken(secretFromEnv("PAYOUT_WORKER_TOKEN"), env),
     onionHostname: onionHostname(process.env.ONION_HOSTNAME),
     behindTls: process.env.BEHIND_TLS !== "false",
     ...overrides,

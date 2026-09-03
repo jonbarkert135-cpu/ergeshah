@@ -26,6 +26,8 @@ import { destroyAllSessions } from "../lib/sessions.ts";
 import { sellerReputation } from "../lib/reputation.ts";
 import { notify, notifyQuietly } from "../lib/notify.ts";
 import { decideWithdrawal, PLATFORM_ACCOUNT, setPayoutLimit } from "../lib/ledger.ts";
+import { solvency } from "../lib/deposits.ts";
+import { quietly } from "../lib/monero.ts";
 
 export async function registerModerationRoutes(app: FastifyInstance): Promise<void> {
   const { db } = app;
@@ -462,6 +464,12 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     const queued = await db.get<{ total: number | null }>(
       "SELECT SUM(amount_pico) AS total FROM withdrawals WHERE status IN ('queued', 'approval_required', 'sending')",
     );
+    // The comparison that matters, when there is a wallet to compare against: what the books
+    // say is owed, against what the wallet actually holds. A deployment with no Monero tier
+    // gets nulls rather than a reassuring zero (ADR-0070).
+    const books = app.wallet
+      ? await quietly("treasury.solvency_failed", () => solvency(db, app.wallet!))
+      : null;
     return {
       userAvailableXmr: xmrString(available),
       userHeldXmr: xmrString(held),
@@ -469,6 +477,8 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
       queuedPayoutsXmr: xmrString(Number(queued?.total ?? 0)),
       // What the wallet must hold for this platform to be solvent, fees included.
       liabilitiesXmr: xmrString(available + held + earned),
+      walletXmr: books ? xmrString(books.walletPico) : null,
+      shortfallXmr: books ? xmrString(books.shortfallPico) : null,
       orderFeePercent: app.config.orderFeeBps / 100,
     };
   });

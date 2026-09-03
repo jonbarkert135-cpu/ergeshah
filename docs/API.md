@@ -178,6 +178,23 @@ There is no endpoint that credits a balance, and no transfer between accounts: m
 only as a confirmed Monero deposit seen by a wallet this server cannot spend from, and leaves
 only as a payout row a separate process picks up.
 
+### The payout queue (worker only)
+
+Three endpoints that belong to the payout worker, not to any browser: they authenticate with
+`Authorization: Bearer $PAYOUT_WORKER_TOKEN`, compared in constant time, and they answer 401 to
+everything else — including a perfectly valid staff session. With no token configured the queue
+is closed and answers 401 to every caller, which is the state of a deployment with no payout
+tier (ADR-0070).
+
+| Endpoint | Auth | Notes |
+| --- | --- | --- |
+| `POST /api/payouts/claim` | worker token | Takes the oldest `queued` payout and marks it `sending` in the same statement, so two workers cannot be given the same row. Answers `{ payout: null }` when the queue is empty. The destination address is returned here and nowhere else |
+| `POST /api/payouts/:id/sent` | worker token | `{ txid, networkFeeXmr }`. The transaction id must be 64 hex characters (`invalid_txid`); the destination is deleted and the hold leaves the balance |
+| `POST /api/payouts/:id/failed` | worker token | The payout was not sent: the money returns to the owner's spendable balance. No reason is stored |
+
+Nothing re-queues a payout automatically. A row left in `sending` because the worker died is
+an operator reading their own wallet history — the alternative pays somebody twice.
+
 The deposit minimum is enforced (ADR-0067). A transfer smaller than `MIN_DEPOSIT_XMR` is
 recorded as a `below_minimum` deposit and not credited — it is not kept quietly either: the
 total appears on the owner's own wallet response, and an operator refunds it by hand from the
@@ -200,7 +217,7 @@ result, including refusals (`docs/PRIVACY.md`, ADR-0024).
 | `GET /api/moderation/withdrawals` | session (staff) | `moderation` | Payouts awaiting approval or waiting to be sent, oldest first, destinations as hints |
 | `POST /api/moderation/withdrawals/:id/decide` | session (admin) | `moderation` | `{ decision: "approved" \| "rejected" }`. Approving queues it — this process cannot send. Refusing returns the money to the owner. Audited |
 | `POST /api/admin/users/:username/payout-limit` | session (admin) | `moderation` | `{ limitXmr }` or `{ limitXmr: "default" }`: how much this account may withdraw without approval, per request and per 24 hours. Audited with the amount |
-| `GET /api/admin/treasury` | session (admin) | `moderation` | The books as four totals plus liabilities. Names nobody |
+| `GET /api/admin/treasury` | session (admin) | `moderation` | The books as four totals plus liabilities, and — when a wallet tier exists — what the wallet actually holds and the shortfall between them (`null` otherwise). Names nobody |
 | `GET /api/moderation/audit` | staff | `moderation` | Read the administrative log |
 | `POST /api/admin/users/:username/role` | admin | `moderation` | Grant or remove staff roles |
 
@@ -220,6 +237,7 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `pow_spent` | 400 | That proof-of-work solution has already been used |
 | `below_dust` | 400 | A price above zero but under 0.001 XMR — smaller than the network fee it would take to pay or refund it |
 | `below_minimum` | 400 | An amount under a configured floor — a payout below `MIN_WITHDRAWAL_XMR` |
+| `invalid_txid` | 400 | The payout worker reported something that is not a 64-character Monero transaction hash |
 | `bad_address` | 400 | Not a Monero address: wrong length, a character base58 does not contain, or a prefix no Monero network uses. The wallet's own `validate_address` is the authority before anything is sent |
 | `payout_pending` | 400 | This account already has a payout queued or awaiting approval |
 | `off_platform_offer` | 400 | A listing, or a seller application, carried a wallet address, an email address, another messenger or an offer to be paid outside the escrow (ADR-0069). The message names the rule, never the pattern that matched |

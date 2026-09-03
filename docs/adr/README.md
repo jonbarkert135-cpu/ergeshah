@@ -141,3 +141,4 @@ or if a record is missing a section.
 | [ADR-0067](../DECISIONS.md#adr-0067--the-deposit-minimum-is-enforced-and-a-smaller-transfer-is-recorded-rather-than-kept) | The deposit minimum is enforced, and a smaller transfer is recorded rather than kept |
 | [ADR-0068](../DECISIONS.md#adr-0068--standing-is-earned-on-settled-orders-and-it-is-what-the-catalogue-sorts-by) | Standing is earned on settled orders, and it is what the catalogue sorts by |
 | [ADR-0069](../DECISIONS.md#adr-0069--a-listing-may-not-advertise-a-way-around-the-escrow-the-chat-stays-unread) | A listing may not advertise a way around the escrow; the chat stays unread |
+| [ADR-0070](../DECISIONS.md#adr-0070--the-monero-tier-a-watcher-that-cannot-spend-a-worker-that-cannot-be-called) | The Monero tier: a watcher that cannot spend, a worker that cannot be called |

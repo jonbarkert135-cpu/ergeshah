@@ -24,6 +24,12 @@ property is not what each can do — it is what each *cannot*.
    └──────────┘ └───────────┘
 ```
 
+The MONERO tier, when enabled, hangs off the internal network beside the database: a
+`monero-wallet-rpc` opened with a **view key** that only `app` can reach, and a `monerod`
+behind it that has the egress. The payout wallet is not in this picture at all — it lives on
+another machine and reaches the marketplace the way any client does, over the public
+entrypoint, with a bearer token (docs/PAYMENTS.md §Keys).
+
 The onion service, when enabled, is a second entrypoint at the REVERSE PROXY level: the
 `tor` container reaches `app:8080` across the internal network and never passes through
 Caddy, so the two entrypoints share no TLS terminator and no log.
@@ -36,6 +42,9 @@ Caddy, so the two entrypoints share no TLS terminator and no log.
 | proxy | app:8080 | Reverse-proxied requests |
 | proxy | Internet | ACME (certificate issue and renewal) — the only egress in the deployment |
 | app | database, storage volume | Its own data |
+| app | wallet:18082 | The view-only Monero wallet, when a deployment has one: `create_address`, `get_transfers`, `get_balance` and nothing else (ADR-0070) |
+| wallet | node:18081 | Its own daemon, on the internal network |
+| node | Internet (Tor, ideally) | The Monero peer-to-peer network. This is the *only* container besides the proxy with egress, and it holds no key |
 | app | *nothing else* | `internal: true` gives the network no gateway, so there is nothing to reach |
 | database | *nothing* | It answers; it does not call out |
 

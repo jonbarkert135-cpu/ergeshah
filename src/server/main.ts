@@ -7,6 +7,8 @@ import { pruneRateLimits } from "./lib/rate_limit.ts";
 import { pruneAuditLog } from "./lib/audit.ts";
 import { backfillSearchIndex } from "./lib/search.ts";
 import { pruneNotifications } from "./lib/notify.ts";
+import { scanDeposits, solvency } from "./lib/deposits.ts";
+import { quietly } from "./lib/monero.ts";
 import { log } from "./lib/log.ts";
 
 const config = loadConfig();
@@ -34,6 +36,30 @@ const housekeeping = setInterval(
 );
 housekeeping.unref();
 
+/**
+ * The deposit watcher (ADR-0070). Separate from housekeeping because it runs on a different
+ * clock: a top-up should appear within a minute of confirming, and pruning sessions should
+ * not happen forty times an hour. It is best-effort by construction — a wallet that is down
+ * is a scan that runs again in `WALLET_POLL_SECONDS`, never a request that fails — and it
+ * exists only when this deployment has a wallet tier.
+ */
+const watcher = app.wallet
+  ? setInterval(() => {
+      void (async () => {
+        await quietly("wallet.scan_failed", () =>
+          scanDeposits(db, app.wallet!, {
+            minConfirmations: config.depositConfirmations,
+            minPico: config.minDepositPico,
+          }),
+        );
+        // Solvency on the same clock: the comparison is one RPC call and one SUM, and its
+        // whole value is that nobody has to remember to look (docs/PAYMENTS.md §Custody).
+        await quietly("treasury.solvency_failed", () => solvency(db, app.wallet!));
+      })();
+    }, config.walletPollMs)
+  : null;
+watcher?.unref();
+
 await app.listen({ host: config.host, port: config.port });
 log({
   level: "info",
@@ -45,6 +71,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     void (async () => {
       clearInterval(housekeeping);
+      if (watcher) clearInterval(watcher);
       await app.close();
       await db.close();
       process.exit(0);

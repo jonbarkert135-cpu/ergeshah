@@ -17,11 +17,13 @@ import { registerMessageRoutes } from "./routes/messages.ts";
 import { registerMarketRoutes } from "./routes/market.ts";
 import { registerDeliveryRoutes } from "./routes/deliveries.ts";
 import { registerWalletRoutes } from "./routes/wallet.ts";
+import { registerPayoutRoutes } from "./routes/payouts.ts";
 import { registerModerationRoutes } from "./routes/moderation.ts";
 import { registerNotificationRoutes } from "./routes/notifications.ts";
 import { registerStaticRoutes } from "./routes/static.ts";
 import { registerHealthRoutes } from "./routes/health.ts";
 import { recordRequest } from "./lib/metrics.ts";
+import { walletRpc, type WalletRpc } from "./lib/monero.ts";
 
 const SESSION_COOKIE = "session";
 const CSRF_COOKIE = "csrf";
@@ -46,6 +48,12 @@ declare module "fastify" {
   interface FastifyInstance {
     db: Db;
     config: Config;
+    /**
+     * The view-only wallet, or null when this deployment has no Monero tier. It can create a
+     * subaddress and read what arrived; there is no method on it that moves money, and there
+     * is no key in this process that could (`lib/monero.ts`).
+     */
+    wallet: WalletRpc | null;
     /** Pre-rendered HTML shell of the single-page app. */
     appShell: string;
     /**
@@ -109,6 +117,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
 
   app.decorate("db", db);
   app.decorate("config", config);
+  app.decorate("wallet", config.moneroWalletRpcUrl ? walletRpc(config.moneroWalletRpcUrl) : null);
 
   app.decorate("authenticate", async (request: FastifyRequest): Promise<SessionUser> => {
     // The preHandler hook usually resolved it already; this is the same check, once.
@@ -246,6 +255,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   await registerMarketRoutes(app);
   await registerDeliveryRoutes(app);
   await registerWalletRoutes(app);
+  await registerPayoutRoutes(app);
   await registerModerationRoutes(app);
   await registerNotificationRoutes(app);
   await registerHealthRoutes(app);
