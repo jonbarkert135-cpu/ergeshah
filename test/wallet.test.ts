@@ -325,6 +325,94 @@ describe("payouts leave once, and not without a limit or a person", () => {
     expect(audited.map((row) => row.note)).toEqual(["rejected"]);
   });
 
+  it("takes two different administrators to release a large payout (ADR-0076)", async () => {
+    const seller = await register(server, "bigearner");
+    await fund(server, seller, "40");
+    const requested = await seller.post<{ status: string; id: string }>("/api/wallet/withdrawals", {
+      // Above the default two-signature threshold of 10 XMR.
+      amountXmr: "25",
+      address: ADDRESS,
+    });
+    expect(requested.body.status).toBe("approval_required");
+
+    const first = await register(server, "treasurerone");
+    await promote(server, "treasurerone", "admin");
+    const second = await register(server, "treasurertwo");
+    await promote(server, "treasurertwo", "admin");
+
+    const one = await first.post<{ status: string; approvals: number; approvalsRequired: number }>(
+      `/api/moderation/withdrawals/${requested.body.id}/decide`,
+      { decision: "approved" },
+    );
+    expect(one.status).toBe(200);
+    // Parked, and the answer says so: an interface that reported success here would be
+    // hiding the signature nobody has given yet.
+    expect(one.body).toMatchObject({ status: "approval_required", approvals: 1, approvalsRequired: 2 });
+    expect(await balance(seller)).toEqual({ availableXmr: "15", heldXmr: "25" });
+
+    // The same administrator clicking again is the same signature, not a second one.
+    const again = await first.post<{ approvals: number }>(
+      `/api/moderation/withdrawals/${requested.body.id}/decide`,
+      { decision: "approved" },
+    );
+    expect(again.body.approvals).toBe(1);
+    const stillParked = await server.db.get<{ status: string }>(
+      "SELECT status FROM withdrawals WHERE id = ?",
+      [requested.body.id],
+    );
+    expect(stillParked?.status).toBe("approval_required");
+
+    // A second person releases it — and only into the queue the worker reads.
+    const released = await second.post<{ status: string; approvals: number }>(
+      `/api/moderation/withdrawals/${requested.body.id}/decide`,
+      { decision: "approved" },
+    );
+    expect(released.body).toMatchObject({ status: "queued", approvals: 2 });
+
+    // The log distinguishes the signature that released it from the one that waited.
+    const audited = await server.db.all<{ note: string }>(
+      "SELECT note FROM audit_log WHERE action = 'withdrawal.decided' ORDER BY created_at",
+    );
+    expect(audited.map((row) => row.note)).toEqual(["approved_1_of_2", "approved_1_of_2", "approved"]);
+  });
+
+  it("still takes one administrator to refuse a large payout, and one to release a small one", async () => {
+    const seller = await register(server, "smallearner");
+    await fund(server, seller, "30");
+    const admin = await register(server, "lonetreasurer");
+    await promote(server, "lonetreasurer", "admin");
+
+    // Above the account's automatic ceiling (2 XMR) but under the two-signature threshold.
+    const small = await seller.post<{ id: string; status: string }>("/api/wallet/withdrawals", {
+      amountXmr: "4",
+      address: ADDRESS,
+    });
+    expect(small.body.status).toBe("approval_required");
+    const releasedAlone = await admin.post<{ status: string; approvalsRequired: number }>(
+      `/api/moderation/withdrawals/${small.body.id}/decide`,
+      { decision: "approved" },
+    );
+    expect(releasedAlone.body).toMatchObject({ status: "queued", approvalsRequired: 1 });
+    await markWithdrawalSent(server.db, {
+      id: small.body.id,
+      txid: "small-payout",
+      networkFeePico: 0,
+    });
+
+    // A refusal moves nothing out of the platform, so it needs one administrator even above
+    // the threshold — requiring a quorum to say "no" would only delay the safe answer.
+    const large = await seller.post<{ id: string }>("/api/wallet/withdrawals", {
+      amountXmr: "20",
+      address: ADDRESS,
+    });
+    const refused = await admin.post<{ status: string }>(
+      `/api/moderation/withdrawals/${large.body.id}/decide`,
+      { decision: "rejected" },
+    );
+    expect(refused.body.status).toBe("rejected");
+    expect(await balance(seller)).toEqual({ availableXmr: "26", heldXmr: "0" });
+  });
+
   it("honours a per-account limit an admin sets, and audits the number", async () => {
     const seller = await register(server, "trusted");
     await fund(server, seller, "10");

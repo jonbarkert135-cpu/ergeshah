@@ -34,6 +34,29 @@ example.com {
 	request_header -Cookie-Consent
 	header -Server
 
+	# A network-level cap in front of the application's own limits (ADR-0075). The two
+	# defend different things: the buckets in `lib/rate_limit.ts` are per *account* and
+	# per operation, which is what stops an abuser of the marketplace, while this one caps
+	# how much traffic an unauthenticated address can spend of the server's CPU before any
+	# of that logic runs.
+	#
+	# It needs a Caddy built with github.com/mholt/caddy-ratelimit — the standard image has
+	# no rate limiter — so it is commented out rather than pretending to be active:
+	#   xcaddy build --with github.com/mholt/caddy-ratelimit
+	#
+	# Two honest caveats. On an onion service this does nothing useful: every request
+	# arrives from 127.0.0.1 through the `tor` container, which bypasses Caddy entirely, so
+	# an address-keyed cap there would be one shared bucket for every user. And behind a CDN
+	# or a shared NAT, `{remote_host}` is a building rather than a person.
+	#
+	# rate_limit {
+	# 	zone per_address {
+	# 		key {remote_host}
+	# 		events 100
+	# 		window 1s
+	# 	}
+	# }
+
 	reverse_proxy app:8080 {
 		header_up X-Forwarded-For {remote_host}
 		header_up -X-Forwarded-Port

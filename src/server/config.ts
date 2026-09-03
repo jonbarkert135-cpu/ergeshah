@@ -86,6 +86,13 @@ export interface Config {
    */
   minRefundPico: number;
   /**
+   * A payout above this figure needs **two different administrators** to approve it
+   * (ADR-0076). It is the institutional half of a 2-of-3 escrow: no single admin account,
+   * stolen or otherwise, can release a large sum on its own. Refusing still takes one — a
+   * refusal returns the money to its owner and moves nothing out of the platform.
+   */
+  dualApprovalAbovePico: number;
+  /**
    * Days without a settled sale before a seller's level falls one step (ADR-0072). It is the
    * catalogue's definition of "still trading": the level a seller earned is never deleted,
    * but what the catalogue shows fades while they are away and comes back with one sale.
@@ -324,6 +331,11 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     autoPayoutMaxPico: picoFromEnv("AUTO_PAYOUT_MAX_XMR", process.env.AUTO_PAYOUT_MAX_XMR, "2"),
     minDepositPico: picoFromEnv("MIN_DEPOSIT_XMR", process.env.MIN_DEPOSIT_XMR, "0.02"),
     minRefundPico: picoFromEnv("MIN_REFUND_XMR", process.env.MIN_REFUND_XMR, "0.001"),
+    dualApprovalAbovePico: picoFromEnv(
+      "DUAL_APPROVAL_ABOVE_XMR",
+      process.env.DUAL_APPROVAL_ABOVE_XMR,
+      "10",
+    ),
     sellerLevelDecayDays: positiveInteger(
       "SELLER_LEVEL_DECAY_DAYS",
       process.env.SELLER_LEVEL_DECAY_DAYS,

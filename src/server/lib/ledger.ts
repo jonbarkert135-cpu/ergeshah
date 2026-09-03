@@ -441,24 +441,40 @@ export async function setPayoutLimit(
 /**
  * An administrator's decision on a parked payout. Approving only queues it — this process
  * cannot send anything, by design.
+ *
+ * Above `dualAbovePico` an approval is a *signature*, not a decision: the payout stays parked
+ * until two different admin accounts have approved it (ADR-0076), and the answer says which
+ * of the two happened. Refusing takes one administrator, because a refusal only hands the
+ * money back to the person who asked for it.
  */
 export async function decideWithdrawal(
   db: Db,
-  input: { id: string; approve: boolean; adminUserId: string },
-): Promise<{ userId: string; amountPico: number }> {
+  input: { id: string; approve: boolean; adminUserId: string; dualAbovePico: number },
+): Promise<{
+  userId: string;
+  amountPico: number;
+  status: WithdrawalStatus;
+  approvals: number;
+  approvalsRequired: number;
+}> {
   const now = Date.now();
   return db.transaction(async (tx) => {
     const row = await tx.get<{ user_id: string; amount_pico: number }>(
-      `UPDATE withdrawals SET status = ?, decided_by = ?, settled_at = ?
-        WHERE id = ? AND status = 'approval_required'
-        RETURNING user_id, amount_pico`,
-      [input.approve ? "queued" : "rejected", input.adminUserId, input.approve ? null : now, input.id],
+      "SELECT user_id, amount_pico FROM withdrawals WHERE id = ? AND status = 'approval_required'",
+      [input.id],
     );
     if (!row) throw conflict("this payout is not awaiting a decision", "stale_status");
+    const approvalsRequired = row.amount_pico > input.dualAbovePico ? 2 : 1;
+
     if (!input.approve) {
-      // A refused payout keeps no destination: the address was needed to send, and this one
-      // is not being sent.
-      await tx.run("UPDATE withdrawals SET address = NULL WHERE id = ?", [input.id]);
+      // One administrator is enough to say no, and deliberately so: a refusal returns the
+      // money to its owner's spendable balance and moves nothing out of the platform, so a
+      // quorum requirement would only delay the safe answer (ADR-0076).
+      await tx.run(
+        `UPDATE withdrawals SET status = 'rejected', decided_by = ?, settled_at = ?, address = NULL
+          WHERE id = ? AND status = 'approval_required'`,
+        [input.adminUserId, now, input.id],
+      );
       await apply(
         tx,
         [
@@ -473,9 +489,61 @@ export async function decideWithdrawal(
         ],
         now,
       );
+      return {
+        userId: row.user_id,
+        amountPico: row.amount_pico,
+        status: "rejected",
+        approvals: 0,
+        approvalsRequired,
+      };
     }
-    return { userId: row.user_id, amountPico: row.amount_pico };
+
+    // One row per (payout, admin): an administrator clicking twice is one approval, so the
+    // count is the number of distinct people who have signed off.
+    await tx.run(
+      `INSERT INTO withdrawal_approvals (withdrawal_id, admin_user_id, created_at)
+       VALUES (?, ?, ?) ON CONFLICT (withdrawal_id, admin_user_id) DO NOTHING`,
+      [input.id, input.adminUserId, now],
+    );
+    const counted = await tx.get<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM withdrawal_approvals WHERE withdrawal_id = ?",
+      [input.id],
+    );
+    const approvals = Number(counted?.count ?? 0);
+    if (approvals < approvalsRequired) {
+      // Still parked, and the answer says so rather than pretending it was released: an
+      // interface that reported success here would be an interface that hid the second
+      // signature nobody has given yet.
+      return {
+        userId: row.user_id,
+        amountPico: row.amount_pico,
+        status: "approval_required",
+        approvals,
+        approvalsRequired,
+      };
+    }
+    await tx.run(
+      `UPDATE withdrawals SET status = 'queued', decided_by = ?
+        WHERE id = ? AND status = 'approval_required'`,
+      [input.adminUserId, input.id],
+    );
+    return {
+      userId: row.user_id,
+      amountPico: row.amount_pico,
+      status: "queued",
+      approvals,
+      approvalsRequired,
+    };
   });
+}
+
+/** How many distinct administrators have approved this payout, for the queue to display. */
+export async function approvalsFor(db: Db, withdrawalId: string): Promise<number> {
+  const row = await db.get<{ count: number }>(
+    "SELECT COUNT(*) AS count FROM withdrawal_approvals WHERE withdrawal_id = ?",
+    [withdrawalId],
+  );
+  return Number(row?.count ?? 0);
 }
 
 /**

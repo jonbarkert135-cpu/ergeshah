@@ -2366,3 +2366,74 @@ party who committed to a digest before the dispute and then produces a different
 cannot do is tell a moderator who is right when neither side committed anything, which will be
 most disputes for a while — the feature only helps people who used it before they needed it,
 and the order screen offers it on every live order for exactly that reason.
+
+## ADR-0075 — Six patterns proposed from other codebases: what was taken, reshaped, or refused
+
+**Status:** accepted (2026-09-03)
+
+**Context.** The owner brought six mechanisms from other projects — priority task queues,
+daily PGP key rotation, 2-of-3 multisig escrow, encrypted logs, two-level rate limiting, and
+zero-confirmation micro-payments — with JavaScript sketches, and asked for the ones worth
+having. The sketches are Express/Mongoose shaped and none of them can be pasted into a
+Fastify, four-dependency, SQLite-or-Postgres codebase; more to the point, three of the six
+solve problems this repository has already solved differently, and two would undo decisions
+the project exists to make. This ADR is the record of the review, so the same six ideas do not
+get relitigated from memory in a month. Third-party *patterns* are free to borrow; third-party
+lines without a licence are not, and none were copied.
+
+**Decision.**
+
+| Proposal | Verdict |
+| --- | --- |
+| 1. Priority task queues in memory | **Reshaped.** The durable version already exists: an order and its escrow are one database transaction, and payouts queue in `withdrawals` with an atomic claim that survives a restart (ADR-0070). What the idea did surface is real: the hourly housekeeping ran every prune inside one `try`, so the first failure cancelled the rest. Fixed as ordered, individually isolated tasks (ADR-0079). |
+| 2. Daily PGP rotation, private keys stored for an admin | **Refused, in part permanently.** A server that stores users' private keys is a server that can read their messages, and one subpoena or one breach then reads everything: this is the single thing the architecture exists to prevent. Message keys already rotate per message (double ratchet). The legitimate kernel — long-lived key material that nobody ever changes — was real for device signed prekeys, and is fixed in the browser, where the private half stays (ADR-0078). |
+| 3. Multi-wallet escrow, 2-of-3 signatures | **Right direction, deferred; the institutional half taken now.** Monero multisig needs interactive multi-round setup between wallets, a buyer who runs one, and it strands funds when a party loses their key — a browser client cannot be a signer. What is buildable today is the same principle applied to the people: a large payout takes two different administrators (ADR-0076). The custody risk that remains is stated in `docs/PAYMENTS.md` §Custody. |
+| 4. Application-level encrypted logs | **Refused.** The key would live on the host that holds the logs, so it defends against nobody who is already there; and the premise is wrong here — `log()` accepts an event name, an optional message from this codebase, and numbers under `metrics`, and `test/logging.test.ts` fails on an address, a body or an amount. There is no plaintext to encrypt. Disk encryption is the operator's control and is in `docs/DEPLOYMENT.md`. |
+| 5. Two-level rate limiting | **Half already stronger, half adopted.** The application layer is token buckets in the database keyed by `HMAC(pepper ‖ day, subject ‖ scope)`, keyed to the *account* when there is one, per operation class, surviving restarts and configurable without a deploy — a strict improvement on an in-memory counter with a `setTimeout` per request. The network layer was genuinely missing: `deploy/Caddyfile` now carries it, with the honest note that it needs a Caddy plugin and does nothing for onion traffic. |
+| 6. Zero-confirmation credit under 10 XMR | **Refused as specified, adopted bounded.** Zero confirmations means crediting a transaction that may never be mined, and 10 XMR is thousands of dollars per attempt: deposit, buy a digital good, withdraw. What is defensible is a faster lane, not a free one — small top-ups are credited at one confirmation instead of three (ADR-0077), so the wait is two minutes and the risk is a one-block reorg bounded by a configurable ceiling. |
+
+**Consequences.** Four changes ship (ADR-0076 through ADR-0079); two proposals are refused with
+the reasoning written down. The pattern worth naming from the exercise: every one of the six
+was aimed at a real risk, and in four cases this codebase's answer was in a different layer
+than the proposal expected — the queue is a table, the rotation is per message, the log has
+nothing in it. That is worth checking before importing a mechanism, not after.
+
+## ADR-0076 — A large payout takes two different administrators
+
+**Status:** accepted (2026-09-03)
+
+**Context.** A payout above an account's automatic ceiling waits for an administrator
+(ADR-0066), and until now one click from one admin account released it. That makes a single
+stolen admin session worth the float: raise the account's own limit, or simply approve your own
+withdrawal. Everything behind that point — the worker's `MAX_PAYOUT_XMR`, the solvency
+comparison — only tells the operator afterwards. The 2-of-3 escrow idea (ADR-0075, item 3) is
+right about the principle and unbuildable in its wallet form today; the principle applies to
+people as well as keys.
+
+**Decision.** Above `DUAL_APPROVAL_ABOVE_XMR` (default 10), an approval is a **signature** and
+two different admin accounts are needed.
+
+- `withdrawal_approvals` (migration 019) holds one row per (payout, admin), so the same person
+  clicking twice is one signature and the count is the number of distinct people.
+- The payout stays `approval_required` until the quorum is met, and the response says
+  `{ status, approvals, approvalsRequired }` — an interface that reported success on the first
+  approval would be hiding the signature nobody has given yet. The queue shows "1 of 2".
+- The audit note distinguishes them: `approved_1_of_2` for a signature that waited,
+  `approved` for the one that released it. The owner is notified only when it is final —
+  nothing has happened to their money before that.
+- **Refusing still takes one administrator.** A refusal returns the money to its owner's
+  spendable balance and moves nothing out of the platform, so a quorum to say "no" would only
+  delay the safe answer.
+
+**Rejected:** requiring two approvals for every parked payout (most are ordinary sellers over a
+2 XMR default ceiling, and a rule that makes routine work wait for a colleague is a rule an
+operator will disable); a time delay instead of a second person (a delay stops nothing if the
+same session comes back an hour later); Monero multisig for the platform's own wallet (real
+answer, needs interactive setup and a signer per party — deferred in ADR-0075); making the
+threshold a per-account setting (a second knob for the same protection, and the attacker who
+can raise a payout limit could raise this one too).
+
+**Consequences.** An operator running alone cannot release a payout above the threshold — which
+is the point, and is also a real operational cost: a single-admin deployment must either raise
+`DUAL_APPROVAL_ABOVE_XMR` deliberately or appoint a second admin before the first large payout.
+That is a decision worth making in daylight rather than during an incident.

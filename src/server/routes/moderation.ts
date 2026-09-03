@@ -27,6 +27,7 @@ import { destroyAllSessions } from "../lib/sessions.ts";
 
 import { notify, notifyQuietly } from "../lib/notify.ts";
 import {
+  approvalsFor,
   decideWithdrawal,
   markWithdrawalFailed,
   markWithdrawalSent,
@@ -426,19 +427,25 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     );
     const now = Date.now();
     return {
-      withdrawals: rows.map((row) => ({
-        id: row.id,
-        username: row.username,
-        amountXmr: xmrString(row.amount_pico),
-        addressHint: row.address_hint,
-        status: row.status,
-        requestedOn: dayToIsoDate(Math.floor(row.requested_at / 86_400_000)),
-        // For a payout the worker has taken: how long it has been gone, and whether that is
-        // long enough to need a human (ADR-0073). Null for everything still in the queue.
-        sendingForMinutes:
-          row.claimed_at === null ? null : Math.floor((now - row.claimed_at) / 60_000),
-        stuck: row.claimed_at !== null && now - row.claimed_at > PAYOUT_STUCK_MS,
-      })),
+      withdrawals: await Promise.all(
+        rows.map(async (row) => ({
+          id: row.id,
+          username: row.username,
+          amountXmr: xmrString(row.amount_pico),
+          addressHint: row.address_hint,
+          status: row.status,
+          requestedOn: dayToIsoDate(Math.floor(row.requested_at / 86_400_000)),
+          // For a payout the worker has taken: how long it has been gone, and whether that is
+          // long enough to need a human (ADR-0073). Null for everything still in the queue.
+          sendingForMinutes:
+            row.claimed_at === null ? null : Math.floor((now - row.claimed_at) / 60_000),
+          stuck: row.claimed_at !== null && now - row.claimed_at > PAYOUT_STUCK_MS,
+          // How many distinct administrators have signed off, and how many this amount needs
+          // (ADR-0076). The queue has to show "1 of 2" or the second signature is invisible.
+          approvals: row.status === "approval_required" ? await approvalsFor(db, row.id) : 0,
+          approvalsRequired: row.amount_pico > app.config.dualApprovalAbovePico ? 2 : 1,
+        })),
+      ),
     };
   });
 
@@ -457,18 +464,34 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
       "rejected",
     ] as const);
     const approve = decision === "approved";
-    const settled = await decideWithdrawal(db, { id, approve, adminUserId: admin.id });
+    const settled = await decideWithdrawal(db, {
+      id,
+      approve,
+      adminUserId: admin.id,
+      dualAbovePico: app.config.dualApprovalAbovePico,
+    });
+    // A large payout takes two different administrators (ADR-0076), so the audit note has to
+    // distinguish the signature that released it from the one that is still waiting for a
+    // colleague — otherwise the log reads as if one person approved it.
+    const pending = approve && settled.status === "approval_required";
     await recordAudit(db, {
       actorUserId: admin.id,
       action: "withdrawal.decided",
       subjectType: "withdrawal",
       subjectId: id,
-      note: decision,
+      note: pending ? `approved_${settled.approvals}_of_${settled.approvalsRequired}` : decision,
     });
-    // The owner is told a decision was made about their payout; the word is this codebase's,
-    // and the amount is already theirs to see.
-    await notifyQuietly(db, { userId: settled.userId, kind: "payout", detail: decision });
-    return { id, status: approve ? "queued" : "rejected" };
+    // The owner is told when the decision is final. A first approval that still needs a
+    // second is not news to them: nothing has happened to their money yet.
+    if (!pending) {
+      await notifyQuietly(db, { userId: settled.userId, kind: "payout", detail: decision });
+    }
+    return {
+      id,
+      status: settled.status,
+      approvals: settled.approvals,
+      approvalsRequired: settled.approvalsRequired,
+    };
   });
 
   /**

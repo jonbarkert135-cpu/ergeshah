@@ -146,3 +146,5 @@ or if a record is missing a section.
 | [ADR-0072](../DECISIONS.md#adr-0072--a-level-falls-dormancy-fades-it-a-suspension-costs-it) | A level falls: dormancy fades it, a suspension costs it |
 | [ADR-0073](../DECISIONS.md#adr-0073--a-payout-stuck-in-sending-is-an-operators-decision-and-it-needs-a-screen) | A payout stuck in `sending` is an operator's decision, and it needs a screen |
 | [ADR-0074](../DECISIONS.md#adr-0074--dispute-evidence-is-a-keyed-commitment-and-the-file-never-arrives) | Dispute evidence is a keyed commitment, and the file never arrives |
+| [ADR-0075](../DECISIONS.md#adr-0075--six-patterns-proposed-from-other-codebases-what-was-taken-reshaped-or-refused) | Six patterns proposed from other codebases: what was taken, reshaped, or refused |
+| [ADR-0076](../DECISIONS.md#adr-0076--a-large-payout-takes-two-different-administrators) | A large payout takes two different administrators |

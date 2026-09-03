@@ -42,6 +42,8 @@ interface Payouts {
     requestedOn: string;
     sendingForMinutes: number | null;
     stuck: boolean;
+    approvals: number;
+    approvalsRequired: number;
   }>;
 }
 
@@ -255,6 +257,14 @@ export function renderModeration(root: HTMLElement): void {
       { class: "card" },
       el("strong", {}, `${formatPrice(payout.amountXmr)} to @${payout.username}`),
       el("div", { class: "mono muted" }, `${payout.addressHint} · ${payout.status} · ${age}`),
+      // Two administrators for a large payout (ADR-0076): the count has to be on the screen,
+      // or the second signature looks like a bug rather than a rule.
+      payout.status === "approval_required" && payout.approvalsRequired > 1
+        ? notice(
+            `This amount needs two different administrators. ${payout.approvals} of ${payout.approvalsRequired} have approved it so far — approving again from this account changes nothing.`,
+            "info",
+          )
+        : null,
       payout.stuck
         ? notice(
             "The worker took this payout and never reported back. Check the payout wallet's own history for the transfer, then say which of the two things happened — nothing here can retry it, because a retry on an uncertain outcome pays twice.",

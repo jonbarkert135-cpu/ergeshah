@@ -90,6 +90,19 @@ float is spending. (This corrects the earlier claim that the fee was deducted fr
 than the code. It is also why a refund of uncredited dust has a floor of its own — ADR-0071.) Boot refuses a fee above 20%, because `5000` where `500` was meant
 is a typo nothing downstream would question.
 
+## Two administrators for a large payout
+
+Above `DUAL_APPROVAL_ABOVE_XMR` (default 10) an approval is a signature rather than a
+decision: the payout stays parked until **two different admin accounts** have approved it
+(ADR-0076), the queue shows "1 of 2", and the audit log distinguishes the signature that
+waited from the one that released it. Refusing takes one administrator, because a refusal
+hands the money back to the person who asked for it and moves nothing out of the platform.
+
+This is the part of a 2-of-3 escrow that can be built without Monero multisig: no single
+admin account, stolen or otherwise, releases a large sum on its own. A deployment with one
+admin has to raise the threshold deliberately or appoint a second admin — before the first
+large payout, not during it.
+
 ## Limits
 
 The minimums exist because a payment smaller than the fee to move it is not a payment:
