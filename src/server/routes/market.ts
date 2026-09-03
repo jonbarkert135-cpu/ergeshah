@@ -435,7 +435,10 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     if (order.buyer_user_id === user.id) actorRoles.push("buyer");
     if (order.seller_user_id === user.id) actorRoles.push("seller");
     if (user.role === "moderator" || user.role === "admin") actorRoles.push("moderator");
-    if (actorRoles.length === 0) throw forbidden("this order is not yours");
+    // A stranger gets the same answer as a wrong id. 403 here would confirm that an order
+    // with this id exists, which is exactly what an id-guessing attacker is asking
+    // (point 70) — and it is the answer `routes/deliveries.ts` already refuses to give.
+    if (actorRoles.length === 0) throw notFound("no such order");
 
     const allowed = ORDER_TRANSITIONS[order.status][next] ?? [];
     if (!allowed.some((role) => actorRoles.includes(role))) {
@@ -532,6 +535,11 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       [id],
     );
     if (!order) throw notFound("no such order");
+    // Not a party at all: the order does not exist as far as this caller is concerned. A
+    // party in the wrong role is told why, because they already know the order is there.
+    if (order.buyer_user_id !== user.id && order.seller_user_id !== user.id) {
+      throw notFound("no such order");
+    }
     if (order.buyer_user_id !== user.id) throw forbidden("only the buyer can review an order");
     // Reputation that anyone can write is not reputation: a review requires a completed order.
     if (order.status !== "completed") throw forbidden("only completed orders can be reviewed");

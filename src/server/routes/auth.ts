@@ -7,6 +7,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { csrfCookie, sessionCookie } from "../app.ts";
 import { badRequest, conflict, unauthorized } from "../lib/errors.ts";
+import { consume } from "../lib/rate_limit.ts";
 import { newId, randomToken, sha256 } from "../lib/ids.ts";
 import { hashAuthSecret, verifyAuthSecret } from "../lib/password.ts";
 import {
@@ -37,6 +38,13 @@ const LINK_TTL_MS = 5 * 60 * 1000;
 /** Long enough to paste a phrase and sign, short enough to be useless if intercepted. */
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * A syntactically valid Ed25519 public key used to verify signatures for accounts that do
+ * not exist, so that a decoy challenge does the same work as a real one. It is the
+ * all-zero point: no private half exists, and verification against it always fails.
+ */
+const DECOY_KEY = Buffer.alloc(32).toString("base64url");
+
 interface Credentials {
   username: unknown;
   authSecret: unknown;
@@ -56,10 +64,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   async function consumeChallenge(
     id: string,
     kind: "recovery" | "pgp-enroll" | "pgp-login",
-  ): Promise<{ user_id: string; challenge: string } | null> {
+  ): Promise<{ user_id: string | null; challenge: string } | null> {
     return db.transaction(async (tx) => {
       await tx.run("DELETE FROM auth_challenges WHERE expires_at < ?", [Date.now()]);
-      const row = await tx.get<{ user_id: string; challenge: string }>(
+      const row = await tx.get<{ user_id: string | null; challenge: string }>(
         "SELECT user_id, challenge FROM auth_challenges WHERE id = ? AND kind = ?",
         [id, kind],
       );
@@ -67,6 +75,17 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       await tx.run("DELETE FROM auth_challenges WHERE id = ?", [id]);
       return row;
     });
+  }
+
+  /**
+   * Charge an attempt to the *name* it targets, whether or not that name exists. Keyed
+   * this way it costs an attacker one token per guess no matter how many addresses they
+   * have; keyed uniformly it tells them nothing, because a name nobody registered has a
+   * bucket exactly like a name somebody did. The subject is HMACed with the daily pepper
+   * before it becomes a key (lib/rate_limit.ts), so no username is stored.
+   */
+  async function limitByAccountName(username: string): Promise<void> {
+    await consume(db, config.bucketPepper, "account_attempt", `name:${username}`, config.rateLimits);
   }
 
   app.post("/api/auth/register", async (request, reply) => {
@@ -81,6 +100,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       body.recoveryPublicKey === undefined || body.recoveryPublicKey === null
         ? null
         : asBase64Url(body.recoveryPublicKey, "recoveryPublicKey", 32);
+    // Work first, then the allowance: an unsolved request has cost the server a hash and
+    // must not be able to spend the bucket that protects everybody else (point 71).
+    await app.requireWork(request);
     await app.limit(request, "register");
 
     const existing = await db.get("SELECT id FROM users WHERE username = ?", [username]);
@@ -132,7 +154,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const username = asUsername(body.username);
     const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
     const label = asOptionalString(body.label, "label", 40) || null;
+    await app.requireWork(request);
     await app.limit(request, "login");
+    await limitByAccountName(username);
 
     const user = await db.get<{
       id: string;
@@ -176,7 +200,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const session = await createSession(db, user.id, config.sessionTtlMs, label);
-    await pruneSessions(db);
+    await pruneSessions(db, config.sessionIdleDays);
     const vault = await db.get<{ sealed: string }>(
       "SELECT sealed FROM vaults WHERE user_id = ?",
       [user.id],
@@ -379,11 +403,20 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
    * A challenge is returned for *every* username, whether or not the account exists or
    * has a recovery key. Otherwise this endpoint would answer "does this account exist?"
    * to anyone who asks, and no rate limit fixes an oracle.
+   *
+   * The row is written either way, with a null `user_id` when there is nobody behind the
+   * name. The previous version wrote a row only for accounts that could answer, which
+   * meant the *work* differed even though the response did not — one insert against none,
+   * observable as timing and as a table that only grows for names that exist. That was a
+   * known, documented gap (docs/SECURITY_REVIEW.md); this closes it, because a decoy row
+   * costs one insert and an oracle costs a user their anonymity.
    */
   app.post("/api/auth/recovery/challenge", async (request) => {
     const body = (request.body ?? {}) as { username?: unknown };
     const username = asUsername(body.username);
+    await app.requireWork(request);
     await app.limit(request, "recovery");
+    await limitByAccountName(username);
 
     const user = await db.get<{ id: string; recovery_public_key: string | null }>(
       "SELECT id, recovery_public_key FROM users WHERE username = ? AND status = 'active'",
@@ -391,15 +424,22 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     );
     const challenge = randomToken(32);
     const id = newId();
-    // A row is only written for accounts that can actually answer; unknown usernames get
-    // a well-formed challenge that will never verify.
-    if (user?.recovery_public_key) {
-      await db.run(
+    const answerable = user?.recovery_public_key ? user.id : null;
+    await db.transaction(async (tx) => {
+      // Issuing a challenge invalidates the ones before it. Otherwise every request left a
+      // live token behind, and an attacker who ever saw one signature could hold a stack of
+      // valid challenges waiting for it (point 69). One account, one outstanding challenge.
+      if (answerable) {
+        await tx.run("DELETE FROM auth_challenges WHERE user_id = ? AND kind = 'recovery'", [
+          answerable,
+        ]);
+      }
+      await tx.run(
         `INSERT INTO auth_challenges (id, user_id, kind, challenge, expires_at)
          VALUES (?, ?, 'recovery', ?, ?)`,
-        [id, user.id, challenge, Date.now() + CHALLENGE_TTL_MS],
+        [id, answerable, challenge, Date.now() + CHALLENGE_TTL_MS],
       );
-    }
+    });
     return { challengeId: id, challenge, expiresInSeconds: CHALLENGE_TTL_MS / 1000 };
   });
 
@@ -418,28 +458,36 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const newAuthSecret = asBase64Url(body.newAuthSecret, "newAuthSecret", 64);
     await app.limit(request, "recovery");
 
-    const claimed = await consumeChallenge(challengeId, "recovery");
-    if (!claimed) throw unauthorized("that recovery challenge is unknown or expired");
+    // One answer for every way this can fail — unknown challenge, expired challenge, decoy
+    // challenge for a name nobody registered, account without a recovery key, suspended
+    // account, wrong signature. Any distinction here would rebuild the oracle that step one
+    // just closed, because an attacker can always reach this endpoint (point 70).
+    const refuse = () => unauthorized("that recovery challenge or signature is not valid");
 
-    const user = await db.get<{
-      id: string;
-      username: string;
-      role: string;
-      status: string;
-      recovery_public_key: string | null;
-    }>(
-      "SELECT id, username, role, status, recovery_public_key FROM users WHERE id = ?",
-      [claimed.user_id],
-    );
-    if (!user?.recovery_public_key || user.status !== "active") {
-      throw unauthorized("recovery is not available for this account");
-    }
+    const claimed = await consumeChallenge(challengeId, "recovery");
+    if (!claimed) throw refuse();
+
+    const user = claimed.user_id
+      ? await db.get<{
+          id: string;
+          username: string;
+          role: string;
+          status: string;
+          recovery_public_key: string | null;
+        }>("SELECT id, username, role, status, recovery_public_key FROM users WHERE id = ?", [
+          claimed.user_id,
+        ])
+      : null;
+
+    // The signature is verified against a key that cannot match rather than skipped, so a
+    // decoy costs the same Ed25519 verification as a real account. Constant work is the
+    // point; DECOY_KEY is a fixed public key nobody holds the private half of.
     const valid = verifyEd25519(
-      Buffer.from(user.recovery_public_key, "base64url"),
+      Buffer.from(user?.recovery_public_key ?? DECOY_KEY, "base64url"),
       Buffer.from(claimed.challenge, "utf8"),
       Buffer.from(signature, "base64url"),
     );
-    if (!valid) throw unauthorized("that signature does not match this account");
+    if (!valid || !user?.recovery_public_key || user.status !== "active") throw refuse();
 
     // The password moves now; the vault backup is handed back untouched so the client can
     // unwrap the master key with the phrase and rewrap it under the new password. If that
@@ -572,7 +620,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const session = await createSession(db, user.id, config.sessionTtlMs, label);
-    await pruneSessions(db);
+    await pruneSessions(db, config.sessionIdleDays);
     const vault = await db.get<{ sealed: string }>("SELECT sealed FROM vaults WHERE user_id = ?", [
       user.id,
     ]);

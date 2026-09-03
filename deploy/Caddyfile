@@ -9,8 +9,19 @@
 	}
 }
 
-# Replace with your domain. Caddy obtains and renews a certificate automatically.
+# Replace with your domain. Caddy obtains and renews a certificate automatically, and
+# serves a redirect on :80 for it — plain HTTP is answered only long enough to say
+# "use HTTPS" (308), which is the HTTP → HTTPS rule the brief asks for.
 example.com {
+	# TLS 1.2 is the floor and 1.3 is what almost everyone actually negotiates. Written out
+	# rather than left to Caddy's default so that a future default cannot silently lower it.
+	# The cipher suites are *not* restated: Caddy's list is already AEAD-only with forward
+	# secrecy, and a hand-written one is a thing that rots and then either excludes real
+	# clients or re-admits something that should have aged out (point 67).
+	tls {
+		protocols tls1.2 tls1.3
+	}
+
 	log {
 		output discard
 	}
@@ -27,6 +38,13 @@ example.com {
 		header_up X-Forwarded-For {remote_host}
 		header_up -X-Forwarded-Port
 	}
+}
+
+# Liveness for the container health check, on a port that is never published. It answers
+# the orchestrator and nothing else: no hostname, no version, no build.
+:8081 {
+	respond /healthz "ok" 200
+	respond 404
 }
 
 # The onion service does not pass through Caddy at all: the `tor` container in

@@ -42,6 +42,18 @@ export const DEFAULT_LIMITS = {
   register: { burst: 5, perMinute: 0.5 },
   /** Login, including the password verification that follows it. */
   login: { burst: 10, perMinute: 1 },
+  /**
+   * Attempts aimed at one *named* account — logins and recovery challenges — counted
+   * against the name rather than against whoever is asking. It is the bucket that still
+   * means something when the attacker has many addresses, or when every request arrives
+   * from the same one because the service is reached over Tor.
+   *
+   * Deliberately loose. A tight per-account bucket is an account-lockout tool handed to
+   * anyone who knows a username: they would spend it and leave the owner locked out. This
+   * is sized to stop bulk credential stuffing while staying far above what a person who
+   * keeps mistyping their own password will ever reach (see docs/THREAT_MODEL.md).
+   */
+  account_attempt: { burst: 50, perMinute: 10 },
   /** Recovery-phrase login: same shape as a password guess, and a longer secret. */
   recovery: { burst: 5, perMinute: 0.5 },
   /** Password change, key rotation, device linking, account deletion. */

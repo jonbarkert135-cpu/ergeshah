@@ -20,7 +20,7 @@ const housekeeping = setInterval(
   () => {
     void (async () => {
       try {
-        await pruneSessions(db);
+        await pruneSessions(db, config.sessionIdleDays);
         await pruneRateLimits(db);
         await db.run("DELETE FROM envelopes WHERE expires_at < ?", [Date.now()]);
         await pruneAuditLog(db, config.auditRetentionMs);

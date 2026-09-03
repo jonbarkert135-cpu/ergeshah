@@ -4,27 +4,109 @@ Target: one ordinary VPS (1 vCPU, 1 GB RAM is enough to start), Docker, a domain
 and nothing else. No Kubernetes, no managed database, no cloud-specific service, no API
 key.
 
-## Clearnet deployment
+## From a fresh VPS to a running service
+
+Nine steps, in order, each one verifiable before you take the next. Harden the host first
+if you are doing this for real: **`docs/HARDENING.md`** covers SSH, the firewall and
+unattended upgrades, and it is easier to do before the service exists than after.
+
+### 1. Install dependencies
+
+Docker and git. Nothing else: there is no Node, no build toolchain and no database to
+install on the host, because the image builds and carries its own.
+
+```bash
+sudo apt update && sudo apt install -y git ca-certificates curl
+curl -fsSL https://get.docker.com | sudo sh          # Docker Engine + compose plugin
+docker --version && docker compose version           # verify before continuing
+```
+
+### 2. Clone the repository
 
 ```bash
 git clone https://github.com/jonbarkert135-cpu/symvolon.git
 cd symvolon
-cp .env.example .env
-
-# One required secret; the server refuses to start in production without it.
-printf 'RATE_LIMIT_PEPPER=%s\n' "$(openssl rand -base64 48)" >> .env
-
-# Put your domain into deploy/Caddyfile (replace example.com), then:
-docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-Caddy obtains and renews the TLS certificate automatically. The application container has
-no route to the internet (`internal: true` network), runs read-only with all capabilities
-dropped, and stores its SQLite database in a named volume.
+### 3. Configure the environment
 
-Migrations run automatically at boot. The **first account to register becomes the
-administrator** — create it immediately after the first deploy, before announcing the
-address.
+```bash
+cp .env.example .env
+# One required secret; the server refuses to start in production without it.
+printf 'RATE_LIMIT_PEPPER=%s\n' "$(openssl rand -base64 48)" >> .env
+chmod 600 .env
+```
+
+Read `.env` once, top to bottom. Every variable has a safe default except that secret, and
+every one of them is documented in **`docs/ENVIRONMENT.md`**.
+
+### 4. Configure the domain
+
+Point an A/AAAA record at the server, then replace `example.com` in `deploy/Caddyfile`
+with your domain. DNS must resolve *before* the first start, or the certificate request
+fails and Caddy backs off.
+
+```bash
+dig +short your.domain            # expect this server's address
+```
+
+### 5. Run migrations
+
+There is no separate migration step, and that is deliberate: the server applies pending
+migrations at boot, inside a transaction, and refuses to start if one fails or if an
+already-applied file has changed underneath it (`npm run audit:migrations`). Starting the
+service *is* running the migrations. To watch it happen, start in the foreground first:
+
+```bash
+docker compose -f deploy/docker-compose.yml up --build app
+```
+
+### 6. Start the services
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build
+docker compose -f deploy/docker-compose.yml ps        # both services healthy?
+```
+
+### 7. Configure TLS
+
+Nothing to do, and that is the point: Caddy requests a certificate from Let's Encrypt on
+first start, renews it automatically, and redirects `http://` to `https://` with a 308.
+The floor is TLS 1.2 and it is written down explicitly in `deploy/Caddyfile` rather than
+inherited from a default that could move. Confirm from outside the machine:
+
+```bash
+curl -sI http://your.domain | head -1                          # 308 to https
+curl -sI https://your.domain | grep -i strict-transport-security
+```
+
+### 8. Verify health
+
+```bash
+curl -s https://your.domain/healthz                            # ok
+docker compose -f deploy/docker-compose.yml ps                 # State: healthy
+docker compose -f deploy/docker-compose.yml exec app node -e "process.exit(0)"
+npm ci && npm run audit:deployment -- https://your.domain      # the bytes served == the bytes built
+```
+
+### 9. Claim the administrator account
+
+The **first account to register becomes the administrator**. Create it immediately, before
+you announce the address, or the first stranger through the door is your admin.
+
+Then read `docs/HARDENING.md` if you skipped it, and set up backups (`docs/BACKUPS.md`).
+
+## What the running deployment looks like
+
+Caddy obtains and renews the TLS certificate automatically. The application container has
+**no published port and no route to the internet** — it sits alone on an `internal: true`
+network, and only the proxy bridges that network to the outside (`docs/NETWORK.md`) — runs
+read-only as an unprivileged user with every Linux capability dropped, and stores its
+SQLite database in a named volume. Memory, CPU and process count are capped so that one
+runaway loop cannot take the host with it.
+
+`test/deployment.test.ts` asserts each of those properties against the files themselves, so
+this paragraph cannot drift away from `deploy/docker-compose.yml` the way it did before.
 
 ## Verifying what you deployed
 
@@ -151,8 +233,8 @@ identifies a user or a message.
   pruned hourly inside the process. No cron job is needed.
 - **Logs**: the application logs errors only. If you enable proxy access logs for
   debugging, set a retention of hours, not weeks, and remember what you are creating.
-- **Hardening the host**: SSH keys only, unattended security upgrades, a firewall that
-  exposes 80/443 only, and no other service on the box that logs client addresses.
+- **Hardening the host**: SSH, firewall, updates, exposed ports, TLS, isolation, backups,
+  monitoring and intrusion detection are a page of their own — **`docs/HARDENING.md`**.
 
 ## What is deliberately missing
 

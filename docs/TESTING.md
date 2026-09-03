@@ -58,6 +58,11 @@ The nine cryptographic test kinds of point 54 are mapped in the header comment o
 ## Writing a test
 
 - Use `startTestServer()`, `register()`, `promote()`, `approveSeller()` from `test/helpers.ts`.
+  The test client solves the proof-of-work challenge and retries by itself, exactly as the
+  browser client does, so a test that registers or logs in exercises that gate without
+  saying anything about it. Pass a fifth argument (`retried = true`) to `client.request()`
+  to see the raw `428`, and `startTestServer({ powBits: 0 })` to turn the gate off for a
+  suite that is about something else (`test/onion.test.ts` does).
   `TestClient` behaves like a browser: it keeps cookies and sends the CSRF header.
 - `FAST_KDF` lowers Argon2id parameters. Use it everywhere except tests *about* the KDF —
   the real parameters take a second each and the plumbing is what is under test.

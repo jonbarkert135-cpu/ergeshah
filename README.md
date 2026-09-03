@@ -109,7 +109,9 @@ never simplified away. In this codebase they *are* the product.
 | [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | attackers, assets, mitigations, residual risk, limitations |
 | [`docs/CRYPTO.md`](docs/CRYPTO.md) | key hierarchy, handshake, ratchet, wire format, test vectors |
 | [`docs/PRIVACY.md`](docs/PRIVACY.md) | every field stored, why, retention, what leaks anyway |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | VPS setup, TLS, backups, onion service, hardening |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | fresh VPS to running service in nine steps, TLS, backups, onion service |
+| [`docs/HARDENING.md`](docs/HARDENING.md) | the host underneath: SSH, firewall, updates, ports, isolation, monitoring, intrusion detection |
+| [`docs/NETWORK.md`](docs/NETWORK.md) | the five network tiers, and why the database is not on the internet |
 | [`docs/API.md`](docs/API.md) | every endpoint, its authentication, its rate-limit bucket |
 | [`docs/DATABASE.md`](docs/DATABASE.md) | every table, what it stores, what it deliberately does not, retention |
 | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) | every configuration variable and its default |

@@ -42,12 +42,12 @@ to prove the runner is idempotent, and checks the indexes hot queries depend on.
 | Table | What it holds | Notes |
 | --- | --- | --- |
 | `users` | id, username, `password_hash`, role, status, `created_day`, optional `recovery_public_key`, `pgp_public_key`, `pgp_fingerprint` | No email, no phone, no display name, no address. Argon2id hash of a client-derived secret — the password never reaches the server |
-| `sessions` | id, user, `token_hash`, optional label, created/expires, `last_seen_day` | Only the hash of the cookie value is stored. Last seen is a day |
+| `sessions` | id, user, `token_hash`, `previous_token_hash`, `rotated_at`, optional label, created/expires, `last_seen_day` | Only the hash of the cookie value is stored. The previous hash is accepted for one minute after a rotation, for requests already in flight; `last_seen_day` is a day, and it both ends idle sessions and triggers the daily rotation (ADR-0038) |
 | `vaults` | user, `sealed`, `updated_day` | The user's private keys, encrypted client-side |
 | `devices` | id, user, label, identity key, signed prekey and signature, created/rotated day, `revoked_at` | Public key material only |
 | `one_time_prekeys` | id, device, key id, public key, `claimed_at` | Consumed one at a time when someone starts a conversation |
 | `device_links` | `link_hash`, user, label, expiry | Short-lived, hashed one-time secrets for adding a second device |
-| `auth_challenges` | challenge material for recovery and PGP logins, with expiry | Deleted on use |
+| `auth_challenges` | challenge material for recovery and PGP logins, with expiry; also the spent-proof receipts for the anti-automation gate (`kind = 'pow'`, no user) | Deleted on use. A recovery challenge is written for every username asked about, with a null `user_id` when nobody is behind the name, so that the table does not grow only for accounts that exist (point 70) |
 
 ### Messaging
 

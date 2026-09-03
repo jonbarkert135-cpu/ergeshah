@@ -189,6 +189,47 @@ describe("end-to-end messaging through the real API", () => {
     expect(remaining).toHaveLength(0);
   });
 
+  it("keeps ciphertext, the routing it cannot avoid, and no trace of the sender (point 73)", async () => {
+    const alice = await peer("alice");
+    const bob = await peer("bob");
+    await alice.send("bob", toBase64Url(new Uint8Array(24).fill(2)), "a private thing");
+
+    const senderId = (await server.db.get<{ id: string }>(
+      "SELECT id FROM users WHERE username = 'alice'",
+    ))!.id;
+
+    // Walk the whole database rather than the tables we remember: a future table that
+    // records who sent what would be caught here and nowhere else.
+    const tables = (
+      await server.db.all<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+      )
+    ).map((row) => row.name);
+    for (const table of ["envelopes", "notifications"]) {
+      // audit:allow sql-interpolation — the name comes from the literal list two lines up, never from input, and SQL has no parameter form for a table name
+      const rows = await server.db.all<Record<string, unknown>>(`SELECT * FROM ${table}`);
+      expect(JSON.stringify(rows), `${table} names the sender`).not.toContain(senderId);
+      expect(JSON.stringify(rows), `${table} holds a plaintext`).not.toContain("a private thing");
+    }
+    expect(tables).toContain("envelopes");
+
+    // Delivery state, in full: one envelope for the recipient's device, and one unread
+    // marker that says "something arrived" without saying what or from whom.
+    const envelopes = await server.db.all<{ recipient_device_id: string }>(
+      "SELECT * FROM envelopes",
+    );
+    expect(envelopes).toHaveLength(1);
+    const notifications = await server.db.all<{ kind: string; subject_id: string | null }>(
+      "SELECT * FROM notifications",
+    );
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]!.kind).toBe("message");
+    // No subject: the unread marker points at nothing, so reading the inbox table tells an
+    // operator that a message arrived and never which one (ADR-0032).
+    expect(notifications[0]!.subject_id ?? "").toBe("");
+    await bob.receive();
+  });
+
   it("consumes each one-time prekey exactly once", async () => {
     const bob = await peer("bob");
     const alice = await peer("alice");

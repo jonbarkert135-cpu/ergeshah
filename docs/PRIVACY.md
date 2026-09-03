@@ -19,8 +19,28 @@ address, user agent, device fingerprint, referrer, or any third-party identifier
 ## Sessions
 
 `id`, `user_id`, `token_hash` (SHA-256 of the token — the token itself is never stored),
-an optional label you set, `created_at`, `expires_at`, and `last_seen_day` (day
+an optional label you set, `created_at`, `expires_at`, `rotated_at`, and `last_seen_day` (day
 granularity: enough to expire idle sessions, useless as an activity timeline).
+
+## How you are identified
+
+Three identifiers, kept apart on purpose (point 72):
+
+| Layer | What it is | Who sees it |
+| --- | --- | --- |
+| **Public username** | What you chose, what people address you by, what appears on a listing | Everyone |
+| **Internal identifier** | A random UUIDv4 in `users.id`, the join key of the database | The server. It is never in a response about somebody else — `test/sessions.test.ts` checks the routes that could leak one |
+| **Cryptographic identity** | Your devices' Ed25519/X25519 public keys, and the safety number derived from them | Anyone you talk to, for verification |
+
+None of them is a counter. A sequential id would publish how many accounts exist, in what
+order they were created, and — for a listing or an order — how much business happens here
+and when, to anyone who can read a URL. Every id in this system is random, so an id reveals
+nothing except itself, and guessing one is not a way in (`docs/THREAT_MODEL.md`, IDOR).
+
+The three are related only inside the database. A username can be deleted and taken by
+someone else; the internal id never leaves the server; the cryptographic identity is the
+only one that actually proves anything, which is why verification is built on it and not
+on the name.
 
 ## Cryptographic material
 

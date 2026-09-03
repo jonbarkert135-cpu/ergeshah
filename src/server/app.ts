@@ -4,6 +4,7 @@ import type { Db } from "./db/index.ts";
 import { HttpError, unauthorized, forbidden, isConstraintViolation } from "./lib/errors.ts";
 import { parseCookies, serializeCookie } from "./lib/cookies.ts";
 import { resolveSession, type SessionUser } from "./lib/sessions.ts";
+import { requireProofOfWork } from "./lib/pow.ts";
 import { consume, type LimitName } from "./lib/rate_limit.ts";
 import { enforceCsrf, registerSecurity } from "./security.ts";
 import { recordAudit } from "./lib/audit.ts";
@@ -41,6 +42,11 @@ declare module "fastify" {
     authenticate(request: FastifyRequest): Promise<SessionUser>;
     requireRole(request: FastifyRequest, roles: SessionUser["role"][]): Promise<SessionUser>;
     limit(request: FastifyRequest, scope: LimitName): Promise<void>;
+    /**
+     * Refuse the request unless its body carries a solved proof of work. Used by the
+     * three endpoints a script attacks and an account cannot yet be charged for.
+     */
+    requireWork(request: FastifyRequest): Promise<void>;
   }
 }
 
@@ -83,7 +89,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     }
     const token = parseCookies(request.headers.cookie)[SESSION_COOKIE];
     if (!token) throw unauthorized();
-    const user = await resolveSession(db, token);
+    const user = await resolveSession(db, token, config.sessionIdleDays);
     if (!user) throw unauthorized("session expired");
     if (user.status !== "active") throw forbidden("account suspended");
     // Remembered for the rate limiter, which prefers the account over the address: on an
@@ -118,6 +124,11 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     await consume(db, config.bucketPepper, scope, limitSubject(request), config.rateLimits);
   });
 
+  app.decorate("requireWork", async (request: FastifyRequest): Promise<void> => {
+    const body = (request.body ?? {}) as { pow?: unknown };
+    await requireProofOfWork(db, config.bucketPepper, config.powBits, body.pow);
+  });
+
   registerSecurity(app, config);
 
   app.addHook("preHandler", async (request, reply) => {
@@ -130,15 +141,25 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     if (!request.sessionUser) {
       const token = parseCookies(request.headers.cookie)[SESSION_COOKIE];
       if (token) {
-        const user = await resolveSession(db, token);
+        const user = await resolveSession(db, token, config.sessionIdleDays);
         if (user && user.status === "active") request.sessionUser = user;
+        // The token rotates once a day (ADR-0038). This is the only place that can hand
+        // the new one back, because it is the only place that sees the reply.
+        if (user?.rotatedToken) {
+          reply.header(
+            "set-cookie",
+            sessionCookie(config, request, user.rotatedToken, user.rotatedMaxAgeSeconds ?? 0),
+          );
+        }
       }
     }
   });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof HttpError) {
-      return reply.status(error.statusCode).send({ error: error.code, message: error.message });
+      return reply
+        .status(error.statusCode)
+        .send({ error: error.code, message: error.message, ...error.details });
     }
     // A unique, foreign-key or check constraint did its job (migration 007). The request
     // conflicted with a row that arrived first; that is the client's news, not an incident.

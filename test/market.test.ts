@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { approveSeller, promote, register, startTestServer, type TestServer } from "./helpers.ts";
 
 let server: TestServer;
@@ -145,10 +146,16 @@ describe("orders and reviews", () => {
 
     const list = await stranger.get<{ orders: unknown[] }>("/api/market/orders?role=buyer");
     expect(list.body.orders).toEqual([]);
+    // 404, not 403: a stranger must not be able to tell a real order id from an invented
+    // one, so the answer for both has to be the same one (point 70).
     const meddling = await stranger.post(`/api/market/orders/${order.body.id}/status`, {
       status: "cancelled",
     });
-    expect(meddling.status).toBe(403);
+    const invented = await stranger.post(`/api/market/orders/${randomUUID()}/status`, {
+      status: "cancelled",
+    });
+    expect(meddling.status).toBe(404);
+    expect(meddling.body).toEqual(invented.body);
   });
 
   it("lets a moderator settle a dispute, and nobody else", async () => {

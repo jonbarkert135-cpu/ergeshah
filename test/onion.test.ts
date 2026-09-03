@@ -15,7 +15,10 @@ const ONION = "abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwx.onion";
 let server: TestServer;
 
 beforeEach(async () => {
-  server = await startTestServer({ behindTls: true, onionHostname: ONION });
+  // This suite drives the API with raw `inject` calls rather than the test client, so the
+  // proof-of-work gate is turned off here (`powBits: 0`, the supported way to disable it):
+  // what is under test is which headers and cookie flags the onion host changes.
+  server = await startTestServer({ behindTls: true, onionHostname: ONION, powBits: 0 });
 });
 afterEach(async () => {
   await server.close();

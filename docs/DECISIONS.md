@@ -1086,3 +1086,106 @@ and after is the honest version, and one fewer mode to get wrong).
 **Consequences.** The procedures in `INCIDENT_RESPONSE.md` are executable, and their
 commands are covered by tests rather than by hope. An operator on PostgreSQL still has to
 paste SQL — documented, not pretended away.
+
+## ADR-0038 — A session that ends of neglect, and a token that does not last a month
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 68 asks for expiration, rotation and invalidation. Three of those
+existed. The session row carried `last_seen_day` and *nothing read it*: an abandoned
+session — a browser on a shared machine, a laptop that was sold — stayed valid for the full
+thirty-day TTL, and the cookie value never changed in all that time, so a token captured
+once was a token that worked for a month.
+
+**Decision.** Two limits and one rotation, all in `resolveSession`:
+
+- **absolute** expiry (`expires_at`) is unchanged and is never extended;
+- **idle** expiry deletes a session that has gone unused for `SESSION_IDLE_DAYS` (14);
+- the token **rotates on the first request of each day** — the same write that already
+  updated `last_seen_day`, so it costs one write per session per day and no new schedule.
+
+Rotation needs a grace window or it becomes a race: two requests can be in flight when the
+cookie changes. Migration 010 adds `previous_token_hash` and `rotated_at`, and the previous
+hash is accepted for 60 seconds after the rotation and refused afterwards.
+
+**Rejected:** rotating on every request (a browser with two tabs would fight itself, and the
+write amplification is real); binding a session to an IP address (it would mean storing
+addresses, which is the thing this project spends the most effort *not* doing); a sliding
+absolute expiry (a session that renews itself while you use it never ends, which is the
+opposite of the requirement); telling the user "your session was used from a new place"
+(there is no place — nothing records where a session is used, and inventing that record to
+warn about it would be a poor trade).
+
+**Consequences.** A stolen cookie has a shelf life of about a day even if nobody notices
+the theft. Day granularity means the idle window is 14 to 15 days, which is fine for a
+policy expressed in weeks. `last_seen_day` is now load-bearing rather than decorative, and
+`test/sessions.test.ts` covers both expiries, the rotation, the grace window and its end.
+
+## ADR-0039 — Arithmetic instead of a CAPTCHA
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 71 asks for defences against registration abuse, credential stuffing,
+spam and scraping, and asks in the same breath that verification not become surveillance.
+The rate limiter alone could not carry this: for an unauthenticated request it counts
+against the client address, and on the onion service every request arrives from one address
+— the `tor` container — so `register` and `login` shared a *single global bucket* for the
+whole deployment. Roughly one login a minute for everybody, or a limit loose enough to
+defend nothing. Its own source comment noticed the problem for authenticated traffic and
+stopped there.
+
+**Decision.** A proof of work on `register`, `login` and `recovery/challenge`: find a nonce
+whose SHA-256 has `POW_BITS` (default 16) leading zero bits. The refusal is a `428` that
+*carries* the challenge, so there is no endpoint to fetch one from and no extra round trip;
+the challenge is a MAC over a random token, a timestamp and the difficulty, so issuing one
+writes nothing and cannot be downgraded; redeeming one inserts a row whose primary key
+makes it single-use. Both the browser client and the test client solve and retry
+transparently. Alongside it, a second bucket (`account_attempt`) counts attempts against
+the *targeted username*, which is the counter that still works when the attacker has many
+addresses or the users share one.
+
+**Rejected:** a CAPTCHA (a third party watching our users, which is the thing this project
+exists to avoid); email or SMS verification (it turns "no personal data" into "an identity
+document with extra steps", and point 69 asks recovery not to demand personal data either);
+a per-address block list (there is no address on the onion service, and blocking Tor exits
+punishes exactly the users this is built for); a hashcash *stamp* the client mints itself
+(precomputable at leisure — the server must choose the challenge); requiring proof of work
+on every endpoint (an authenticated caller can be charged to their account instead, which
+is cheaper for them and just as effective).
+
+**Consequences.** Automation now pays per attempt in CPU rather than per address, and
+nobody is asked who they are. It is a cost and not a wall: an attacker with real hardware
+still gets through, more slowly. The browser pays a fraction of a second on sign-in, and
+the search blocks the thread — if the difficulty is ever raised to where that is felt, the
+loop moves to a Web Worker. `POW_BITS=0` disables the gate for a closed instance, which is
+supported and documented rather than hidden.
+
+## ADR-0040 — The deployment is checked by tests, not described by documents
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Points 63–67 are largely configuration and prose: a compose file, a Caddyfile,
+a hardening page. Prose about security controls decays silently — this repository had a
+live example. `docs/DEPLOYMENT.md` and `docs/THREAT_MODEL.md` both stated that the
+application container had no route to the internet, while `deploy/docker-compose.yml` had
+it on the public-facing network alongside the proxy. Nobody was lying; the file changed and
+the sentence did not.
+
+**Decision.** `test/deployment.test.ts` reads `deploy/docker-compose.yml`, `deploy/Dockerfile`
+and `deploy/Caddyfile` and asserts the properties the documents claim: unprivileged and
+read-only containers, all capabilities dropped, memory/CPU/process limits, health checks,
+base images pinned by digest, the application off the public network with no published
+port, the internal network actually internal, no database port published even in the
+commented-out example, TLS 1.2 as the floor with no legacy protocol enabled, and the admin
+API off. It also checks that the three documents exist and cover the topics the brief
+lists. It runs inside `npm test`, so it needs no change to the CI workflow.
+
+**Rejected:** a YAML parser dependency to inspect forty lines of our own configuration
+(the supply chain is the thing being audited; a twenty-line reader that only understands
+this file is the cheaper trade); actually starting the containers in CI (it needs a Docker
+daemon, a network and minutes — and it would test Docker, not our configuration); trusting
+a review checklist (this ADR exists because a checklist is what failed).
+
+**Consequences.** A control cannot be removed while the paragraph describing it stays.
+The cost is that the test knows the shape of the compose file: reorganising it means
+updating the reader. That is the intended cost — noticing is the feature.

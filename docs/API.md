@@ -21,6 +21,22 @@ exist. Drifted API documentation is worse than none, because people trust it.
   only thing shared between the log line and the user (point 29).
 - **Rate limits.** Each endpoint below names its bucket; see `docs/DEPLOYMENT.md` for
   `RATE_LIMITS`. Exhausting one returns `429` with `Retry-After`.
+- **Proof of work.** The three unauthenticated account endpoints (`register`, `login`,
+  `recovery/challenge`) answer `428` when a request arrives without one:
+
+  ```json
+  { "error": "pow_required",
+    "message": "…",
+    "pow": { "challenge": "…", "mac": "…", "bits": 16, "expiresInSeconds": 300 } }
+  ```
+
+  Find a `nonce` such that `SHA-256("symvolon-pow-v1:" + challenge + ":" + nonce)` starts
+  with `bits` zero bits, then repeat the request with `pow: { challenge, mac, nonce }`
+  added to the body. A solution is single use (`400 pow_spent` on reuse) and valid for five
+  minutes; the difficulty is covered by the MAC, so a client cannot choose it. There is no
+  endpoint to fetch a challenge from — the refusal carries it, so no round trip is wasted
+  and there is nothing to poll. The browser client does this transparently
+  (`src/client/api.ts`); so does the test client (ADR-0039).
 - **Ciphertext.** Anything called `payload`, `sealed`, `envelope` or `ciphertext` is base64url
   of bytes the server cannot read and never tries to parse.
 
@@ -43,8 +59,8 @@ exist. Drifted API documentation is worse than none, because people trust it.
 | `POST /api/auth/logout` | session | `sensitive` | End this session |
 | `POST /api/auth/logout-everywhere` | session | `sensitive` | End every session of this account |
 | `GET /api/auth/me` | session | `read` | Who am I: username, role, seller status, whether recovery and PGP are configured |
-| `GET /api/auth/sessions` | session | `read` | This account's sessions, by day rather than timestamp |
-| `DELETE /api/auth/sessions/:id` | session (owner) | `sensitive` | Revoke one session |
+| `GET /api/auth/sessions` | session | `read` | This account's sessions, by day rather than timestamp. No token, no address, no user agent — there is nothing else stored to show |
+| `DELETE /api/auth/sessions/:id` | session (owner) | `sensitive` | Revoke one session. A session belonging to somebody else answers exactly like one that does not exist |
 | `POST /api/auth/password` | session | `sensitive` | Change the password: new `authSecret` and re-sealed vault, in one transaction |
 | `POST /api/auth/delete` | session | `sensitive` | Delete the account. Cascades to every table that references it (`test/auth.test.ts` proves nothing is left) |
 
@@ -53,8 +69,8 @@ exist. Drifted API documentation is worse than none, because people trust it.
 | Method & path | Auth | Limit | Purpose |
 | --- | --- | --- | --- |
 | `POST /api/auth/recovery/key` | session | `sensitive` | Register the public half of a recovery phrase |
-| `POST /api/auth/recovery/challenge` | — | `recovery` | Get a challenge to sign with the recovery key |
-| `POST /api/auth/recovery/complete` | — | `recovery` | Prove the signature, set a new `authSecret` and vault |
+| `POST /api/auth/recovery/challenge` | — | `recovery` | Get a challenge to sign with the recovery key. Answered for every username, including ones nobody registered, and issuing one invalidates the account's previous challenge |
+| `POST /api/auth/recovery/complete` | — | `recovery` | Prove the signature, set a new `authSecret` and vault. Every way of failing — unknown challenge, expired, wrong signature, no recovery key, suspended account — returns one message |
 | `POST /api/auth/link` | session | `sensitive` | Start linking a second device; returns a one-time link secret |
 | `POST /api/auth/link/claim` | — | `sensitive` | Claim a link secret from the new device |
 | `POST /api/auth/pgp/key` | session | `sensitive` | Attach a PGP public key to the account |

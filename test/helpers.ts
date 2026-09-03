@@ -9,9 +9,19 @@ import { sodiumReady } from "../src/shared/crypto/sodium.ts";
 import { createDeviceIdentity } from "../src/shared/crypto/identity.ts";
 import { deriveAccountKeys } from "../src/shared/crypto/vault.ts";
 import { toBase64Url } from "../src/shared/encoding.ts";
+import { sodium } from "../src/shared/crypto/sodium.ts";
+import { solveProofOfWork } from "../src/shared/pow.ts";
 
 /** Argon2id parameters are the product; in tests we only care that the plumbing works. */
 export const FAST_KDF = { opsLimit: 1, memLimit: 8192 };
+
+/**
+ * The proof-of-work gate is exercised for real by every test that registers or logs in —
+ * the client below solves it exactly the way the browser does — but at a difficulty that
+ * costs a handful of hashes instead of a second each. `test/security.test.ts` checks the
+ * shipped difficulty separately.
+ */
+export const TEST_POW_BITS = 4;
 
 export interface TestServer {
   app: FastifyInstance;
@@ -31,6 +41,7 @@ export async function startTestServer(
     dialect: "sqlite",
     behindTls: false,
     bucketPepper: `test-pepper-${randomUUID()}-0000000000000000`,
+    powBits: TEST_POW_BITS,
     ...overrides,
   });
   const db = createSqliteDb(":memory:");
@@ -69,6 +80,7 @@ export class TestClient {
     url: string,
     body?: unknown,
     options: { origin?: string; csrf?: string | null } = {},
+    retried = false,
   ): Promise<Response<T>> {
     const headers: Record<string, string> = {};
     if (body !== undefined) headers["content-type"] = "application/json";
@@ -98,6 +110,20 @@ export class TestClient {
       parsed = response.json();
     } catch {
       parsed = response.body;
+    }
+    // The browser client solves the proof of work and retries without telling anyone
+    // (src/client/api.ts); so does this one, so that every existing test keeps describing
+    // what it is about instead of how the anti-automation gate works.
+    const failure = parsed as { error?: string; pow?: { challenge: string; mac: string; bits: number } };
+    if (response.statusCode === 428 && failure?.error === "pow_required" && failure.pow && !retried) {
+      const solved = {
+        challenge: failure.pow.challenge,
+        mac: failure.pow.mac,
+        nonce: solveProofOfWork(failure.pow.challenge, failure.pow.bits, (input) =>
+          sodium().crypto_hash_sha256(input),
+        ),
+      };
+      return this.request<T>(method, url, { ...(body as object), pow: solved }, options, true);
     }
     return { status: response.statusCode, body: parsed as T };
   }

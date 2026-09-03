@@ -305,8 +305,14 @@ describe("recovering an account", () => {
     expect(Object.keys(known.body).sort()).toEqual(Object.keys(unknown.body).sort());
     expect(unknown.body.challenge.length).toBe(known.body.challenge.length);
 
-    // The unknown one has no row behind it, so it can never be completed.
-    expect((await server.db.all("SELECT * FROM auth_challenges")).length).toBe(1);
+    // Both wrote a row: the decoy has a null user_id and can never be completed, but it
+    // costs the same insert, so the server does not answer "does this account exist?" in
+    // timing or in table growth either (point 70).
+    const rows = await server.db.all<{ user_id: string | null }>(
+      "SELECT user_id FROM auth_challenges WHERE kind = 'recovery'",
+    );
+    expect(rows.length).toBe(2);
+    expect(rows.filter((row) => row.user_id === null).length).toBe(1);
   });
 
   it("stores only the public half, and no path from the database to the phrase", async () => {

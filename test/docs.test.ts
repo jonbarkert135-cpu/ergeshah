@@ -106,6 +106,8 @@ describe("the documents point 31 requires are present and not empty", () => {
       ["docs/DATABASE.md", 60],
       ["docs/DEPENDENCIES.md", 40],
       ["docs/DEPLOYMENT.md", 60],
+      ["docs/HARDENING.md", 80],
+      ["docs/NETWORK.md", 40],
       ["docs/ENVIRONMENT.md", 40],
       ["docs/TESTING.md", 30],
       ["docs/DESIGN.md", 40],

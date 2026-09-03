@@ -19,6 +19,14 @@ export interface Config {
   bucketPepper: string;
   trustProxy: boolean;
   sessionTtlMs: number;
+  /** Days a session may go unused before it is deleted, independent of `sessionTtlMs`. */
+  sessionIdleDays: number;
+  /**
+   * Leading zero bits a client must find before an unauthenticated account endpoint will
+   * look at its request. 0 disables the gate — supported, because an invite-only instance
+   * behind a VPN has nothing to defend against, and documented as the trade it is.
+   */
+  powBits: number;
   envelopeTtlMs: number;
   maxEnvelopeBytes: number;
   /** Ciphertext cap for one order delivery, in bytes before base64url expansion. */
@@ -63,6 +71,28 @@ function requiredSecret(name: string, env: string): string {
   return `development-only-${name}-not-secret-0000000000`;
 }
 
+/**
+ * Difficulty, in leading zero bits. Each bit doubles the expected work, so this is the one
+ * number in the file where a typo of one digit is the difference between a speed bump and
+ * a locked door — which is why it is validated at boot rather than discovered in
+ * production.
+ *
+ * The default of 16 costs roughly 65,000 hashes: a fraction of a second in a browser, and
+ * a real bill for anyone opening accounts in bulk, because they pay it per attempt. It is
+ * a cost that composes with the rate limiter rather than replacing it; raise it while an
+ * attack is on and put it back afterwards. Above 20 the tail of the distribution — this
+ * is a random search, and 5% of attempts take three times the average — starts producing
+ * waits that users experience as a broken sign-in button.
+ */
+function powBits(value: string | undefined): number {
+  if (value === undefined || value.trim() === "") return 16;
+  const bits = Number(value);
+  if (!Number.isInteger(bits) || bits < 0 || bits > 24) {
+    throw new Error("POW_BITS must be a whole number between 0 (off) and 24");
+  }
+  return bits;
+}
+
 const ONION_V3 = /^[a-z2-7]{56}\.onion$/;
 
 /**
@@ -90,6 +120,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     bucketPepper: requiredSecret("RATE_LIMIT_PEPPER", env),
     trustProxy: process.env.TRUST_PROXY === "true",
     sessionTtlMs: Number(process.env.SESSION_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
+    sessionIdleDays: Number(process.env.SESSION_IDLE_DAYS ?? 14),
+    powBits: powBits(process.env.POW_BITS),
     envelopeTtlMs: Number(process.env.ENVELOPE_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     maxEnvelopeBytes: Number(process.env.MAX_ENVELOPE_BYTES ?? 64 * 1024),
     maxDeliveryBytes: Number(process.env.MAX_DELIVERY_BYTES ?? 5 * 1024 * 1024),

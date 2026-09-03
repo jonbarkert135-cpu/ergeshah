@@ -29,6 +29,7 @@ out of a crash dump.
 | `TRUST_PROXY` | `false` | Whether to believe `X-Forwarded-For`. Only turn this on when a proxy you operate sets it — a trusted header from an untrusted source is a rate-limit bypass |
 | `BEHIND_TLS` | `true` | Whether cookies are marked `Secure`. Left alone unless you are running plain HTTP on localhost for development |
 | `ONION_HOSTNAME` | *unset* | v3 onion address of this deployment. Validated at boot; enables the `Onion-Location` header and relaxes `Secure` cookies on that origin only |
+| `POW_BITS` | `16` | Difficulty of the proof of work an unauthenticated account request must solve (register, login, recovery). Each bit doubles the expected work; 16 is roughly 65,000 hashes, a fraction of a second in a browser. `0` turns the gate off — supported for a closed instance, and a real decision, not a tuning knob (ADR-0039). Above 24 the server refuses to start |
 
 ## Storage
 
@@ -44,7 +45,8 @@ the server remembers anything.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `SESSION_TTL_MS` | 30 days | Session lifetime |
+| `SESSION_TTL_MS` | 30 days | Absolute session lifetime. Set once when the session is created and never extended, so signing in again is a monthly event rather than never |
+| `SESSION_IDLE_DAYS` | 14 | How long a session may go *unused* before it is deleted. The shorter of the two limits wins; day granularity, because the column behind it is a day and not a timestamp (ADR-0038) |
 | `ENVELOPE_TTL_MS` | 30 days | How long an unacknowledged message ciphertext survives |
 | `MAX_ENVELOPE_BYTES` | 64 KiB | Cap on one message envelope |
 | `MAX_DELIVERY_BYTES` | 5 MiB | Cap on encrypted digital goods for one order |
@@ -55,9 +57,9 @@ the server remembers anything.
 
 ### `RATE_LIMITS`
 
-Fourteen scopes: `register`, `login`, `recovery`, `sensitive`, `message_send`,
-`seller_application`, `listing_write`, `order_write`, `review`, `moderation`, `search`,
-`key_bundle`, `read`, `write`. Each has a `burst` (tokens available at once) and
+Fifteen scopes: `register`, `login`, `account_attempt`, `recovery`, `sensitive`,
+`message_send`, `seller_application`, `listing_write`, `order_write`, `review`,
+`moderation`, `search`, `key_bundle`, `read`, `write`. Each has a `burst` (tokens available at once) and
 `perMinute` (refill rate). `key_bundle` is separate from `read` because claiming a prekey
 bundle *consumes* one of the target's one-time prekeys (ADR-0035).
 Override any subset:
