@@ -19,3 +19,4 @@ sha256-G4P/8qLg3f//9mSxTZwaqB3T+JSXEbtFC75wwj67Dzg=  018_order_evidence.sql
 sha256-GqOgMgb6dgg2stwMjxxjKYdYS4yVNypTVuhA12JgsZU=  019_withdrawal_approvals.sql
 sha256-W9qOanPPtayTo4uc17+eea6yoSfOQiaJ93p5fpSX3u8=  020_lockdown.sql
 sha256-OzkhENf9HA+3y6NhmQ5524+gZSYlXluNlSmn3jRmOxc=  021_category_folding.sql
+sha256-7v699NI8ggrgTsyOJg4savX6LtSyZGe17CR7EVu31Jo=  022_send_tokens.sql

@@ -2711,3 +2711,55 @@ the rest as above.
 serial disputer in one line, and they still have to decide. The two accepted-but-unbuilt items
 are on the roadmap with their designs, which is where a good idea that has not been built
 belongs.
+
+## ADR-0084 — Sealed sender: single-use tokens instead of a session on the send path
+
+**Status:** accepted (2026-09-03)
+
+**Context.** `envelopes` has never had a sender column: who wrote a message is inside the
+ciphertext, and `docs/METADATA.md` said so from the first commit — while also naming the gap
+in the same row. The *stored* message identified nobody; the *request* that stored it carried
+a session cookie, so a server that chose to write the sender down could, and an operator under
+pressure could be made to. Roadmap item MD-4 called this "sealed sender" and left it open
+because the obvious answer, an anonymous credential, needs a blind signature.
+
+**Decision.** Split the sending path in two. An authenticated call mints a batch of
+single-use tokens (`POST /api/messages/tokens`); the server keeps only their SHA-256 hashes
+in `send_tokens`, a table with two columns and no owner. To send, the client presents one
+token in `x-send-token` **and omits its cookies**; the token is deleted by the statement that
+accepts it. A request with no token behaves exactly as before — session, rate limit, no
+stored sender — so nothing breaks for an older client or a client out of quota.
+
+Three details that are the whole design:
+
+* **Quota stays where it was.** Minting is rate-limited per account (`send_tokens`: three
+  batches burst, one a minute). The tokens in hand are the send budget, so the anonymous
+  route needs no per-address bucket — which is fortunate, because on an onion service every
+  request shares one address and such a bucket would throttle everyone at once.
+* **Jittered expiries.** A batch written with one `expires_at` to the millisecond is a
+  grouping key: spend one token and an operator could tell which other tokens belonged to
+  the same person — a conversation's worth. Each token expires within a random quarter hour
+  of its batch instead.
+* **CSRF is exempted for exactly this shape.** A sealed request carries no cookie, so there
+  is no ambient authority for a cross-site page to ride, and it cannot read the token out of
+  another origin's vault. The exemption is conditional on there being no session cookie, so
+  it cannot be used to strip CSRF from an ordinary authenticated write.
+
+**What this does not claim.** It defeats an adversary who reads data at rest — a backup, a
+seized disk, an order for stored records — because no row can be joined to an account. It
+does **not** defeat an operator who modifies the running server to record which account
+received which token: that needs unlinkable issuance, i.e. a blind signature (RSA blind
+signatures or a VOPRF), and this project will not hand-roll a primitive of that weight for
+one route. The honest sentence, which is the one in `docs/METADATA.md`, is "the sender is not
+in the data at rest, and a live operator can still see who asked for tokens".
+
+**Alternatives.** A mixnet or a third-party relay (a dependency on somebody else's server,
+and a new correlator); minting one token per message at send time (mint and send become the
+same event, which is the leak again); dropping authentication from the send route entirely
+(an open relay for envelopes, and the spam floor gone).
+
+**Consequences.** One table, one endpoint, one header, and a client that keeps a pouch of
+tokens in its vault and refills when it runs low. `test/sealed_sender.test.ts` covers the
+delivery, the replay, the forged token, the expiry sweep, the columns, and the fact that a
+send token authorises nothing but a send. MD-4 is shipped; MD-2 (timing noise) is what is
+left of this section, and no token helps with it.

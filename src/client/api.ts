@@ -47,10 +47,18 @@ async function solve(challenge: { challenge: string; mac: string; bits: number }
   };
 }
 
-export async function api<T>(
-  path: string,
-  options: { method?: string; body?: unknown } = {},
-): Promise<T> {
+export interface RequestOptions {
+  method?: string;
+  body?: unknown;
+  /**
+   * Sealed sender (ADR-0084). When set, the request is sent with **no cookies**: the token
+   * is the only authority it carries, so the server has no session to attribute the
+   * envelope to. Nothing else in the client sends a request this way.
+   */
+  sendToken?: string;
+}
+
+export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   try {
     return await send<T>(path, options);
   } catch (error) {
@@ -63,20 +71,23 @@ export async function api<T>(
   }
 }
 
-async function send<T>(
-  path: string,
-  options: { method?: string; body?: unknown } = {},
-): Promise<T> {
+async function send<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
+  const sealed = options.sendToken !== undefined;
   const response = await fetch(path, {
     method,
-    credentials: "same-origin",
+    // A sealed request omits the cookie jar on purpose. Sending the session cookie next to
+    // the token would defeat the whole mechanism in the most embarrassing way possible.
+    credentials: sealed ? "omit" : "same-origin",
     referrerPolicy: "no-referrer",
     headers: {
       // Only declare a JSON body when there is one: an empty body with a JSON
       // content-type is a parse error, not a request.
       ...(options.body === undefined ? {} : { "content-type": "application/json" }),
-      ...(method === "GET" ? {} : { "x-csrf-token": csrfToken() }),
+      // No CSRF token on a sealed request: it carries no cookie for a cross-site page to
+      // ride, and the server exempts exactly that shape (`enforceCsrf`).
+      ...(method === "GET" || sealed ? {} : { "x-csrf-token": csrfToken() }),
+      ...(sealed ? { "x-send-token": options.sendToken as string } : {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });

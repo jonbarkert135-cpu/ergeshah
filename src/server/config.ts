@@ -35,6 +35,10 @@ export interface Config {
   powBits: number;
   envelopeTtlMs: number;
   maxEnvelopeBytes: number;
+  /** Sealed sender (ADR-0084): how long an unspent send token stays usable. */
+  sendTokenTtlMs: number;
+  /** How many tokens one request mints. A batch is a conversation's worth of messages. */
+  sendTokenBatch: number;
   /** Ciphertext cap for one order delivery, in bytes before base64url expansion. */
   maxDeliveryBytes: number;
   deliveryTtlMs: number;
@@ -322,6 +326,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     powBits: powBits(process.env.POW_BITS),
     envelopeTtlMs: Number(process.env.ENVELOPE_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     maxEnvelopeBytes: Number(process.env.MAX_ENVELOPE_BYTES ?? 64 * 1024),
+    sendTokenTtlMs: Number(process.env.SEND_TOKEN_TTL_MS ?? 7 * 24 * 60 * 60 * 1000),
+    sendTokenBatch: Number(process.env.SEND_TOKEN_BATCH ?? 32),
     maxDeliveryBytes: Number(process.env.MAX_DELIVERY_BYTES ?? 5 * 1024 * 1024),
     deliveryTtlMs: Number(process.env.DELIVERY_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     auditRetentionMs: Number(process.env.AUDIT_RETENTION_MS ?? 365 * 24 * 60 * 60 * 1000),

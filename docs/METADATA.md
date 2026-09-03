@@ -13,7 +13,7 @@ privacy-preserving by construction, or it does not exist here.**
 
 | Feature | Where it lives | What the **server** learns | What the **peer** learns | Default |
 | --- | --- | --- | --- | --- |
-| **Sender** | Inside the ciphertext | Nothing. `envelopes` has no sender column; the sending *request* is authenticated, which is a different fact and the gap roadmap item MD-4 closes | Who wrote to them, which is the point | Always |
+| **Sender** | Inside the ciphertext | Nothing at rest. `envelopes` has no sender column, and since ADR-0084 the sending *request* carries no session either: the client spends a single-use token and omits its cookies. What remains is that an account asked for a batch of tokens at some earlier moment — visible to an operator watching the running server, absent from every stored row | Who wrote to them, which is the point | Always |
 | **Recipient** | `envelopes.recipient_device_id` | The device an envelope is for. Unavoidable: store-and-forward has to know where to forward | — | Always |
 | **Timestamp** | `envelopes.created_at`, and `at` inside the ciphertext | When an undelivered envelope arrived, to the millisecond, until it is collected and deleted. Long-lived rows elsewhere keep only a *day* | The time the sender's clock claimed | Always |
 | **Size** | `envelopes.payload` | A padding bucket — 64/256/1024/4096·n bytes — not the length of what was written | The message | Always |
@@ -21,6 +21,23 @@ privacy-preserving by construction, or it does not exist here.**
 | **Typing indicator** | An encrypted message | That an envelope was sent, in the same padding bucket as a short sentence. No column, no flag, no way to sort signals from messages | That you are typing, for eight seconds | **Off** |
 | **Read receipt** | An encrypted message | Same: one more envelope, indistinguishable by shape | The timestamp you have read up to | **Off** |
 | **Online status** | Does not exist | Connection times, as any server does. There is no presence table, no "last seen", no heartbeat and no route that answers "is she online" | Nothing, except that a typing signal implies somebody is there right now | **Absent** |
+
+### Sealed sender, and what it is worth (ADR-0084)
+
+The sender row above used to end with a caveat: the database knew nothing, but the request
+did. That is now split in two. Sending is authorised by a single-use token minted earlier by
+an authenticated call, and the send itself goes out with no cookie, so there is no session
+for the server to attribute the envelope to and nothing in `send_tokens` that can be joined
+to an account.
+
+The limit is worth stating plainly, because "anonymous" is the word this is not. An adversary
+reading data at rest — a backup, a seized disk, a demand for stored records — cannot tell who
+sent what. An operator who *modifies the running server* still can: they see which account
+requests tokens, and could record the tokens as they are handed out. Closing that needs
+unlinkable issuance — a blind signature — which is a primitive this project will not
+hand-roll for one route. Batches are minted when the pouch runs low rather than at send time,
+and expiries are jittered so a batch is not one grouping key, but neither of those turns the
+mechanism into something it is not.
 
 `test/metadata.test.ts` checks the parts of that table a test can check: that no route
 reports presence or read state, that the schema has no column for either, that the settings

@@ -60,7 +60,11 @@ export function installFetch(server: TestServer): void {
   globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = typeof input === "string" ? input : String(input);
     const headers: Record<string, string> = { ...((init.headers as Record<string, string>) ?? {}) };
-    if (document.cookie) headers.cookie = document.cookie;
+    // A real browser sends no cookie jar when a request asks for `credentials: "omit"`,
+    // and the sealed-sender path (ADR-0084) depends on exactly that: a session cookie
+    // riding along would defeat the token. The stub has to honour it or the tests would
+    // be testing a browser that does not exist.
+    if (init.credentials !== "omit" && document.cookie) headers.cookie = document.cookie;
     headers.host = "localhost";
     if (init.method && init.method !== "GET") headers.origin = "http://localhost";
     const response = await server.app.inject({

@@ -71,6 +71,8 @@ the server remembers anything.
 | `SESSION_IDLE_DAYS` | 14 | How long a session may go *unused* before it is deleted. The shorter of the two limits wins; day granularity, because the column behind it is a day and not a timestamp (ADR-0038) |
 | `ENVELOPE_TTL_MS` | 30 days | How long an unacknowledged message ciphertext survives |
 | `MAX_ENVELOPE_BYTES` | 64 KiB | Cap on one message envelope |
+| `SEND_TOKEN_TTL_MS` | 7 days | How long an unspent sealed-sender token stays usable (ADR-0084) |
+| `SEND_TOKEN_BATCH` | 32 | Tokens minted per call. One batch is a conversation's worth of messages |
 | `MAX_DELIVERY_BYTES` | 5 MiB | Cap on encrypted digital goods for one order |
 | `DELIVERY_TTL_MS` | 30 days | How long a delivery stays collectable |
 | `AUDIT_RETENTION_MS` | 365 days | How long administrative audit entries are kept before pruning |

@@ -61,6 +61,13 @@ export const DEFAULT_LIMITS = {
   /** Sending an envelope. High, because a real conversation is bursty. */
   message_send: { burst: 60, perMinute: 60 },
   /**
+   * Minting sealed-sender tokens (ADR-0084). One call mints a batch, so this is the real
+   * ceiling on sending: three batches at once, one a minute sustained. Generous for a
+   * person, and the only place an account is charged for a message it will later post
+   * without a cookie.
+   */
+  send_tokens: { burst: 3, perMinute: 1 },
+  /**
    * Uploading an encrypted attachment. Megabytes per call and no owner column to charge a
    * quota against (see migration 011), so the bucket is the quota: a dozen at once, three a
    * minute sustained. A person sharing photographs does not notice; a script filling the

@@ -11,10 +11,11 @@
  * clients, so there is no state here to leak and no route to ask "is she online".
  */
 import type { FastifyInstance } from "fastify";
-import { badRequest, notFound } from "../lib/errors.ts";
+import { badRequest, notFound, unauthorized } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { asArray, asBase64Url, asId, asInteger, asString, asUsername } from "../lib/validate.ts";
 import { notifyQuietly } from "../lib/notify.ts";
+import { issueSendTokens, spendSendToken } from "../lib/send_tokens.ts";
 
 /**
  * The session invite is opaque to the server, but it is still parsed and re-serialised
@@ -42,12 +43,35 @@ function validateInvite(value: unknown): {
 export async function registerMessageRoutes(app: FastifyInstance): Promise<void> {
   const { db, config } = app;
 
+  /**
+   * Mint sealed-sender tokens (MD-4, ADR-0084). This is the one call in the sending path
+   * that identifies the caller, and it is charged for: one batch, rate-limited, with
+   * nothing written down but the hashes.
+   */
+  app.post("/api/messages/tokens", async (request) => {
+    await app.authenticate(request);
+    await app.limit(request, "send_tokens");
+    const tokens = await issueSendTokens(app.db, config.sendTokenBatch, config.sendTokenTtlMs);
+    return { tokens, expiresInMs: config.sendTokenTtlMs };
+  });
+
   /** Send one ciphertext to every active device of a recipient. */
   app.post("/api/messages", async (request) => {
-    // Authenticated so that only accounts can post envelopes, but the identity is
-    // deliberately dropped here: nothing about the sender reaches the database.
-    await app.authenticate(request);
-    await app.limit(request, "message_send");
+    // Two ways in. With a sealed-sender token (ADR-0084) the request carries no cookie at
+    // all: the token is spent, and this server never held a fact about who sent it. With a
+    // session — an older client, or one whose tokens ran out — it is authenticated and
+    // rate-limited as before, and the identity is still dropped rather than stored.
+    const sealed = request.headers["x-send-token"];
+    if (typeof sealed === "string" && sealed !== "") {
+      if (!(await spendSendToken(db, sealed))) {
+        // Deliberately the same answer as a missing session: whether a token was once
+        // valid, already spent, or never existed is not a distinction worth publishing.
+        throw unauthorized("this request needs a session or an unspent send token");
+      }
+    } else {
+      await app.authenticate(request);
+      await app.limit(request, "message_send");
+    }
     const body = (request.body ?? {}) as Record<string, unknown>;
     const username = asUsername(body.to);
     const channel = asBase64Url(body.channel, "channel", 32);

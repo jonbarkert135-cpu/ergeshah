@@ -133,6 +133,11 @@ export function enforceCsrf(request: FastifyRequest, _reply: FastifyReply): void
   }
 
   const cookies = parseCookies(request.headers.cookie);
+  // Sealed sender (ADR-0084): a send-token request carries no cookies at all, which is the
+  // point of it — and a request with no ambient authority is not what CSRF protects
+  // against. A cross-site page cannot read the token out of another origin's vault, so
+  // there is nothing here for it to ride. The Origin check above still applied.
+  if (typeof request.headers["x-send-token"] === "string" && !cookies["session"]) return;
   const cookieToken = cookies["csrf"];
   const headerToken = request.headers["x-csrf-token"];
   if (!cookieToken || typeof headerToken !== "string" || headerToken !== cookieToken) {

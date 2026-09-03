@@ -7,7 +7,7 @@
  *  - a one-time prekey is deleted from the vault as soon as it is used to accept a
  *    session, which is what makes it one-time.
  */
-import { api } from "./api.ts";
+import { api, ApiError } from "./api.ts";
 import {
   decodeIdentity,
   encodeIdentity,
@@ -286,17 +286,14 @@ async function sendPayload(
     return { deviceId: bundle.deviceId, payload: encrypted, invite };
   });
 
-  await api("/api/messages", {
-    method: "POST",
-    body: {
-      to: conversation.peer,
-      channel: conversation.channel,
-      messages,
-      // The same expiry for every envelope in this conversation, signals included: asking
-      // for a shorter one only when a message disappears would tell the server which
-      // envelopes are chat and which are receipts.
-      ...(hours === null ? {} : { ttlHours: hours }),
-    },
+  await postEnvelopes({
+    to: conversation.peer,
+    channel: conversation.channel,
+    messages,
+    // The same expiry for every envelope in this conversation, signals included: asking
+    // for a shorter one only when a message disappears would tell the server which
+    // envelopes are chat and which are receipts.
+    ...(hours === null ? {} : { ttlHours: hours }),
   });
   if (options.store !== false) {
     conversation.messages.push({
@@ -310,6 +307,53 @@ async function sendPayload(
     });
   }
   await persistVault();
+}
+
+/** Refill when the pouch runs this low, so a send never waits for a batch. */
+const TOKEN_FLOOR = 4;
+
+/**
+ * Sealed sender, client side (MD-4, ADR-0084). Every envelope this client posts is posted
+ * with a single-use token and no cookies, so the server has no session to attribute it to.
+ *
+ * The tokens are minted in batches by an authenticated call, which is deliberately *not*
+ * the moment of sending: the batch is fetched when the pouch runs low, and one batch covers
+ * a conversation, so mint time and send time are not the same event. If the mint fails or
+ * the token is refused — an old deployment, a token that expired in a long-closed tab — the
+ * message still goes out over the session, because a messenger that silently stops
+ * delivering is a worse failure than a messenger that reveals what it already revealed
+ * yesterday. `docs/METADATA.md` says so out loud rather than promising more than this.
+ */
+async function postEnvelopes(body: Record<string, unknown>): Promise<void> {
+  const token = await takeSendToken();
+  if (token === null) {
+    await api("/api/messages", { method: "POST", body });
+    return;
+  }
+  try {
+    await api("/api/messages", { method: "POST", body, sendToken: token });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 401) throw error;
+    await api("/api/messages", { method: "POST", body });
+  }
+}
+
+async function takeSendToken(): Promise<string | null> {
+  const vault = state.vault;
+  if (!vault) return null;
+  const pouch = vault.sendTokens ?? [];
+  if (pouch.length <= TOKEN_FLOOR) {
+    try {
+      const minted = await api<{ tokens: string[] }>("/api/messages/tokens", { method: "POST" });
+      pouch.push(...minted.tokens);
+    } catch {
+      // Out of quota, or a server without the route. Either way: send the ordinary way.
+      if (pouch.length === 0) return null;
+    }
+  }
+  const token = pouch.shift() ?? null;
+  vault.sendTokens = pouch;
+  return token;
 }
 
 /** A local handle for one stored message. Never sent, so it identifies nothing to anyone. */

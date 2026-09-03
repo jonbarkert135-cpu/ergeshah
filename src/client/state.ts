@@ -126,6 +126,11 @@ export interface VaultContents {
   privacy?: Partial<PrivacySettings>;
   /** Usernames whose messages this device discards on arrival (point 84). */
   blocked?: string[];
+  /**
+   * Unspent sealed-sender tokens (ADR-0084). They live in the vault because the vault is
+   * the one place this client keeps secrets, and they are worth exactly one envelope each.
+   */
+  sendTokens?: string[];
 }
 
 export interface Account {

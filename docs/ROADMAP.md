@@ -26,8 +26,10 @@ decision not to ship presence or push is in ADR-0042 and ADR-0044.*
 
 - **MD-2 — Delivery timing noise.** Randomised polling intervals and optional delayed
   delivery to blur send/fetch correlation.
-- **MD-4 — Sealed sender.** Today the sender is hidden from the database; the *sending
-  request* is still authenticated. A sender-anonymity token would close that gap.
+*Shipped: MD-4 sealed sender (ADR-0084) — the send request carries a single-use token and
+no cookie, so the sender is absent from the data at rest as well as from the schema. An
+operator watching the running server still sees who mints tokens; unlinkable issuance needs
+a blind signature and is not planned.*
 
 ## Accounts
 

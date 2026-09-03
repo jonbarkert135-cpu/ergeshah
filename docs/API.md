@@ -108,7 +108,8 @@ page says how long v1 answers and what replaced it.
 
 | Method & path | Auth | Limit | Purpose |
 | --- | --- | --- | --- |
-| `POST /api/messages` | session | `message_send` | Deliver an envelope to a recipient device. Padded ciphertext only. Optional `ttlHours` (1–720) asks for an expiry shorter than `ENVELOPE_TTL_MS` — disappearing messages, whole hours, applied to every envelope in the conversation so the expiry cannot single out a control message (point 74) |
+| `POST /api/messages` | session **or** an unspent `x-send-token` (ADR-0084) | `message_send` | Deliver an envelope to a recipient device. Padded ciphertext only. Optional `ttlHours` (1–720) asks for an expiry shorter than `ENVELOPE_TTL_MS` — disappearing messages, whole hours, applied to every envelope in the conversation so the expiry cannot single out a control message (point 74) |
+| `POST /api/messages/tokens` | session | `send_tokens` | Mint a batch of single-use sealed-sender tokens (ADR-0084). The server stores only their hashes, with no owner: this is the one call in the sending path that knows who you are |
 | `GET /api/messages` | session | `read` | Fetch envelopes addressed to this account's devices |
 | `POST /api/messages/ack` | session (owner) | `write` | Acknowledge envelopes, which deletes them |
 

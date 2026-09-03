@@ -5,6 +5,7 @@ import { buildApp } from "./app.ts";
 import { pruneSessions } from "./lib/sessions.ts";
 import { pruneRateLimits } from "./lib/rate_limit.ts";
 import { pruneAuditLog } from "./lib/audit.ts";
+import { pruneSendTokens } from "./lib/send_tokens.ts";
 import { backfillSearchIndex } from "./lib/search.ts";
 import { pruneNotifications } from "./lib/notify.ts";
 import { decaySellerLevels } from "./lib/reputation.ts";
@@ -38,6 +39,7 @@ const housekeeping = setInterval(
       // Then the things whose whole purpose is to stop holding data (docs/DELETION.md).
       { name: "envelopes", run: () => db.run("DELETE FROM envelopes WHERE expires_at < ?", [Date.now()]) },
       { name: "audit_log", run: () => pruneAuditLog(db, config.auditRetentionMs) },
+      { name: "send_tokens", run: () => pruneSendTokens(db) },
       { name: "notifications", run: () => pruneNotifications(db, config.notificationRetentionMs) },
       // Last: a catalogue ranking that is a day stale is nobody's emergency (ADR-0072).
       {
