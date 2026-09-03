@@ -278,7 +278,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       // orders and with nothing else. One indexed expression on the driving table, so the
       // page is still a seek rather than a sort (ADR-0030).
       `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_pico,
-              l.created_day, l.rank_key, s.display_name, s.level, u.username
+              l.created_day, l.rank_key, s.display_name, s.level, s.bond_pico, u.username
          FROM listings l
          JOIN sellers s ON s.user_id = l.seller_user_id
          JOIN users u ON u.id = l.seller_user_id
@@ -323,7 +323,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const id = asId((request.params as { id: string }).id, "id");
     const row = await db.get<ListingRow & { status: string }>(
       `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_pico,
-              l.created_day, l.rank_key, l.status, s.display_name, s.level, u.username
+              l.created_day, l.rank_key, l.status, s.display_name, s.level, s.bond_pico, u.username
          FROM listings l
          JOIN sellers s ON s.user_id = l.seller_user_id
          JOIN users u ON u.id = l.seller_user_id
@@ -661,8 +661,9 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
       bio: string;
       joined_day: number;
       status: string;
+      bond_pico: number;
     }>(
-      `SELECT s.user_id, s.display_name, s.bio, s.joined_day, s.status
+      `SELECT s.user_id, s.display_name, s.bio, s.joined_day, s.status, s.bond_pico
          FROM sellers s JOIN users u ON u.id = s.user_id WHERE u.username = ?`,
       [username],
     );
@@ -670,7 +671,7 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const reputation = await sellerReputation(app.db, seller.user_id);
     const listings = await db.all<ListingRow>(
       `SELECT l.id, l.title, l.description, l.category, l.kind, l.price_pico,
-              l.created_day, l.rank_key, s.display_name, s.level, u.username
+              l.created_day, l.rank_key, s.display_name, s.level, s.bond_pico, u.username
          FROM listings l
          JOIN sellers s ON s.user_id = l.seller_user_id
          JOIN users u ON u.id = l.seller_user_id
@@ -684,6 +685,9 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
         displayName: seller.display_name,
         bio: seller.bio,
         joinedOn: dayToIsoDate(seller.joined_day),
+        ...(Number(seller.bond_pico ?? 0) > 0
+          ? { bondXmr: xmrString(Number(seller.bond_pico)) }
+          : {}),
         ...reputation,
       },
       listings: await Promise.all(listings.map((row) => presentListing(app, row))),

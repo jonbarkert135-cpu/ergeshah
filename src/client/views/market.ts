@@ -10,7 +10,7 @@ interface Listing {
   category: string;
   kind: string;
   priceXmr: string;
-  seller: { username: string; displayName: string; level: number };
+  seller: { username: string; displayName: string; level: number; bondXmr?: string };
   listedOn: string;
   reviewCount: number;
   distinctReviewers: number;
@@ -231,7 +231,10 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
         el(
           "span",
           {},
-          `by ${listing.seller.displayName} (@${listing.seller.username}) · ${LEVEL_LABELS[listing.seller.level] ?? "new seller"}`,
+          `by ${listing.seller.displayName} (@${listing.seller.username}) · ${LEVEL_LABELS[listing.seller.level] ?? "new seller"}` +
+            // Money this seller has staked against their own conduct, payable to a buyer a
+            // moderator finds was harmed (ADR-0086). Shown only when there is one.
+            (listing.seller.bondXmr ? ` · ${listing.seller.bondXmr} XMR bonded` : ""),
         ),
         el(
           "span",

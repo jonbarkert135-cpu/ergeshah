@@ -41,6 +41,10 @@ const ENTRY_LABELS: Record<LedgerKind, string> = {
   withdrawal_hold: "payout requested",
   withdrawal_sent: "payout sent",
   withdrawal_returned: "payout returned",
+  bond_hold: "staked as a seller bond",
+  bond_release: "bond returned",
+  bond_forfeit: "bond paid to a buyer",
+  bond_compensation: "compensation from a seller's bond",
 };
 
 export async function registerWalletRoutes(app: FastifyInstance): Promise<void> {

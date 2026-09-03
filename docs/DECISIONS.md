@@ -2811,3 +2811,51 @@ account screen, and a poll that no longer ticks like a metronome. `test/timing.t
 covers the hold, the immediate case, the quantisation, the cap, and the two pure functions.
 MD-2 is shipped in the sense described above and nowhere near "timing analysis is solved" —
 `docs/METADATA.md` says which of those two it is.
+
+## ADR-0086 — The seller bond: staked by the seller, payable to a harmed buyer
+
+**Status:** accepted (2026-09-03)
+
+**Context.** MKT-6, and the one mechanism from the second review that survived it (ADR-0083).
+The proposal was a vendor bond of 0.5 XMR, burnt after three complaints. The idea underneath
+is sound — money staked is a signal a new seller can buy honestly, and a fund a wronged buyer
+can be paid from — and both of its rules were wrong: a complaint counter is three coordinated
+accounts away from robbing an honest seller, and burning the bond (or keeping it) makes the
+platform the party that benefits from forfeiture.
+
+There is also a gap in this marketplace the bond happens to fit exactly. While an order is
+open, escrow *is* the remedy: a moderator who upholds the buyer's dispute cancels the order
+and the buyer is whole. Once an order completes, the money is the seller's, the state machine
+has no way back, and a buyer who discovers a week later that what they bought was worthless
+has nothing to be made whole from.
+
+**Decision.** A seller may stake XMR from their own balance. It moves from available to held
+on their own account with `bond_hold` in the ledger — no new pot of money, no new arithmetic
+— and `sellers.bond_pico` is the marketplace's view of it. Listings and the seller page show
+the amount when there is one.
+
+* **Release.** On request, after a cool-off (`BOND_COOLOFF_DAYS`, seven) with no order of
+  theirs disputed. Topping up restarts the clock, or a seller could stake for the badge and
+  withdraw the stake the same hour. A suspended seller may still release: we hold their
+  money, we do not own it, and a suspension is not a fine.
+* **Claim.** A moderator may pay a harmed buyer out of it: only on an order that
+  **completed**, only when that order was disputed or reported, once per order, capped by
+  what the buyer paid and by what the bond holds, and only with a reason that lands in the
+  audit log as `bond.claimed`. Two ledger movements that sum to zero, from the seller's held
+  balance to the buyer's available balance.
+* **Never the platform.** Nothing is burnt and no fee is taken on the way. `test/bonds.test.ts`
+  asserts that no `bond%` ledger entry ever touches the platform account, because a rule
+  nobody checks is a rule that erodes the first time money is tight.
+
+**Alternatives.** An automatic trigger on complaint count (refused above); a bond the platform
+holds outside the ledger (a second set of books, and the first thing to go wrong in an
+incident); requiring a bond to sell at all (it prices out exactly the seller with no capital
+this marketplace is meant to be open to — the bond is a signal, not a gate); reopening a
+completed order instead of claiming against it (the state machine's terminal states are what
+make settlement final, and the report queue already exists for what comes after).
+
+**Consequences.** Migration 024 adds two columns to `sellers`; `lib/bonds.ts` holds the
+reasoning and the four ledger movements; `routes/bonds.ts` is a new module because both
+`market.ts` and `moderation.ts` are at the size ceiling. A buyer can now read a number that
+says how much a seller stands to lose, and a moderator has something to pay compensation
+*from* instead of an apology.

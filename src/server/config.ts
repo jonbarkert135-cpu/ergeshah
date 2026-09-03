@@ -41,6 +41,10 @@ export interface Config {
   sendTokenBatch: number;
   /** Timing noise (ADR-0085): the longest delivery delay a sender may ask for. */
   maxDeliveryDelaySeconds: number;
+  /** Seller bond (ADR-0086): the smallest stake worth the bookkeeping. */
+  bondMinPico: number;
+  /** How long a bond must sit before it can be released. */
+  bondCooloffMs: number;
   /** Ciphertext cap for one order delivery, in bytes before base64url expansion. */
   maxDeliveryBytes: number;
   deliveryTtlMs: number;
@@ -331,6 +335,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     sendTokenTtlMs: Number(process.env.SEND_TOKEN_TTL_MS ?? 7 * 24 * 60 * 60 * 1000),
     sendTokenBatch: Number(process.env.SEND_TOKEN_BATCH ?? 32),
     maxDeliveryDelaySeconds: Number(process.env.MAX_DELIVERY_DELAY_SECONDS ?? 120),
+    bondMinPico: picoFromEnv("BOND_MIN_XMR", process.env.BOND_MIN_XMR, "0.1"),
+    bondCooloffMs: Number(process.env.BOND_COOLOFF_DAYS ?? 7) * 86_400_000,
     maxDeliveryBytes: Number(process.env.MAX_DELIVERY_BYTES ?? 5 * 1024 * 1024),
     deliveryTtlMs: Number(process.env.DELIVERY_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     auditRetentionMs: Number(process.env.AUDIT_RETENTION_MS ?? 365 * 24 * 60 * 60 * 1000),

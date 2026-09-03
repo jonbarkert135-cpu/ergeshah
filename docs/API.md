@@ -148,6 +148,10 @@ the client.
 | `GET /api/market/listings/:id` | — | `read` | One listing |
 | `GET /api/market/categories` | — | `read` | The categories that have something in them, `{ categories: [{ category, listings }] }`, most populated first, at most 50. Counts only active listings of unsuspended sellers, so a category page never promises more than it shows. Category names are folded (ADR-0082): lowercase, accent-normalised, one space between words |
 | `GET /api/market/sellers/:username` | — | `read` | A seller's public profile and reviews |
+| `POST /api/market/seller/bond` | session (seller) | `write` | Stake XMR against your own conduct (ADR-0086). Minimum `BOND_MIN_XMR`; the cool-off restarts |
+| `POST /api/market/seller/bond/release` | session (seller) | `write` | Return the whole bond. 409 while the cool-off runs or one of your orders is disputed |
+| `GET /api/market/seller/bond` | session (seller) | `read` | What is staked, how many disputes are open, and when it can be released |
+| `POST /api/market/moderation/orders/:id/bond-claim` | staff | — | Pay a harmed buyer out of the seller's bond: completed orders that were disputed or reported, once each, capped at the price. `amountXmr` and a `note` for the audit log |
 | `POST /api/market/seller-applications` | session | `seller_application` | Apply to sell |
 | `GET /api/market/seller-applications/mine` | session | `read` | The state of my own application |
 | `POST /api/market/listings` | session (seller) | `listing_write` | Create a listing |

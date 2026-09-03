@@ -25,6 +25,8 @@ export interface ListingRow {
   /** The seller's level, earned on this platform only (ADR-0068). */
   level: number;
   username: string;
+  /** Staked against their own conduct (ADR-0086). Absent on queries that do not select it. */
+  bond_pico?: number;
 }
 
 export async function presentListing(app: FastifyInstance, row: ListingRow) {
@@ -35,7 +37,16 @@ export async function presentListing(app: FastifyInstance, row: ListingRow) {
     category: row.category,
     kind: row.kind,
     priceXmr: xmrString(row.price_pico),
-    seller: { username: row.username, displayName: row.display_name, level: row.level },
+    seller: {
+      username: row.username,
+      displayName: row.display_name,
+      level: row.level,
+      // Only when there is one: an absent bond is not a zero to display, it is a seller who
+      // has not staked anything, and a row of zeroes teaches a reader to ignore the field.
+      ...(Number(row.bond_pico ?? 0) > 0
+        ? { bondXmr: xmrString(Number(row.bond_pico)) }
+        : {}),
+    },
     listedOn: dayToIsoDate(row.created_day),
     ...(await listingRating(app.db, row.id)),
   };

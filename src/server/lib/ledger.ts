@@ -38,6 +38,11 @@ export type LedgerKind =
   /** Settlement of a completed order: what the seller earns, and the platform's fee. */
   | "order_earnings"
   | "order_fee"
+  /** A seller's bond (ADR-0086): staked, returned, and paid to a harmed buyer. */
+  | "bond_hold"
+  | "bond_release"
+  | "bond_forfeit"
+  | "bond_compensation"
   /** A payout: requested (held), sent (gone), or returned because it was not sent. */
   | "withdrawal_hold"
   | "withdrawal_sent"

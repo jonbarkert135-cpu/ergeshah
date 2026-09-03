@@ -157,3 +157,4 @@ or if a record is missing a section.
 | [ADR-0083](../DECISIONS.md#adr-0083--second-review-anonymous-payment-splitting-deposits-automatic-disputes-bonds) | Second review: anonymous payment splitting, deposits, automatic disputes, bonds |
 | [ADR-0084](../DECISIONS.md#adr-0084--sealed-sender-single-use-tokens-instead-of-a-session-on-the-send-path) | Sealed sender: single-use tokens instead of a session on the send path |
 | [ADR-0085](../DECISIONS.md#adr-0085--timing-noise-a-jittered-poll-and-an-optional-delivery-delay) | Timing noise: a jittered poll and an optional delivery delay |
+| [ADR-0086](../DECISIONS.md#adr-0086--the-seller-bond-staked-by-the-seller-payable-to-a-harmed-buyer) | The seller bond: staked by the seller, payable to a harmed buyer |

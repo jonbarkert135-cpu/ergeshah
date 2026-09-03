@@ -117,13 +117,10 @@ The file never leaves the encrypted channel. Escrow shipped earlier with ADR-006
   it. Ranking by match quality conflicts with the keyset cursor, which is the listing's stored
   rank key; doing both needs either a second sort key computed per query or an accepted limit
   on how deep a relevance-ordered search can page.
-- **MKT-6 — A seller bond (ADR-0083).** A seller may stake XMR from their own balance, held
-  by the ledger like any other hold and shown on their listings as a number a buyer can read.
-  A moderator who upholds a dispute may take the buyer's loss out of it, which makes the bond
-  a compensation fund rather than a fine: nothing is burnt and nothing goes to the platform.
-  Released on request after a cool-off with no open disputes. Needs: a `bonds` table, a hold
-  the payout path already understands, one moderation action, the number on the listing card,
-  and a rule for what happens to the bond of a suspended seller.
+*Shipped: MKT-6 the seller bond (ADR-0086) — staked from the seller's own balance, shown on
+their listings, released after a cool-off with no open dispute, and claimable by a moderator
+for a buyer harmed on a completed order. Never burnt, never the platform's.*
+
 - **MKT-5 — A scoped, revocable read token for a seller's own scripts.** Sellers automate by
   polling (ADR-0081: this server makes no outbound requests), and today that means a script
   holding a full browser session. What is wanted: a token a seller creates and revokes

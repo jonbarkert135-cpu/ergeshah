@@ -31,6 +31,8 @@ export type AuditAction =
   /** A moderator settled a disputed order: the one order transition staff can make. */
   | "order.settled"
   | "review.hidden"
+  /** A moderator paid a harmed buyer out of a seller's bond (ADR-0086). */
+  | "bond.claimed"
   /** An administrator approved or refused one payout. */
   | "withdrawal.decided"
   /**
