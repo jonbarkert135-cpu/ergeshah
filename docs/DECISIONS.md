@@ -1395,3 +1395,107 @@ would not be added if it were possible.
 storage, and a block applies per device rather than per account. `test/abuse.test.ts` asserts
 the structural half: no moderation route reads `envelopes`, `vaults`, `deliveries` or
 `attachments`, and the moderation queue never returns an order's channel.
+
+## ADR-0048 — Health is two endpoints, and monitoring counts nothing but numbers
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 85. A production service needs uptime, CPU, memory, disk, database health,
+error rate and latency. The default way to get them is an agent, an exporter and a time
+series keyed by route and by user — which is an access log with a graph on top, in a project
+whose whole argument is that it does not keep one.
+
+**Decision.** Two endpoints with different audiences. `GET /healthz` stays what it is:
+unauthenticated, two words, so a liveness probe reveals nothing about load or headroom.
+`GET /api/admin/health` is administrator-only and answers everything else, assembled from
+`process`, `node:os` and one `SELECT 1`. The counters behind it (`lib/metrics.ts`) take a
+status code and a duration — two numbers, no route, no account, no address, no body — and
+live in memory, so a restart resets them. `test/observability.test.ts` walks the response and
+fails on any leaf that is not a number, a boolean or one of four fixed words.
+
+**Rejected:** Prometheus with per-route labels (the labels are the leak, and a scrape endpoint
+is a second thing to authenticate); an APM or error-reporting SaaS (a third party learning
+about users); persisting the counters (a time series of endpoint volume is an access log
+written slowly); exposing the numbers on `/healthz` (load and headroom tell an attacker when
+to push).
+
+**Consequences.** "Which endpoint is slow" is not answerable from production; it needs a
+reproduction and a profiler, which is the trade this project keeps making. An operator who
+wants history has to poll the endpoint and store it themselves, and is told in
+`docs/OBSERVABILITY.md` that this is the moment they start keeping one.
+
+## ADR-0049 — Ceilings the rate limiter cannot enforce
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 86. Token buckets count requests that arrive. The cheapest ways to exhaust
+a small VPS do not arrive as requests: sockets that are opened and never used, a body that is
+streamed forever, a transaction left idle holding a connection, a query that runs for a
+minute after its client has gone.
+
+**Decision.** Cap each one where it is cheapest. `MAX_CONNECTIONS` (default 512) is applied to
+the HTTP server, so beyond it the kernel queues instead of the process running out of memory;
+the request, connection and keep-alive timeouts stay as they are; the body limit stays derived
+from the largest legitimate payload. PostgreSQL gets `statement_timeout` and
+`idle_in_transaction_session_timeout` from `DB_STATEMENT_TIMEOUT_MS` (default 5s) and a bounded
+`connectionTimeoutMillis`, so a burst fails fast rather than piling up. SQLite has no
+server-side statement timeout; there the protection stays the indexes and the `LIMIT` on every
+list query, and that is stated rather than papered over.
+
+**Rejected:** a per-account disk quota for attachments (it needs an owner column, and that
+column is the social graph — the `attachment` bucket is the quota instead); a global concurrency
+semaphore in front of the handlers (a second queue in user space, in front of the kernel's).
+
+**Consequences.** A deployment that legitimately needs more than 512 concurrent sockets has to
+raise a number, which is a smaller surprise than an out-of-memory kill. A long-running
+PostgreSQL query now fails at five seconds with a driver error rather than blocking a
+connection; if a legitimate query ever needs longer, the fix is the query.
+
+## ADR-0050 — One version in the path, one envelope for every error
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Points 88 and 89. The API had no version anywhere, so the only way to make a
+breaking change was to break clients silently. Its errors were already consistent in shape,
+but nothing enforced it, the code list existed only in the source, and a `429` did not carry
+the `Retry-After` that `docs/API.md` promised — a documented header that was never sent.
+
+**Decision.** `/api/v1/...` is stripped before routing (Fastify's `rewriteUrl`), so the
+versioned and unversioned paths are the same endpoint and there is only one route table; every
+`/api/` response carries `X-API-Version`. A breaking change ships as `/api/v2` next to v1,
+never as an edit to v1. Errors keep the `{ error, message }` envelope; every code the source can
+produce is listed in the error table in `docs/API.md`, and `test/api.test.ts` extracts the codes
+from the source and fails on one that is missing there or documented and gone. A `429` now
+carries both `Retry-After` and `retryAfterSeconds`, and the client puts the number in the
+message instead of inventing a backoff.
+
+**Rejected:** duplicating the route table under a `/api/v1` prefix (two spellings that can
+drift); a version negotiated by header alone (invisible in a log, a `curl` and a bug report);
+error codes maintained as a hand-written enum (a second list to forget).
+
+**Consequences.** Older clients keep working through the unversioned path for as long as v1 is
+current, which is a compatibility promise this project has now made in writing. Adding an error
+code means editing `docs/API.md` in the same commit, which is the point.
+
+## ADR-0051 — No WebSocket, and the nine things one would have to do
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Point 87 asks how the WebSocket layer is secured. There is no WebSocket layer:
+messaging is store-and-forward over HTTP with a polling client, which is what makes "no
+presence, no last-seen, no heartbeat" (ADR-0042) enforceable rather than promised.
+
+**Decision.** Keep it that way, and make it checkable. `test/api.test.ts` fails if `new
+WebSocket`, a `ws:`/`wss:` URL, a `ws`/`socket.io`/`@fastify/websocket` dependency or a socket
+scheme in `connect-src` ever appears. `docs/NETWORK.md` carries the checklist a socket would
+have to satisfy before it could ship — handshake authentication, per-frame authorisation,
+`Origin` validation, shared rate-limit buckets, per-account connection limits, heartbeat, idle
+and handshake timeouts, a frame cap no larger than `MAX_ENVELOPE_BYTES`, and reconnect backoff.
+
+**Rejected:** adding a socket now for a live order chat (polling already delivers it, and the
+socket would add presence the server currently cannot observe); answering point 87 with "not
+applicable" and no test, which is how a "we do not do that" becomes untrue in a later commit.
+
+**Consequences.** A message can be up to one polling interval late, and Tor pays a round trip
+for each poll. In exchange the server holds no open connection per user, and there is no
+second authentication path to secure.

@@ -4,6 +4,18 @@ Every path below is real: `test/docs.test.ts` walks Fastify's route table and fa
 endpoint exists that is not documented here, or if this page documents one that does not
 exist. Drifted API documentation is worse than none, because people trust it.
 
+## Versioning
+
+The current version is **v1**. `/api/v1/messages` and `/api/messages` are the same
+endpoint — the prefix is stripped before routing, so there is one route table and nothing
+that can drift between the two spellings — and every response under `/api/` carries
+`X-API-Version: 1`.
+
+A change that would break a client that has not been updated ships as `/api/v2` next to v1,
+never as an edit to v1. A change that only adds a field, an optional parameter or a new
+endpoint stays in v1, because a client that ignores it keeps working. When v2 exists, this
+page says how long v1 answers and what replaced it.
+
 ## Conventions
 
 - **Transport.** JSON in, JSON out, `Content-Type: application/json`. One origin; no CORS
@@ -20,7 +32,9 @@ exist. Drifted API documentation is worse than none, because people trust it.
   `{ "error": "internal_error", "message": "internal error", "ref": "…" }` — the `ref` is the
   only thing shared between the log line and the user (point 29).
 - **Rate limits.** Each endpoint below names its bucket; see `docs/DEPLOYMENT.md` for
-  `RATE_LIMITS`. Exhausting one returns `429` with `Retry-After`.
+  `RATE_LIMITS`. Exhausting one returns `429` with a `Retry-After` header *and*
+  `retryAfterSeconds` in the body — the number of seconds until the bucket has a token
+  again, so a client waits instead of inventing a backoff.
 - **Proof of work.** The three unauthenticated account endpoints (`register`, `login`,
   `recovery/challenge`) answer `428` when a request arrives without one:
 
@@ -49,6 +63,7 @@ exist. Drifted API documentation is worse than none, because people trust it.
 | `GET /favicon.svg` | — | Icon |
 | `GET /build.txt` | — | Digests of exactly these files, so a visitor can verify the build (`npm run audit:deployment`) |
 | `GET /healthz` | — | Liveness for the container healthcheck. Reveals nothing |
+| `GET /api/admin/health` | admin | Operational health: uptime, CPU, memory, disk, database latency, request count, error rate and latency percentiles. Numbers only — see `docs/OBSERVABILITY.md` |
 
 ## Accounts and sessions
 
@@ -162,6 +177,37 @@ result, including refusals (`docs/PRIVACY.md`, ADR-0024).
 | `POST /api/moderation/users/:username/status` | staff | `moderation` | Suspend or reinstate an account |
 | `GET /api/moderation/audit` | staff | `moderation` | Read the administrative log |
 | `POST /api/admin/users/:username/role` | admin | `moderation` | Grant or remove staff roles |
+
+## Error codes
+
+Every code this server can answer with. `test/api.test.ts` extracts them from the source and
+fails if one is missing here, or if this table names one that no longer exists.
+
+| Code | Status | Means |
+| --- | --- | --- |
+| `bad_request` | 400 | A value is missing, malformed or too long. The message names the field |
+| `invalid_characters` | 400 | Invisible, control or direction-reversing characters in a field |
+| `invalid_username` | 400 | Not 3–32 characters of `a-z0-9._-`, starting and ending alphanumeric |
+| `invalid_cursor` | 400 | The pagination cursor was not one this API issued |
+| `query_too_vague` | 400 | A search term shorter than two characters |
+| `unexpected_field` | 400 | A body carried a field this endpoint refuses to accept — silently dropping it is how a client comes to depend on storage that does not exist (ADR-0033) |
+| `pow_spent` | 400 | That proof-of-work solution has already been used |
+| `unauthorized` | 401 | No session, or an expired one |
+| `forbidden` | 403 | Authenticated, but not allowed: a missing role, a failed CSRF check, or a suspended account |
+| `not_found` | 404 | No such route, or no such object *for this caller* — the two are deliberately indistinguishable |
+| `conflict` | 409 | The request lost a race with one that arrived first |
+| `username_taken`, `display_name_taken`, `id_taken`, `identity_key_taken` | 409 | The name, id or key is already in use |
+| `already_applied`, `already_seller`, `already_ordered`, `already_reviewed` | 409 | The action has already happened once, and once is the limit |
+| `device_revoked` | 409 | A revoked identity key cannot be re-published |
+| `stale_status` | 409 | The order moved on before this transition arrived |
+| `vault_required` | 409 | The account has no sealed vault yet, and the operation needs one |
+| `too_large` | 413 | The body exceeds the configured cap |
+| `pow_required` | 428 | Solve the enclosed challenge and repeat the request |
+| `rate_limited` | 429 | The bucket is empty; `retryAfterSeconds` says for how long |
+| `internal_error` | 500 | A fault on this side. The body carries a `ref` that matches one log line and nothing else |
+
+An error never names a table, a column, a driver, a path or a stack. The message is written
+for the person who has to fix their request; the code is what a client branches on.
 
 ## What the API deliberately does not have
 

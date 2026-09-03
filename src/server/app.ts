@@ -18,9 +18,23 @@ import { registerDeliveryRoutes } from "./routes/deliveries.ts";
 import { registerModerationRoutes } from "./routes/moderation.ts";
 import { registerNotificationRoutes } from "./routes/notifications.ts";
 import { registerStaticRoutes } from "./routes/static.ts";
+import { registerHealthRoutes } from "./routes/health.ts";
+import { recordRequest } from "./lib/metrics.ts";
 
 const SESSION_COOKIE = "session";
 const CSRF_COOKIE = "csrf";
+
+/**
+ * The API version, in the path and in a response header (point 88).
+ *
+ * `/api/v1/messages` and `/api/messages` are the same endpoint: the prefix is stripped
+ * before routing, so there is one route table, one set of handlers and nothing to keep in
+ * step. A breaking change ships as `/api/v2` alongside v1 rather than as a silent edit to
+ * this one — the whole point of a version is that a client that does not know about the
+ * change keeps working. `docs/API.md` states the policy; `test/api.test.ts` enforces it.
+ */
+export const API_VERSION = 1;
+const VERSION_PREFIX = `/api/v${API_VERSION}/`;
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -52,6 +66,10 @@ declare module "fastify" {
 
 export async function buildApp(config: Config, db: Db): Promise<FastifyInstance> {
   const app = Fastify({
+    rewriteUrl: (request) =>
+      request.url?.startsWith(VERSION_PREFIX)
+        ? `/api/${request.url.slice(VERSION_PREFIX.length)}`
+        : (request.url ?? "/"),
     // No request logging: an access log is the single most common privacy leak in a
     // "private" service. Errors are reported without request context.
     logger: false,
@@ -67,6 +85,15 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     requestTimeout: 30_000,
     connectionTimeout: 30_000,
     keepAliveTimeout: 20_000,
+  });
+
+  // Concurrent connections are capped, not just requests: a token bucket counts requests
+  // that arrive, and the cheapest denial of service is one that never sends one (point 86).
+  app.server.maxConnections = config.maxConnections;
+
+  // Aggregate counters only — status class and duration, no route, no account (point 85).
+  app.addHook("onResponse", async (_request, reply) => {
+    recordRequest(reply.statusCode, reply.elapsedTime);
   });
 
   const routeInventory: Array<{ method: string; url: string }> = [];
@@ -157,6 +184,11 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof HttpError) {
+      // A 429 that does not say when to come back is answered by a client guessing, which
+      // is how a rate limit turns into a retry storm (point 89).
+      if (error.retryAfterSeconds !== undefined) {
+        reply.header("retry-after", String(error.retryAfterSeconds));
+      }
       return reply
         .status(error.statusCode)
         .send({ error: error.code, message: error.message, ...error.details });
@@ -212,6 +244,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   await registerDeliveryRoutes(app);
   await registerModerationRoutes(app);
   await registerNotificationRoutes(app);
+  await registerHealthRoutes(app);
   await registerStaticRoutes(app);
 
   return app;

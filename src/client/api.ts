@@ -5,6 +5,8 @@ import { solveProofOfWork } from "../shared/pow.ts";
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** Present on a 429: how many seconds until the bucket has a token again. */
+  readonly retryAfterSeconds?: number;
   /** Present on a 428: the challenge whose solution this request needs. */
   readonly pow?: { challenge: string; mac: string; bits: number };
 
@@ -13,11 +15,13 @@ export class ApiError extends Error {
     code: string,
     message: string,
     pow?: { challenge: string; mac: string; bits: number },
+    retryAfterSeconds?: number,
   ) {
     super(message);
     this.status = status;
     this.code = code;
     this.pow = pow;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -88,11 +92,17 @@ async function send<T>(
     }
   }
   if (!response.ok) {
+    // "Slow down" without a number is advice; with one it is an instruction the user can
+    // follow, so the wait is put in the message rather than left in a header nobody sees.
+    const retryAfterSeconds =
+      typeof data.retryAfterSeconds === "number" ? data.retryAfterSeconds : undefined;
+    const message = String(data.message ?? "request failed");
     throw new ApiError(
       response.status,
       String(data.error ?? "error"),
-      String(data.message ?? "request failed"),
+      retryAfterSeconds === undefined ? message : `${message} (try again in ${retryAfterSeconds}s)`,
       data.pow as { challenge: string; mac: string; bits: number } | undefined,
+      retryAfterSeconds,
     );
   }
   return data as T;

@@ -64,6 +64,38 @@ comment, `docs/DEPLOYMENT.md` and `docs/THREAT_MODEL.md` all stated it had none.
 service is now on `internal` alone, and `test/deployment.test.ts` fails if it ever appears
 on `edge` again. A security property nothing checks is a sentence, not a control.
 
+## WebSockets
+
+There are none. Messaging is HTTP: the client posts an envelope and polls for the ones
+addressed to its devices. That is a metadata decision before it is a transport one — an open
+socket per user is a presence signal the server would hold whether it wanted it or not, and
+this project already refuses to keep `last_seen` (ADR-0042, `docs/METADATA.md`). Polling over
+Tor costs a round trip that a socket would not; that is the trade, and it is stated in
+`docs/PERFORMANCE.md` rather than hidden.
+
+`test/api.test.ts` fails if a socket appears: no `new WebSocket`, no `ws:`/`wss:` URL, no
+`ws` or `socket.io` dependency, and `connect-src 'self'` in the Content-Security-Policy with
+no socket scheme added to it.
+
+If one is ever wanted — a live order chat is the plausible reason — it is not an upgrade of
+the transport, it is a new trust boundary, and it arrives with all of this or not at all
+(point 87):
+
+| Requirement | What it means here |
+| --- | --- |
+| Authentication | The session cookie is verified at the handshake, not on the first frame; an unauthenticated socket is closed, never left open "until it logs in" |
+| Authorisation | Every subscription is checked against the same role and ownership rules the HTTP routes use, per frame, not per connection |
+| Origin validation | `Origin` compared against `Host` at the handshake — a WebSocket is not covered by `SameSite`, which is exactly how cross-site socket hijacking works |
+| Rate limiting | Frames consume the same token buckets as requests (`lib/rate_limit.ts`), keyed on the account |
+| Connection limits | Per account and per process, on top of `MAX_CONNECTIONS` |
+| Heartbeat | Server-sent ping, and a socket that misses two is dropped |
+| Timeout | An idle socket is closed; a handshake that stalls is closed sooner |
+| Message size limits | A frame cap no larger than `MAX_ENVELOPE_BYTES`, enforced before the frame is buffered |
+| Reconnect protection | Exponential backoff in the client and a reconnect bucket on the server, so a flapping client is not a flood |
+
+Until all nine exist, the answer to "should we add a socket" is no, and the polling client
+is the feature that keeps that answer cheap.
+
 ## What this does not do
 
 Docker networks are a routing boundary, not a security boundary in the way a separate host

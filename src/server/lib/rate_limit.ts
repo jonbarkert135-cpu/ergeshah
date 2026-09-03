@@ -154,7 +154,12 @@ export async function consume(
     const tokens = row
       ? Math.min(limit.burst, row.tokens + (now - row.updated_at) * refillPerMs)
       : limit.burst;
-    if (tokens < 1) throw tooManyRequests(`too many ${scope} requests — slow down`);
+    if (tokens < 1) {
+      // How long one token takes to appear, rounded up: the earliest moment a retry can
+      // succeed rather than a number that sounds reassuring.
+      const seconds = Math.max(1, Math.ceil((1 - tokens) / refillPerMs / 1000));
+      throw tooManyRequests(`too many ${scope} requests — slow down`, seconds);
+    }
     const remaining = tokens - 1;
     if (row) {
       await tx.run("UPDATE rate_limits SET tokens = ?, updated_at = ? WHERE bucket = ?", [

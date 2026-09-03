@@ -1,9 +1,27 @@
 import pg from "pg";
 import { toPostgresPlaceholders, type Db } from "./index.ts";
 
+/**
+ * Ceilings the database enforces itself (point 86). A query that runs for a minute is a
+ * bug or an attack either way, and the request that started it is long gone; the same is
+ * true of a transaction left open, which holds a connection and blocks vacuum. Both are
+ * cheaper to stop here than to notice on a graph.
+ */
+export function poolOptions(connectionString: string, statementTimeoutMs: number): pg.PoolConfig {
+  return {
+    connectionString,
+    max: 10,
+    idleTimeoutMillis: 30_000,
+    /** Waiting for a free connection is bounded too, so a burst fails fast instead of piling up. */
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: statementTimeoutMs,
+    idle_in_transaction_session_timeout: statementTimeoutMs,
+  };
+}
+
 /** PostgreSQL driver. Same SQL as SQLite; only placeholders differ. */
-export function createPostgresDb(connectionString: string): Db {
-  const pool = new pg.Pool({ connectionString, max: 10, idleTimeoutMillis: 30_000 });
+export function createPostgresDb(connectionString: string, statementTimeoutMs = 5_000): Db {
+  const pool = new pg.Pool(poolOptions(connectionString, statementTimeoutMs));
   return fromExecutor(
     async (sql, params) => (await pool.query(toPostgresPlaceholders(sql), params)).rows,
     async () => {

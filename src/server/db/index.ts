@@ -22,7 +22,7 @@ export async function createDb(config: Config): Promise<Db> {
   if (config.dialect === "postgres") {
     if (!config.postgresUrl) throw new Error("DATABASE_URL is required for the postgres dialect");
     const { createPostgresDb } = await import("./postgres.ts");
-    return createPostgresDb(config.postgresUrl);
+    return createPostgresDb(config.postgresUrl, config.dbStatementTimeoutMs);
   }
   const { createSqliteDb } = await import("./sqlite.ts");
   return createSqliteDb(config.sqlitePath);

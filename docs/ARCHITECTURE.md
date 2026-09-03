@@ -52,7 +52,7 @@ src/server/
   config.ts          configuration, refuses weak secrets in production
   db/                driver interface + sqlite/postgres drivers + migrations
   lib/               sessions, password hashing, validation, audit, rate limiting
-  routes/            auth, keys, messages, market, deliveries, moderation, static
+  routes/            auth, keys, messages, market, deliveries, moderation, health, static
 src/client/
   state.ts           encrypted vault, device publication
   messaging.ts       sessions, send/receive/acknowledge
@@ -82,6 +82,7 @@ in `src/` and fails if one crosses a line in the table below.
 | MODERATION / ADMIN | `routes/moderation.ts`, `lib/audit.ts` | reports and disputes, decisions, roles, the audit trail |
 | SECURITY | `app.ts`, `security.ts`, `lib/rate_limit.ts`, `lib/validate.ts` | authentication of requests, CSRF, CSP, limits, input validation at the boundary |
 | INFRASTRUCTURE | `db/*`, `config.ts`, `main.ts`, `routes/static.ts` | drivers, migrations, configuration, the built client and its digests |
+| OBSERVABILITY | `routes/health.ts`, `lib/metrics.ts` | uptime, resources, database latency and aggregate request counters, for an administrator only. Counts and times, never a route, an account or a body (point 85, `docs/OBSERVABILITY.md`) |
 | NOTIFICATIONS | `routes/notifications.ts`, `lib/notify.ts`, `client/views/notifications.ts` | the internal inbox: which of *your* records changed, never what a message said. No push, no email, no device token — the client polls (point 48, ADR-0032) |
 
 Rules the test enforces: `shared/` imports no side; the client never imports the server and

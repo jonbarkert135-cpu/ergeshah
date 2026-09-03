@@ -8,7 +8,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Config } from "./config.ts";
 import { forbidden } from "./lib/errors.ts";
-import { cookiesAreSecure, isOnionHost } from "./app.ts";
+import { API_VERSION, cookiesAreSecure, isOnionHost } from "./app.ts";
 import { parseCookies, serializeCookie } from "./lib/cookies.ts";
 import { randomToken } from "./lib/ids.ts";
 
@@ -82,6 +82,8 @@ export function registerSecurity(app: FastifyInstance, config: Config): void {
 
   app.addHook("onSend", async (request, reply, payload) => {
     const onion = isOnionHost(request.headers.host);
+    // Which API answered, whether or not the caller asked through the versioned path.
+    if (request.url.startsWith("/api/")) reply.header("x-api-version", String(API_VERSION));
     reply.header("content-security-policy", onion ? CSP_ONION : CSP);
     reply.header("referrer-policy", "no-referrer");
     reply.header("x-content-type-options", "nosniff");

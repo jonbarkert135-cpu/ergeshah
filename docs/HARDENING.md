@@ -164,6 +164,7 @@ The honest version, for a service that refuses to keep an access log:
 | Is it failing? | One JSON line per 500 on stderr, with a reference and no request context (`docs/LOGGING.md`) |
 | Is the disk filling? | `df -h`, plus an alert; SQLite and an unpruned backup directory are the two things that grow |
 | Is someone attacking? | 429s and 428s rise; `docker compose logs --since 1h proxy` shows connection volume without content |
+| How is it holding up? | `GET /api/admin/health` as an administrator: uptime, CPU, memory, disk, database latency, error rate and latency percentiles — numbers only, and nobody's numbers in particular (`docs/OBSERVABILITY.md`) |
 
 What is deliberately absent: an APM agent, an error-reporting SaaS, an uptime service that
 loads a script into your page. Each of them is a third party who would learn something

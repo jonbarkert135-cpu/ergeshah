@@ -28,6 +28,9 @@ about the system is worse than no test, and the cheapest way to lie is to test a
 | `security.test.ts` | **Security** | One suite per attack class in point 53: the attacks that cross two other suites, and the sweeps nobody could keep by hand (every unsafe route without a CSRF token, every table checked for a message plaintext) |
 | `cryptography.test.ts` | **Security** | Point 54, per kind: published vectors, negative, malformed input, replay, corrupted ciphertext, wrong key, wrong identity, nonce misuse, session reset |
 | `incident.test.ts` | **Security** | `scripts/incident.mjs` against a real database: a procedure that has never been run is a wish |
+| `observability.test.ts` | **Security** | Health is administrator-only, and the document it returns is numbers, booleans and four fixed words — a field that names a route or an account fails here (point 85) |
+| `resources.test.ts` | **Security** | The ceilings a token bucket cannot enforce: concurrent connections, socket timeouts, body size, PostgreSQL statement and idle-transaction timeouts (point 86) |
+| `api.test.ts` | **Security** | The interface itself: the `/api/v1` prefix, `X-API-Version`, every error code documented, one error envelope everywhere, `Retry-After` on a 429, no database structure in a message, and no WebSocket anywhere (points 87–89) |
 | `docs.test.ts` | Documentation | Every route, table and environment variable is documented, and nothing documented has disappeared |
 
 The suites marked **Security** are the ones that would catch a regression an attacker

@@ -29,6 +29,7 @@ out of a crash dump.
 | `TRUST_PROXY` | `false` | Whether to believe `X-Forwarded-For`. Only turn this on when a proxy you operate sets it — a trusted header from an untrusted source is a rate-limit bypass |
 | `BEHIND_TLS` | `true` | Whether cookies are marked `Secure`. Left alone unless you are running plain HTTP on localhost for development |
 | `ONION_HOSTNAME` | *unset* | v3 onion address of this deployment. Validated at boot; enables the `Onion-Location` header and relaxes `Secure` cookies on that origin only |
+| `MAX_CONNECTIONS` | `512` | Sockets this process will hold at once. Beyond it the kernel queues rather than the process running out of memory. Lower it on a small VPS; a value that is not a whole number of at least 1 stops the server at boot |
 | `POW_BITS` | `16` | Difficulty of the proof of work an unauthenticated account request must solve (register, login, recovery). Each bit doubles the expected work; 16 is roughly 65,000 hashes, a fraction of a second in a browser. `0` turns the gate off — supported for a closed instance, and a real decision, not a tuning knob (ADR-0039). Above 24 the server refuses to start |
 
 ## Storage
@@ -37,6 +38,7 @@ out of a crash dump.
 | --- | --- | --- |
 | `DB_DIALECT` | `sqlite`, or `postgres` if `DATABASE_URL` is set | |
 | `SQLITE_PATH` | `data/symvolon.sqlite` | |
+| `DB_STATEMENT_TIMEOUT_MS` | `5000` | PostgreSQL only: the ceiling on one statement, and on a transaction left idle. A query that runs longer is a bug or an attack, and the request that started it is long gone. SQLite has no server-side equivalent — there its protection is the indexes and the `LIMIT` on every list query |
 
 ## Limits and retention
 

@@ -36,6 +36,13 @@ export interface Config {
   auditRetentionMs: number;
   /** How long a read or unread notification stays in an inbox. An inbox is not a history. */
   notificationRetentionMs: number;
+  /**
+   * Sockets this process will hold at once. Beyond it the kernel queues, which is a
+   * slow visitor rather than an out-of-memory kill (point 86).
+   */
+  maxConnections: number;
+  /** Server-side ceiling on one SQL statement. PostgreSQL only; SQLite has no equivalent. */
+  dbStatementTimeoutMs: number;
   /** Per-operation token buckets, `DEFAULT_LIMITS` overridden by `RATE_LIMITS`. */
   rateLimits: Limits;
   /** v3 onion address of this service, advertised to Tor Browser. Empty = not published. */
@@ -93,6 +100,20 @@ function powBits(value: string | undefined): number {
   return bits;
 }
 
+/**
+ * A limit that is meant to protect the machine has to be a number the machine can use: a
+ * typo that reads as `NaN` would disable the very ceiling it configures, silently. So the
+ * parse is strict and boot fails instead.
+ */
+export function positiveInteger(name: string, value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a whole number of at least 1`);
+  }
+  return parsed;
+}
+
 const ONION_V3 = /^[a-z2-7]{56}\.onion$/;
 
 /**
@@ -128,6 +149,12 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     deliveryTtlMs: Number(process.env.DELIVERY_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     auditRetentionMs: Number(process.env.AUDIT_RETENTION_MS ?? 365 * 24 * 60 * 60 * 1000),
     notificationRetentionMs: Number(process.env.NOTIFICATION_RETENTION_MS ?? 90 * 24 * 60 * 60 * 1000),
+    maxConnections: positiveInteger("MAX_CONNECTIONS", process.env.MAX_CONNECTIONS, 512),
+    dbStatementTimeoutMs: positiveInteger(
+      "DB_STATEMENT_TIMEOUT_MS",
+      process.env.DB_STATEMENT_TIMEOUT_MS,
+      5_000,
+    ),
     rateLimits: resolveLimits(process.env.RATE_LIMITS),
     onionHostname: onionHostname(process.env.ONION_HOSTNAME),
     behindTls: process.env.BEHIND_TLS !== "false",

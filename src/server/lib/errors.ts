@@ -8,17 +8,21 @@ export class HttpError extends Error {
    * made the request, so it holds instructions, never internals.
    */
   readonly details?: Record<string, unknown>;
+  /** Sent as `Retry-After` when the answer is "not now" rather than "no". */
+  readonly retryAfterSeconds?: number;
 
   constructor(
     statusCode: number,
     code: string,
     message: string,
     details?: Record<string, unknown>,
+    retryAfterSeconds?: number,
   ) {
     super(message);
     this.statusCode = statusCode;
     this.code = code;
     this.details = details;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -29,8 +33,13 @@ export const unauthorized = (message = "authentication required") =>
 export const forbidden = (message = "not allowed") => new HttpError(403, "forbidden", message);
 export const notFound = (message = "not found") => new HttpError(404, "not_found", message);
 export const conflict = (message: string, code = "conflict") => new HttpError(409, code, message);
-export const tooManyRequests = (message = "rate limit exceeded") =>
-  new HttpError(429, "rate_limited", message);
+/**
+ * The bucket is empty. `retryAfterSeconds` is how long it takes to refill one token, sent
+ * both as the standard header and in the body — a machine-readable answer needs no header
+ * parsing, and the client shows it instead of inventing a backoff.
+ */
+export const tooManyRequests = (message = "rate limit exceeded", retryAfterSeconds = 60) =>
+  new HttpError(429, "rate_limited", message, { retryAfterSeconds }, retryAfterSeconds);
 /**
  * 428 Precondition Required: the request is fine, it just has not paid yet. The body
  * carries the challenge to solve, so a client that understands this answer needs no extra

@@ -69,6 +69,13 @@ count published, and an audited `order.settled` action.*
 
 ## Operations
 
+*Shipped (points 85–89): an administrator-only health endpoint with uptime, CPU, memory,
+disk, database latency, error rate and latency percentiles, over in-memory counters that hold
+nothing but numbers (`docs/OBSERVABILITY.md`, ADR-0048); connection, timeout and PostgreSQL
+statement ceilings (ADR-0049); `/api/v1` in the path with `X-API-Version`, a documented error
+catalogue and `Retry-After` on every 429 (ADR-0050); and the WebSocket checklist for a socket
+this project does not have (ADR-0051).*
+
 *Shipped: the zero-cost audit pipeline — `audit:bundle`, `audit:secrets` and
 `docs/AUDIT.md`. Reproducible client builds (OPS-1) with published digests, subresource
 integrity and `npm run audit:deployment`.*
@@ -76,7 +83,9 @@ integrity and `npm run audit:deployment`.*
 - **OPS-2 — SQLite driver for the `Db` interface in tests against PostgreSQL in CI**, so
   both drivers are exercised on every commit.
 - **OPS-3 — Container image signing and an SBOM.**
-- **OPS-4 — Rate-limit tuning under real traffic**, and a `429` backoff hint in the UI.
+- **OPS-4 — Rate-limit tuning under real traffic.** The backoff hint shipped with point 89:
+  a 429 carries `retryAfterSeconds` and the client shows it. What remains is the tuning
+  itself, which needs traffic to tune against.
 
 ## Client
 
