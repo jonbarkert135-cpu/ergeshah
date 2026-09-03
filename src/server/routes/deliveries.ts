@@ -20,6 +20,8 @@ import type { FastifyInstance } from "fastify";
 import { badRequest, conflict, forbidden, notFound, orConflict } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { asBase64Url, asId, onlyKeys } from "../lib/validate.ts";
+import { requireSpaceFor } from "../lib/storage.ts";
+import { dirname } from "node:path";
 
 interface OrderParties {
   id: string;
@@ -30,6 +32,8 @@ interface OrderParties {
 
 export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void> {
   const { db, config } = app;
+  /** Where the bytes land: the SQLite file's directory, or the working directory for Postgres. */
+  const dataPath = config.dialect === "sqlite" ? dirname(config.sqlitePath) : process.cwd();
 
   /**
    * Seller delivers; the order moves to `delivered` in the same commit.
@@ -61,6 +65,7 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     const ciphertext = manual
       ? null
       : asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
+    if (ciphertext) await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
 
     const now = Date.now();
     await db.transaction(async (tx) => {
@@ -146,6 +151,9 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     onlyKeys(body, ["id", "ciphertext"]);
     const id = asId(body.id, "id");
     const ciphertext = asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
+    // Uploads are the only requests that turn somebody else's bytes into disk, and the
+    // rate limiter cannot see disk (docs/SELF_CRITIQUE.md, finding 1).
+    await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
     const now = Date.now();
     await orConflict(
       db.run("INSERT INTO attachments (id, ciphertext, created_at, expires_at) VALUES (?, ?, ?, ?)", [

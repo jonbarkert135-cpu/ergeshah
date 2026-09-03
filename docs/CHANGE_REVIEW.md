@@ -79,3 +79,67 @@ Two consequences of this order, stated so they are not re-argued each time: a se
 measure is never removed to make an interface smoother, and a rate limit is never widened to
 make a demo feel faster. If a change needs an exception to this list, it needs an ADR
 (`docs/adr/`), and the exception is the decision being recorded.
+
+## 4. Choosing between two solutions
+
+Two rules, and the second one overrides the first (point 96).
+
+**Prefer the safer design when its complexity stays reasonable for one VPS.** Simpler is the
+default everywhere else in this project (`skills/ponytail/SKILL.md`), and this is the
+exception the skill itself carves out: a trust boundary, error handling that prevents data
+loss, and a security or privacy property are never simplified away. "Reasonable for a VPS"
+is the limit — a design that needs a cluster, a queue, an HSM or a second team is not safer
+here, it is unrunnable, and an unrunnable design degrades into an unmaintained one.
+
+**But never prefer homemade cryptography to an audited standard.** If option A is a published,
+audited primitive and option B is something written here, A wins even when B looks neater,
+smaller or faster. Every primitive comes from libsodium or the Node standard library
+(ADR-0003, ADR-0012); what this project writes is *composition* — a handshake and a ratchet
+built from published specifications, with test vectors — and even that is documented as the
+part most in need of external review (roadmap CRY-1). The line is: compose standards, never
+invent primitives.
+
+## 5. The bar
+
+Point 98. This is what the tree is allowed to look like, and the check that keeps each line
+true. Not one of these is aspirational; a violation fails a command.
+
+| Not allowed | What stops it |
+| --- | --- |
+| Amateur architecture | Domain boundaries read from the imports (`test/architecture.test.ts`), authorisation proved by the route table (`test/authorization.test.ts`) |
+| Security theatre | Every mechanism carries a threat, a property, a test and a failure mode (`docs/MECHANISMS.md`, `test/mechanisms.test.ts`); a mechanism that cannot fill the row is deleted, not shipped |
+| Hardcoded secrets | `npm run audit:secrets` over every tracked file, `npm run audit:history` over every blob in every commit, and production refuses a `development-only-` value (`test/environments.test.ts`) |
+| Plaintext passwords | The password never leaves the browser (ADR-0006); the server stores a scrypt hash of an auth secret (`test/auth.test.ts`) |
+| Plaintext private messages | `test/security.test.ts` dumps every table and fails if a known plaintext appears in any column |
+| Unnecessary telemetry | No access log, no analytics, no third-party origin the CSP would even allow; monitoring counts numbers only (`test/observability.test.ts`, `test/logging.test.ts`) |
+| Insecure defaults | `test/defaults.test.ts`: a deployment that sets nothing gets the private behaviour |
+| Giant unmaintainable files | The `giant-file` lint rule: 700 lines in `src/` and `test/`, with one exemption for standard data (`scripts/lint.mjs`) |
+| Undocumented cryptographic assumptions | `docs/CRYPTO.md` and `docs/THREAT_MODEL.md`, with `test/docs.test.ts` refusing an absolute claim anywhere in the documentation |
+| Fake privacy claims | The same test, plus `docs/PRIVACY.md` listing every field stored and what still leaks |
+| Dependency chaos | Four runtime dependencies, a budget enforced by `npm run audit:dependencies`, licences checked, install scripts refused (`.npmrc`), integrity hashes verified |
+
+## 6. The cycle
+
+Point 100. Every block of requirements goes through the same loop, and the loop is never
+"finished" — the roadmap and `docs/SELF_CRITIQUE.md` exist because the last pass always leaves
+something.
+
+**Research** what already exists here and how it is done elsewhere, then **threat model** the
+new thing: who attacks it, with what, and what they get. Only then **architecture** — where it
+belongs, what it may import, what it must not learn — and a **plan** small enough to fit in one
+commit. **Implement** it with the laziest solution that clears section 4 above, and **test** it
+with the assertion that fails if the property disappears, not the one that proves the happy
+path.
+
+Then four reviews, in this order because each can invalidate the one before.
+**security review** — section 1 of this page.
+**privacy review** — what does the server now know, for how long, and who can read it.
+**performance review** — section 2.
+**code review** — read the diff as a stranger would, looking for the check that moved, the
+case that is not handled, the name that lies.
+
+**Document** in the same commit: the endpoint in `docs/API.md`, the table in
+`docs/DATABASE.md`, the mechanism in `docs/MECHANISMS.md`, the decision in `docs/DECISIONS.md`.
+Then **reassess** — what did this change make possible, and what did it make worse? — and
+**improve**: the finding goes into `docs/SELF_CRITIQUE.md` or the roadmap with a severity, not
+into a private list of things somebody might get to.

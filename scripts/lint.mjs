@@ -125,6 +125,33 @@ function formatting(text, file) {
 }
 
 /**
+ * A file long enough that nobody reads it end to end is where a security property goes to
+ * hide (point 98). The ceiling is generous on purpose — this is a limit against *drift*,
+ * not a style opinion — and the fix is a domain seam, not a smaller font: `routes/auth.ts`
+ * was 783 lines until the paths that bypass the password moved to `routes/recovery.ts`.
+ *
+ * One exemption, and it is data rather than code: the BIP-39 word list is 2048 words fixed
+ * by a standard, and splitting it would make it harder to compare with the standard.
+ */
+const MAX_LINES = 700;
+const LENGTH_EXEMPT = /^src\/shared\/crypto\/bip39-wordlist\.ts$/;
+
+function fileLength(text, file) {
+  const lines = text.split("\n").length;
+  if (lines <= MAX_LINES || LENGTH_EXEMPT.test(file)) return [];
+  return [
+    {
+      file,
+      line: lines,
+      name: "giant-file",
+      match: `${lines} lines (limit ${MAX_LINES})`,
+      message:
+        "split it along a domain seam; a file nobody reads end to end is where a security property hides",
+    },
+  ];
+}
+
+/**
  * Comments describe the rules ("never innerHTML"), so a naive grep flags the very lines that
  * document the invariant. Strip comments and string-free code is what remains to be judged.
  */
@@ -136,7 +163,7 @@ function withoutComments(text) {
 }
 
 export function lintFile(text, file) {
-  const findings = formatting(text, file);
+  const findings = [...formatting(text, file), ...fileLength(text, file)];
   const source = text.split("\n");
   const code = withoutComments(text);
   const lines = code.split("\n");
@@ -180,9 +207,9 @@ function main() {
 
   if (findings.length) {
     for (const f of findings) {
-      const rule = RULES.find((r) => r.name === f.name);
+      const message = f.message ?? RULES.find((r) => r.name === f.name)?.message;
       console.error(`  ${f.file}:${f.line}  ${f.name}${f.match ? `: ${f.match}` : ""}`);
-      if (rule) console.error(`      ${rule.message}`);
+      if (message) console.error(`      ${message}`);
     }
     console.error(`\n${findings.length} finding(s). Fix them, or mark the line 'audit:allow' with a reason.`);
     process.exit(1);

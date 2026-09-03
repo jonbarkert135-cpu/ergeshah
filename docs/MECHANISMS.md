@@ -1,0 +1,38 @@
+# Security mechanisms, one row each
+
+Point 97: a mechanism that cannot name its threat is decoration. Everything this system does
+in the name of security or privacy is listed below with the six things that make it a
+mechanism rather than a mood — what it is for, what it stops, the property it provides, where
+it lives, what proves it works, and what happens when it fails. A row that cannot be filled in
+is a feature to delete, not to ship.
+
+`test/mechanisms.test.ts` reads this table: every row must have all six, the implementation
+must be a file that exists, and the test must be a suite that exists.
+
+| Mechanism | Threat | Security property | Implementation | Test | Failure mode |
+| --- | --- | --- | --- | --- | --- |
+| Client-side Argon2id, split into an auth secret and a vault key | A server or a database thief learning the password | The password never leaves the browser | `src/shared/crypto/vault.ts` | `test/cryptography.test.ts` | Weak parameters on an old device slow derivation; the server still never sees a password |
+| scrypt over the auth secret, server-side | Offline guessing against a stolen `users` table | A stolen row costs work per guess | `src/server/lib/password.ts` | `test/auth.test.ts` | Parameters too low make guessing cheaper; the split above still stands between it and the password |
+| X3DH handshake with signed and one-time prekeys | Passive recording, and a server substituting keys | Forward secrecy from the first message; keys are the user's | `src/shared/crypto/x3dh.ts` | `test/protocol.test.ts` | Prekey exhaustion falls back to the signed prekey, which is weaker but not broken |
+| Double ratchet with encrypted headers | A recorded session decrypted after a key compromise | Forward secrecy and post-compromise recovery | `src/shared/crypto/ratchet.ts` | `test/protocol.test.ts` | Desynchronisation makes a conversation unreadable; skipped keys expire rather than accumulate |
+| Plaintext padding to fixed buckets | Length as a proxy for content | Sizes leak buckets, not messages | `src/shared/crypto/padding.ts` | `test/padding.test.ts` | Padding raises bandwidth; unpadding a corrupt frame fails closed |
+| Sealed vault for private keys | A server or backup thief reading identity keys | Keys at rest are opaque to the server | `src/shared/crypto/vault.ts` | `test/recovery.test.ts` | A forgotten password and no recovery phrase means the vault stays sealed forever, by design |
+| Safety numbers and per-device identity | A key substituted between two people | Man-in-the-middle is detectable out of band | `src/client/verification.ts` | `test/verification.test.ts` | Nobody compares them; the risk is unmitigated but visible in the interface |
+| Final revocation of a device identity | A stolen device re-publishing itself | A revoked key never returns | `src/server/routes/keys.ts` | `test/security.test.ts` | An unrevoked stolen device keeps working until it is revoked |
+| Session cookies: `HttpOnly`, `SameSite=Strict`, rotation and idle expiry | A stolen or long-lived session | A token is short-lived and not readable by script | `src/server/lib/sessions.ts` | `test/sessions.test.ts` | A cookie stolen from a live browser works until the next rotation or a sign-out everywhere |
+| CSRF in three layers: `SameSite`, `Origin` check, double-submit token | A cross-site page acting as the user | Unsafe methods need a token no other origin can read | `src/server/security.ts` | `test/security.test.ts` | A browser that sends no `Origin` still faces the other two layers |
+| Content-Security-Policy with Trusted Types | Injected script | The DOM cannot be built from a string | `src/server/security.ts` | `test/hardening.test.ts` | An old browser ignores Trusted Types; `el()` and the lint rule still forbid markup from strings |
+| Role checks in the handler, with refusals audited | Privilege escalation, and a compromised staff account | Authorisation is proved per request, not rendered | `src/server/app.ts` | `test/authorization.test.ts` | A missing check on a new route is caught by the sweep over the route table |
+| Per-operation token buckets, counted against the account | Brute force, scraping, spam | One operation cannot exhaust another, and one account cannot exhaust everyone | `src/server/lib/rate_limit.ts` | `test/limits.test.ts` | Limits too loose let abuse through; too tight and a real user is throttled, with `retryAfterSeconds` to say so |
+| Proof of work on unauthenticated account endpoints | Bulk account creation and credential stuffing | Every attempt costs arithmetic, with no third party | `src/server/lib/pow.ts` | `test/antiautomation.test.ts` | A determined attacker pays the cost; a slow device waits longer to sign in |
+| Validation and canonicalisation of every field | Injection, homoglyph and direction-override spoofing | What reaches SQL and the DOM is a known shape | `src/server/lib/validate.ts` | `test/security.test.ts` | An over-strict rule rejects a legitimate value, which is the direction that fails safely |
+| Constraints and unique indexes in the schema | Races between two requests | The database refuses a state the application would not write | `src/server/db/migrations/007_integrity.sql` | `test/integrity.test.ts` | The loser of a race gets a 409 instead of a corrupt row |
+| Blind blob storage for deliveries and attachments | A server or operator reading files | Bytes are stored without owner, name or type | `src/server/routes/deliveries.ts` | `test/attachments.test.ts` | Anyone holding an id can fetch the ciphertext; the key is still needed to open it |
+| Free-space floor in front of blob writes | Disk exhaustion by uploads inside the rate limit | Writes stop before the database does | `src/server/lib/storage.ts` | `test/mechanisms.test.ts` | Uploads are refused with 503 while the disk is low; everything else keeps working |
+| No access log, and one scrubbed line per fault | Retrospective surveillance from the server's own records | There is no history of who asked for what | `src/server/lib/log.ts` | `test/logging.test.ts` | Debugging is harder on purpose; a fault carries a reference, not a request |
+| Aggregate-only metrics behind an administrator session | Monitoring becoming a time series of user behaviour | Counters hold numbers, not subjects | `src/server/lib/metrics.ts` | `test/observability.test.ts` | An operator who wants history has to build it, and is told what that costs |
+| Encrypted backups with a retention window | A backup set becoming a permanent copy of deleted data | Snapshots expire and are verifiable | `scripts/backup.mjs` | `test/backup.test.ts` | A lost backup key makes restores impossible; the key is deliberately off the machine |
+| Reproducible build, SRI, published digests | A bundle targeted at one user | What is served can be compared with what was built | `scripts/build-client.mjs` | `test/deployment.test.ts` | A mismatch is visible only to someone who checks; `/build.txt` makes checking cheap |
+| Network tiers with no egress from the application | SSRF, and a dependency phoning home | An outbound connection has nowhere to go | `deploy/docker-compose.yml` | `test/deployment.test.ts` | A container escape defeats it; that is stated as residual risk |
+| Connection, timeout and statement ceilings | Resource exhaustion that never sends a request | The kernel queues instead of the process dying | `src/server/app.ts` | `test/resources.test.ts` | A cap set too low refuses legitimate traffic under a spike |
+| Break-glass tooling that can only remove access | An operator with a shell during an incident | Emergency powers subtract, never read | `scripts/incident.mjs` | `test/incident.test.ts` | It cannot undo what it did; sessions must be re-established |

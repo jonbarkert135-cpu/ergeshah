@@ -20,6 +20,11 @@
   history, migrations, supply chain) and what each one refuses.
 - [`../LOGGING.md`](../LOGGING.md) — what is written down, and for how long.
 
+- [`../MECHANISMS.md`](../MECHANISMS.md) — one row per security mechanism: the threat it
+  answers, the property it provides, where it lives, what proves it, and how it fails.
+- [`../SELF_CRITIQUE.md`](../SELF_CRITIQUE.md) — the weaknesses found by reviewing this
+  repository against its own claims, graded, with the fix or the reason there is not one.
+
 **Also:** [`../CHANGE_REVIEW.md`](../CHANGE_REVIEW.md) — the security-regression question
 every change answers before it is committed, and the priority order when two requirements
 conflict.

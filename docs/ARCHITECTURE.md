@@ -52,7 +52,8 @@ src/server/
   config.ts          configuration, refuses weak secrets in production
   db/                driver interface + sqlite/postgres drivers + migrations
   lib/               sessions, password hashing, validation, audit, rate limiting
-  routes/            auth, keys, messages, market, deliveries, moderation, health, static
+  routes/            auth, recovery, keys, messages, market, deliveries, moderation,
+                     health, static
 src/client/
   state.ts           encrypted vault, device publication
   messaging.ts       sessions, send/receive/acknowledge
@@ -73,7 +74,7 @@ in `src/` and fails if one crosses a line in the table below.
 
 | Domain | Where it lives | Owns |
 | --- | --- | --- |
-| AUTH | `routes/auth.ts`, `lib/sessions.ts`, `lib/password.ts`, `lib/pgp.ts` | accounts, sessions, second factor, recovery, deletion |
+| AUTH | `routes/auth.ts`, `routes/recovery.ts`, `lib/sessions.ts`, `lib/password.ts`, `lib/pgp.ts`, `lib/auth_flow.ts` | accounts and sessions in the first module; the paths that bypass the password — a second device, a recovery phrase, a PGP key — in the second, because they share one rule set and one failure sentence |
 | IDENTITY | `routes/keys.ts`, `shared/crypto/identity.ts`, `vault.ts` | devices, prekeys, the sealed vault, device linking |
 | MESSAGING | `routes/messages.ts`, `client/messaging.ts` | store-and-forward envelopes, delivery, acknowledgement, disappearing-message expiry. Typing indicators, read receipts and search live entirely on the client side of this line (`docs/METADATA.md`) |
 | CRYPTO | `shared/crypto/*` | the protocol: one implementation, imported by both sides, imports neither |

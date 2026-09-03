@@ -42,7 +42,7 @@ function records(): Record_[] {
 function indexedNumbers(): Map<number, string> {
   const index = read("docs/adr/README.md");
   const rows = new Map<number, string>();
-  for (const row of index.matchAll(/\[ADR-(\d{4})\]\(\.\.\/DECISIONS\.md#([a-z0-9-]+)\)/g)) {
+  for (const row of index.matchAll(/\[ADR-(\d{4})\]\(\.\.\/DECISIONS\.md#([a-z0-9_-]+)\)/g)) {
     rows.set(Number(row[1]), row[2] as string);
   }
   return rows;

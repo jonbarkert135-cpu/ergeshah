@@ -121,6 +121,9 @@ never simplified away. In this codebase they *are* the product.
 | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) | what a first visit costs, and every lever pulled to get there |
 | [`docs/BACKUPS.md`](docs/BACKUPS.md) | encrypted, versioned, tested backups — and the retention policy that stops them becoming forever |
 | [`docs/LOGGING.md`](docs/LOGGING.md) | what we log, why, for how long, who can read it, when it is deleted |
+| [`docs/MECHANISMS.md`](docs/MECHANISMS.md) | every security mechanism: threat, property, implementation, test, failure mode |
+| [`docs/SELF_CRITIQUE.md`](docs/SELF_CRITIQUE.md) | what is wrong with this system, graded by severity, with the fix or the reason there is none |
+| [`docs/CHANGE_REVIEW.md`](docs/CHANGE_REVIEW.md) | the questions every change answers, the priority order, the quality bar, the cycle |
 | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) | the two health endpoints, what is measured, what is refused, and what to look at when it breaks |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | the working loop, and what every change is held to |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | ADRs: tech choices, dependency + license justification |

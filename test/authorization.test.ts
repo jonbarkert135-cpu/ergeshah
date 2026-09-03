@@ -25,6 +25,15 @@ const PUBLIC: Array<{ method: string; url: string; why: string }> = [
   { method: "POST", url: "/api/auth/register", why: "creating the first account" },
   { method: "POST", url: "/api/auth/login", why: "the login itself" },
   { method: "POST", url: "/api/auth/recover", why: "login for someone who lost their password" },
+  // The other ways in (routes/recovery.ts). Each one *is* an authentication step, so it
+  // cannot require the session it is about to create; each proves something instead — a
+  // link secret, a signature over a challenge — and answers identically for a username
+  // that does not exist. Until 2026-09 these four passed this sweep only because they were
+  // registered before any route that mints a CSRF cookie, which is luck, not a control.
+  { method: "POST", url: "/api/auth/link/claim", why: "a new device redeems a one-time link secret" },
+  { method: "POST", url: "/api/auth/recovery/challenge", why: "the challenge precedes the session" },
+  { method: "POST", url: "/api/auth/recovery/complete", why: "the recovery signature is the login" },
+  { method: "POST", url: "/api/auth/pgp/complete", why: "the PGP signature is the second factor of a login" },
   { method: "GET", url: "/api/market/listings", why: "browsing is public by design" },
   { method: "GET", url: "/api/market/listings/:id", why: "browsing is public by design" },
   { method: "GET", url: "/api/market/sellers/:username", why: "a public seller profile" },

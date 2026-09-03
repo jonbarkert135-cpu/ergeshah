@@ -1600,3 +1600,83 @@ deadline.
 **Consequences.** Two rows of the ladder are now settled rather than negotiable: a security
 measure is not removed to make an interface smoother, and a rate limit is not widened to make
 a demo feel faster. An exception needs an ADR, which is the cost that keeps exceptions rare.
+
+## ADR-0056 — A mechanism carries its threat, and a file has a ceiling
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Points 96, 97 and 98. The system had accumulated a lot of security machinery, and
+nothing tied any of it to a threat: a reader could not tell which parts were load-bearing and
+which were habit. That is the condition in which "let us add another algorithm" sounds like
+progress. Separately, `routes/auth.ts` had grown to 783 lines — the file where a missing check
+would be least visible.
+
+**Decision.** Every mechanism gets a row in `docs/MECHANISMS.md` with six columns: purpose,
+threat, security property, implementation, test, failure mode. A mechanism that cannot fill the
+row is not added, and `test/mechanisms.test.ts` fails if a row is incomplete or names a file or
+a suite that does not exist. `docs/CHANGE_REVIEW.md` states the choice rule that goes with it —
+prefer the safer design while its complexity stays reasonable for one VPS, but never prefer
+homemade cryptography to an audited standard — and the eleven-line quality bar, each line
+mapped to the command that enforces it. A `giant-file` lint rule caps `src/` and `test/` files
+at 700 lines, with one exemption for the BIP-39 word list; `routes/auth.ts` was split along the
+seam that already existed, into account lifecycle and `routes/recovery.ts` (the paths that
+bypass the password), sharing `lib/auth_flow.ts`.
+
+**Rejected:** a security section in the README (prose nobody diffs); more primitives "for depth"
+— five ciphers are five attack surfaces and one of them is the weakest; a line limit low enough
+to force artificial splits, which produces files that are small and incoherent.
+
+**Consequences.** Adding a mechanism now costs a row and a test, which is the intended friction.
+The register is a second place to update when a mechanism changes — the test makes forgetting
+loud rather than silent.
+
+## ADR-0057 — Uploads stop before the disk does, and `TRUST_PROXY` names the proxy
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Two findings from the self-review (`docs/SELF_CRITIQUE.md`, 1 and 3). Blob uploads
+inside the rate limit can still fill a small VPS — roughly 900 MB per account per hour — and a
+full filesystem stops every SQLite write, which is an outage for the whole service, not just for
+uploads. And `TRUST_PROXY=true` made Fastify believe `X-Forwarded-For` from whoever connected,
+which is a rate-limit bypass for anything that can reach the port.
+
+**Decision.** A free-space floor in front of blob writes (`lib/storage.ts`): below
+`STORAGE_FLOOR_BYTES` (512 MB by default) an upload is refused with `503 storage_full` and
+everything else keeps working. The check reads `statfs`, caches it for five seconds, and — this
+is the important part — does *not* refuse writes when the filesystem cannot be read, because a
+safety margin that fails closed is an outage of its own. `TRUST_PROXY` now also accepts the
+proxy addresses, and the documentation recommends that form.
+
+**Rejected:** a per-account storage quota (it needs an owner column on `attachments`, and that
+column is the social graph — ADR-0043); refusing uploads by counting bytes in the database (a
+sum per upload, and it would not see the WAL, the backups or anything else on the disk).
+
+**Consequences.** An operator now has a number to alert on (`disk.availableBytes`) and a
+degraded mode instead of a hard stop. The asymmetry underneath is unchanged and stays on the
+roadmap: blobs live for 30 days, and a determined attacker still consumes the allowance up to
+the floor.
+
+## ADR-0058 — The criticism of this project lives in this project
+
+**Status:** accepted (2026-09-03)
+
+**Context.** Points 99 and 100. Weaknesses were being found and then scattered — a sentence in
+an ADR, a line in the threat model, a roadmap entry, a comment. Nobody could answer "what is
+currently wrong with this system" from the repository, which is the question a reviewer, a user
+and a future maintainer all ask first.
+
+**Decision.** `docs/SELF_CRITIQUE.md` collects them, each with the seven headings from the
+brief — problem, why it matters, severity, attack scenario, proposed fix, implementation,
+verification — and fixed findings stay on the page with their fix. `test/mechanisms.test.ts`
+enforces the headings and a fixed severity vocabulary. `docs/CHANGE_REVIEW.md` closes with the
+development cycle every block of requirements goes through, ending in *reassess* and *improve*,
+so a finding has somewhere to land by construction.
+
+**Rejected:** an issue tracker (this repository has no public one, and a private list is exactly
+the thing this decision is against); folding the findings into `THREAT_MODEL.md`, which states
+what the design accepts, not what the implementation currently gets wrong.
+
+**Consequences.** The project ships a page that argues against itself, which is the intended
+effect and is unusual enough to be worth stating: a reader can grade the honesty of everything
+else by it. It also has to be maintained — a stale critique is worse than none, so a fixed
+finding is edited, never deleted.

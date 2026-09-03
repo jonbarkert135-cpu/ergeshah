@@ -69,6 +69,12 @@ count published, and an audited `order.settled` action.*
 
 ## Operations
 
+*Shipped (points 96–100): the mechanism register with a threat and a failure mode per row
+(`docs/MECHANISMS.md`), the quality bar and the development cycle in `docs/CHANGE_REVIEW.md`, a
+700-line ceiling on source files, a free-space floor in front of uploads, `TRUST_PROXY` that can
+name the proxy, and `docs/SELF_CRITIQUE.md` — seven findings this project made against itself,
+three of them fixed in the same commit (ADR-0056, ADR-0057, ADR-0058).*
+
 *Shipped (points 90–95): migrations that declare whether they can be undone, with the rollback
 plan written down instead of improvised (ADR-0052); three environments that fail loudly at the
 boundary between them (ADR-0053); every ADR indexed by area under `docs/adr/` (ADR-0054); and
@@ -89,6 +95,10 @@ integrity and `npm run audit:deployment`.*
 - **OPS-2 — SQLite driver for the `Db` interface in tests against PostgreSQL in CI**, so
   both drivers are exercised on every commit.
 - **OPS-3 — Container image signing and an SBOM.**
+- **OPS-5 — Storage accounting for blobs.** The free-space floor keeps the service alive
+  (ADR-0057); it does not stop one account consuming the allowance. Wanted: a shorter default
+  lifetime for attachments, and a way to charge storage without an owner column
+  (`docs/SELF_CRITIQUE.md`, finding 1).
 - **OPS-4 — Rate-limit tuning under real traffic.** The backoff hint shipped with point 89:
   a 429 carries `retryAfterSeconds` and the client shows it. What remains is the tuning
   itself, which needs traffic to tune against.

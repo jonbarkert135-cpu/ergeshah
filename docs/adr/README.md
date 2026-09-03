@@ -96,6 +96,7 @@ or if a record is missing a section.
 | [ADR-0033](../DECISIONS.md#adr-0033--uploads-are-hostile-and-this-server-refuses-to-know-anything-about-them) | Uploads are hostile, and this server refuses to know anything about them |
 | [ADR-0039](../DECISIONS.md#adr-0039--arithmetic-instead-of-a-captcha) | Arithmetic instead of a CAPTCHA |
 | [ADR-0049](../DECISIONS.md#adr-0049--ceilings-the-rate-limiter-cannot-enforce) | Ceilings the rate limiter cannot enforce |
+| [ADR-0057](../DECISIONS.md#adr-0057--uploads-stop-before-the-disk-does-and-trust_proxy-names-the-proxy) | Uploads stop before the disk does, and `TRUST_PROXY` names the proxy |
 
 ### Marketplace
 
@@ -127,3 +128,5 @@ or if a record is missing a section.
 | [ADR-0026](../DECISIONS.md#adr-0026--project-hygiene-as-executable-checks-not-as-a-document) | Project hygiene as executable checks, not as a document |
 | [ADR-0054](../DECISIONS.md#adr-0054--the-records-stay-in-one-file-and-docsadr-is-the-way-in) | The records stay in one file, and `docs/adr/` is the way in |
 | [ADR-0055](../DECISIONS.md#adr-0055--two-questions-before-a-commit-and-one-order-when-requirements-disagree) | Two questions before a commit, and one order when requirements disagree |
+| [ADR-0056](../DECISIONS.md#adr-0056--a-mechanism-carries-its-threat-and-a-file-has-a-ceiling) | A mechanism carries its threat, and a file has a ceiling |
+| [ADR-0058](../DECISIONS.md#adr-0058--the-criticism-of-this-project-lives-in-this-project) | The criticism of this project lives in this project |

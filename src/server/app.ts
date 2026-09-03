@@ -11,6 +11,7 @@ import { recordAudit } from "./lib/audit.ts";
 import { log } from "./lib/log.ts";
 import { randomToken } from "./lib/ids.ts";
 import { registerAuthRoutes } from "./routes/auth.ts";
+import { registerRecoveryRoutes } from "./routes/recovery.ts";
 import { registerKeyRoutes } from "./routes/keys.ts";
 import { registerMessageRoutes } from "./routes/messages.ts";
 import { registerMarketRoutes } from "./routes/market.ts";
@@ -238,6 +239,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   });
 
   await registerAuthRoutes(app);
+  await registerRecoveryRoutes(app);
   await registerKeyRoutes(app);
   await registerMessageRoutes(app);
   await registerMarketRoutes(app);

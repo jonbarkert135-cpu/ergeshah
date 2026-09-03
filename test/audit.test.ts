@@ -182,6 +182,12 @@ describe("lint", () => {
   it("respects a waiver on the line and on the line above, and nowhere else", () => {
     const file = "src/server/x.ts";
     expect(lintFile("const v = body as any; // audit:allow reviewed\n", file)).toEqual([]);
+    // Point 98: a file long enough that nobody reads it end to end.
+    const long = `${"const a = 1;\n".repeat(701)}`;
+    expect((lintFile(long, "src/server/routes/huge.ts") as Array<{ name: string }>)[0]?.name).toBe(
+      "giant-file",
+    );
+    expect(lintFile(long, "src/shared/crypto/bip39-wordlist.ts")).toEqual([]);
     expect(lintFile("// audit:allow reviewed\nconst v = body as any;\n", file)).toEqual([]);
     expect(lintFile("// audit:allow reviewed\n\nconst v = body as any;\n", file)).toHaveLength(1);
   });

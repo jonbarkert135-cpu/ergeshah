@@ -204,6 +204,7 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `too_large` | 413 | The body exceeds the configured cap |
 | `pow_required` | 428 | Solve the enclosed challenge and repeat the request |
 | `rate_limited` | 429 | The bucket is empty; `retryAfterSeconds` says for how long |
+| `storage_full` | 503 | The server is low on disk and refuses new blobs; deliveries and attachments only, and retryable |
 | `internal_error` | 500 | A fault on this side. The body carries a `ref` that matches one log line and nothing else |
 
 An error never names a table, a column, a driver, a path or a stack. The message is written

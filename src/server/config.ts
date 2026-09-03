@@ -17,7 +17,12 @@ export interface Config {
   postgresUrl: string | null;
   /** Secret used to derive daily rotating rate-limit bucket keys from client addresses. */
   bucketPepper: string;
-  trustProxy: boolean;
+  /**
+   * `false`, `true`, or the addresses of the proxies to believe (`"10.0.0.1"`,
+   * `"127.0.0.1/8, ::1"`). A bare `true` believes `X-Forwarded-For` from whoever connects,
+   * which is only safe when nothing but the proxy can reach the port.
+   */
+  trustProxy: boolean | string;
   sessionTtlMs: number;
   /** Days a session may go unused before it is deleted, independent of `sessionTtlMs`. */
   sessionIdleDays: number;
@@ -45,6 +50,8 @@ export interface Config {
   dbStatementTimeoutMs: number;
   /** Per-operation token buckets, `DEFAULT_LIMITS` overridden by `RATE_LIMITS`. */
   rateLimits: Limits;
+  /** Bytes that must stay free before this server accepts another blob. 0 disables the floor. */
+  storageFloorBytes: number;
   /** v3 onion address of this service, advertised to Tor Browser. Empty = not published. */
   onionHostname: string;
   behindTls: boolean;
@@ -125,6 +132,18 @@ function powBits(value: string | undefined): number {
 }
 
 /**
+ * `TRUST_PROXY` used to be a boolean, and `true` means "believe `X-Forwarded-For` from
+ * whoever connected". That is correct behind a proxy on a private network and a rate-limit
+ * bypass anywhere else, so the variable also takes the proxy addresses themselves — which
+ * is the same setting with the trust narrowed to the machine that earned it.
+ */
+function trustProxy(value: string | undefined): boolean | string {
+  if (value === undefined || value.trim() === "" || value === "false") return false;
+  if (value === "true") return true;
+  return value.trim();
+}
+
+/**
  * A limit that is meant to protect the machine has to be a number the machine can use: a
  * typo that reads as `NaN` would disable the very ceiling it configures, silently. So the
  * parse is strict and boot fails instead.
@@ -163,7 +182,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     sqlitePath: process.env.SQLITE_PATH ?? "data/symvolon.sqlite",
     postgresUrl: secretFromEnv("DATABASE_URL") ?? null,
     bucketPepper: requiredSecret("RATE_LIMIT_PEPPER", env),
-    trustProxy: process.env.TRUST_PROXY === "true",
+    trustProxy: trustProxy(process.env.TRUST_PROXY),
     sessionTtlMs: Number(process.env.SESSION_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
     sessionIdleDays: Number(process.env.SESSION_IDLE_DAYS ?? 14),
     powBits: powBits(process.env.POW_BITS),
@@ -179,6 +198,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       process.env.DB_STATEMENT_TIMEOUT_MS,
       5_000,
     ),
+    storageFloorBytes: Number(process.env.STORAGE_FLOOR_BYTES ?? 512 * 1024 * 1024),
     rateLimits: resolveLimits(process.env.RATE_LIMITS),
     onionHostname: onionHostname(process.env.ONION_HOSTNAME),
     behindTls: process.env.BEHIND_TLS !== "false",

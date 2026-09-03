@@ -45,7 +45,7 @@ out of a crash dump.
 | `NODE_ENV` | `development` | `production` enables the strict checks (secret required, no development fallbacks) |
 | `HOST` | `127.0.0.1` | Bind address. The default is deliberately *not* `0.0.0.0`: this service is meant to sit behind Caddy or Tor |
 | `PORT` | `8080` | |
-| `TRUST_PROXY` | `false` | Whether to believe `X-Forwarded-For`. Only turn this on when a proxy you operate sets it — a trusted header from an untrusted source is a rate-limit bypass |
+| `TRUST_PROXY` | `false` | Whether to believe `X-Forwarded-For`. Prefer naming the proxy — `TRUST_PROXY=10.0.0.2` or `127.0.0.1/8, ::1` — over a bare `true`, which believes the header from anything that can reach the port (`docs/SELF_CRITIQUE.md`, finding 3) |
 | `BEHIND_TLS` | `true` | Whether cookies are marked `Secure`. Left alone unless you are running plain HTTP on localhost for development |
 | `ONION_HOSTNAME` | *unset* | v3 onion address of this deployment. Validated at boot; enables the `Onion-Location` header and relaxes `Secure` cookies on that origin only |
 | `MAX_CONNECTIONS` | `512` | Sockets this process will hold at once. Beyond it the kernel queues rather than the process running out of memory. Lower it on a small VPS; a value that is not a whole number of at least 1 stops the server at boot |
@@ -57,6 +57,7 @@ out of a crash dump.
 | --- | --- | --- |
 | `DB_DIALECT` | `sqlite`, or `postgres` if `DATABASE_URL` is set | |
 | `SQLITE_PATH` | `data/symvolon.sqlite` | |
+| `STORAGE_FLOOR_BYTES` | `536870912` (512 MB) | Free space that must remain after a blob write. Below it, uploads answer `503 storage_full` while everything else keeps working — a full disk stops the database, not just the uploads (`docs/SELF_CRITIQUE.md`, finding 1). `0` disables the floor |
 | `DB_STATEMENT_TIMEOUT_MS` | `5000` | PostgreSQL only: the ceiling on one statement, and on a transaction left idle. A query that runs longer is a bug or an attack, and the request that started it is long gone. SQLite has no server-side equivalent — there its protection is the indexes and the `LIMIT` on every list query |
 
 ## Limits and retention

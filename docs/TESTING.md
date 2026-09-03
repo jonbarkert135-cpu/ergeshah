@@ -32,6 +32,7 @@ about the system is worse than no test, and the cheapest way to lie is to test a
 | `resources.test.ts` | **Security** | The ceilings a token bucket cannot enforce: concurrent connections, socket timeouts, body size, PostgreSQL statement and idle-transaction timeouts (point 86) |
 | `api.test.ts` | **Security** | The interface itself: the `/api/v1` prefix, `X-API-Version`, every error code documented, one error envelope everywhere, `Retry-After` on a 429, no database structure in a message, and no WebSocket anywhere (points 87–89) |
 | `environments.test.ts` | **Security** | Development, test and production are separated: production refuses a missing secret and a `development-only-` placeholder, `NODE_ENV` typos stop the boot, and a test database is in memory (point 91) |
+| `mechanisms.test.ts` | **Security** | The mechanism register is complete and honest — six columns per row, an implementation and a test that exist — plus the free-space floor in front of blob writes, and the quality bar and cycle in `docs/CHANGE_REVIEW.md` (points 96–100) |
 | `adr.test.ts` | Documentation | Every ADR is indexed under `docs/adr/`, every index link resolves, records keep their template, and `docs/CHANGE_REVIEW.md` carries both regression questions and the priority ladder in order (points 92–95) |
 | `docs.test.ts` | Documentation | Every route, table and environment variable is documented, and nothing documented has disappeared |
 
