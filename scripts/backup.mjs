@@ -12,12 +12,14 @@
  *   node scripts/backup.mjs verify <file> --key …               # decrypt + integrity check
  *   node scripts/backup.mjs restore <file> <target.sqlite> --key …
  *   node scripts/backup.mjs prune --out /var/backups/symvolon --days 35 --keep 7
+ *   node scripts/backup.mjs drill --out /var/backups/symvolon --key …          # quarterly
  *
  * Encryption is AES-256-GCM from `node:crypto`: no dependency, no external binary to have
  * installed on the host at 3am, and an authentication tag that makes a truncated or edited
  * backup fail loudly instead of restoring quietly.
  */
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -208,14 +210,93 @@ function prune({ flags }) {
   return removed;
 }
 
+/**
+ * The restore drill (docs/BACKUPS.md, quarterly in docs/HARDENING.md).
+ *
+ * `verify` proves a backup decrypts and that SQLite considers it intact. That is not the
+ * question an operator has at 3am: the question is whether the *service* comes up on it.
+ * So this restores the newest backup to a temporary file, starts a real server against it
+ * in production mode with a throwaway pepper, waits for `/healthz`, asks for the page a
+ * browser would ask for, and then deletes the copy. Nothing touches the live database, and
+ * the drill never runs on the production port.
+ *
+ * A drill that is only described in a document is a wish, which is why this is a command
+ * and why `test/backup.test.ts` runs it.
+ */
+async function drill({ flags, positional }) {
+  const key = readKey(flags);
+  const [given] = positional;
+  const directory = flags.out ?? "backups";
+  const chosen = given ?? backupsIn(directory).at(-1)?.path;
+  if (!chosen) fail(`no backup to drill: nothing named symvolon-*.sqlite.enc in ${directory}`);
+
+  const scratch = join(tmpdir(), `symvolon-drill-${randomBytes(6).toString("hex")}.sqlite`);
+  const bytes = decrypt(readFileSync(chosen), key);
+  const summary = inspect(bytes);
+  writeFileSync(scratch, bytes, { flag: "wx", mode: 0o600 });
+
+  // A port, not a secret: the drill binds 127.0.0.1 and lives for a few seconds.
+  const port = 20000 + (randomBytes(2).readUInt16BE() % 20000);
+  const server = spawn(
+    process.execPath,
+    ["--experimental-strip-types", "--disable-warning=ExperimentalWarning", "src/server/main.ts"],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        SQLITE_PATH: scratch,
+        // The drill's own secret: never the production one, and gone when it exits.
+        RATE_LIMIT_PEPPER: randomBytes(36).toString("base64"),
+        BEHIND_TLS: "false",
+        HOST: "127.0.0.1",
+        PORT: String(port),
+        ONION_HOSTNAME: "",
+      },
+    },
+  );
+  let output = "";
+  server.stdout.on("data", (chunk) => (output += chunk));
+  server.stderr.on("data", (chunk) => (output += chunk));
+
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const deadline = Date.now() + 30_000;
+    let health = null;
+    while (Date.now() < deadline) {
+      if (server.exitCode !== null) break;
+      health = await fetch(`${base}/healthz`).catch(() => null);
+      if (health?.ok) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (!health?.ok) fail(`drill FAILED: the service did not come up on the restored copy\n${output}`);
+    const page = await fetch(base);
+    if (!page.ok) fail(`drill FAILED: the restored service answered ${page.status} for the page`);
+    process.stdout.write(
+      `drill: ${chosen}\n  restored to a temporary copy, service started in production mode, ` +
+        `/healthz ok, page ok\n  ${summary.tables} tables, ${summary.migrations} migrations, ` +
+        `${summary.users} accounts\n  the live database was not touched; the copy is deleted\n`,
+    );
+  } finally {
+    server.kill("SIGTERM");
+    // Wait for the process to let go before deleting: SQLite in WAL mode keeps two
+    // companion files, and removing them under a live handle leaves the litter behind.
+    await Promise.race([
+      new Promise((resolve) => server.once("exit", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 5_000)),
+    ]);
+    for (const suffix of ["", "-wal", "-shm"]) rmSync(`${scratch}${suffix}`, { force: true });
+  }
+}
+
 function keygen() {
   process.stdout.write(`${randomBytes(32).toString("base64")}\n`);
 }
 
 const [command, ...rest] = process.argv.slice(2);
 const parsed = parseArgs(rest);
-const commands = { create, verify, restore, prune, keygen };
+const commands = { create, verify, restore, prune, drill, keygen };
 if (!command || !(command in commands)) {
   fail(`usage: backup.mjs <${Object.keys(commands).join("|")}> [...]  (see docs/BACKUPS.md)`);
 }
-commands[command](parsed);
+await commands[command](parsed);

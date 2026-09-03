@@ -2,7 +2,9 @@
 
 An external cryptographic audit costs money this project does not have. What it *can* have
 is a system that is cheap to audit: small, dependency-poor, and checked by machine on every
-push.
+push. When the money exists, the brief to send with the repository is
+[`EXTERNAL_REVIEW.md`](EXTERNAL_REVIEW.md): what to review, in which order, what CI already
+proves, and the five questions this project cannot answer about itself.
 
 **Read this first: the source is closed** (`LICENSE`). Everything below is therefore an
 *internal* audit — it is run by the people who hold the repository, and its results are a

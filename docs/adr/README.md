@@ -74,6 +74,7 @@ or if a record is missing a section.
 | [ADR-0040](../DECISIONS.md#adr-0040--the-deployment-is-checked-by-tests-not-described-by-documents) | The deployment is checked by tests, not described by documents |
 | [ADR-0048](../DECISIONS.md#adr-0048--health-is-two-endpoints-and-monitoring-counts-nothing-but-numbers) | Health is two endpoints, and monitoring counts nothing but numbers |
 | [ADR-0053](../DECISIONS.md#adr-0053--three-environments-and-a-placeholder-that-says-what-it-is) | Three environments, and a placeholder that says what it is |
+| [ADR-0061](../DECISIONS.md#adr-0061--recoverability-is-a-command-not-a-claim) | Recoverability is a command, not a claim |
 
 ### Privacy model
 

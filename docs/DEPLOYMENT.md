@@ -4,6 +4,11 @@ Target: one ordinary VPS (1 vCPU, 1 GB RAM is enough to start), Docker, a domain
 and nothing else. No Kubernetes, no managed database, no cloud-specific service, no API
 key.
 
+**Status, stated plainly:** the sequence below has been rehearsed end to end on a
+production-mode instance — build, boot, register, back up, destroy the database, restore,
+boot again on the restored copy — but this service has not yet run on a real VPS behind a
+certificate and a proxy (roadmap OPS-6). The steps are tested; the deployment is not.
+
 ## From a fresh VPS to a running service
 
 Nine steps, in order, each one verifiable before you take the next. Harden the host first
@@ -24,8 +29,8 @@ docker --version && docker compose version           # verify before continuing
 ### 2. Clone the repository
 
 ```bash
-git clone https://github.com/jonbarkert135-cpu/symvolon.git
-cd symvolon
+git clone https://github.com/jonbarkert135-cpu/ergeshah.git
+cd ergeshah
 ```
 
 ### 3. Configure the environment
@@ -193,7 +198,13 @@ a forever-copy of deleted accounts).
 npm run backup:keygen > /etc/symvolon/backup.key   # once, offline
 npm run backup -- --key /etc/symvolon/backup.key --out /var/backups/symvolon
 npm run backup:prune -- --out /var/backups/symvolon
+npm run backup:drill -- --out /var/backups/symvolon   # quarterly: does the service start on it?
 ```
+
+The drill is the one that matters. `verify` proves a backup decrypts and that SQLite thinks
+it is intact; the drill restores the newest one to a temporary copy, starts a real server on
+it in production mode on a random port, waits for `/healthz` and asks for the page — then
+deletes the copy. The live database is not touched. Run it before you need it.
 
 The database contains no plaintext messages, but it does contain password hashes, sealed
 vaults, marketplace records and public keys. The backup key is not part of the application's

@@ -9,7 +9,9 @@ here is *not implemented today*; the README table says what is.
   recorded session is not decryptable by a future quantum adversary. Blocked on an
   audited, browser-capable ML-KEM implementation; a hand-rolled one would violate the
   rule that keeps this project honest.
-- **CRY-1 — External audit.** The property tests are necessary and not sufficient.
+- **CRY-1 — External audit.** The property tests are necessary and not sufficient. The
+  scoping brief is written and ready to send with the repository
+  (`docs/EXTERNAL_REVIEW.md`); what is missing is the money, not the preparation.
 
 ## Metadata
 
@@ -98,6 +100,11 @@ this project does not have (ADR-0051).*
 integrity and `npm run audit:deployment`.*
 
 - **OPS-3 — Container image signing and an SBOM.**
+- **OPS-6 — The first real deployment.** Every step in `docs/DEPLOYMENT.md` has been
+  rehearsed locally, including a restore drill on a production-mode instance
+  (`npm run backup:drill`), but this service has never run on a VPS with a domain, a
+  certificate and a proxy in front of it. Until it has, the guide is tested and the
+  deployment is not.
 - **OPS-5 — Storage accounting for blobs.** The free-space floor keeps the service alive
   (ADR-0057); it does not stop one account consuming the allowance. Wanted: a shorter default
   lifetime for attachments, and a way to charge storage without an owner column

@@ -33,6 +33,7 @@
     "backup:restore": "node scripts/backup.mjs restore",
     "backup:prune": "node scripts/backup.mjs prune",
     "backup:keygen": "node scripts/backup.mjs keygen",
+    "backup:drill": "node scripts/backup.mjs drill",
     "incident": "node scripts/incident.mjs"
   },
   "dependencies": {

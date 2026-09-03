@@ -64,10 +64,11 @@ describe("creating", () => {
 
   it("has no code path that writes an unencrypted snapshot to the backup directory", () => {
     const source = readFileSync(script, "utf8");
-    // Every write to the destination goes through encrypt(); the only plaintext ever on disk
-    // is a scratch file in the temp directory, deleted in a finally block.
+    // Every write to the destination goes through encrypt(); the only plaintext on disk is a
+    // scratch file in the temp directory — one in `inspect`, one in `snapshot`, one for the
+    // drill's copy — and each is deleted in a finally block.
     expect(source).toMatch(/writeFileSync\(path, sealed/);
-    expect(source.match(/writeFileSync\(/g)?.length).toBeLessThanOrEqual(3);
+    expect(source.match(/writeFileSync\(/g)?.length).toBeLessThanOrEqual(4);
   });
 });
 
@@ -113,6 +114,30 @@ describe("restoring", () => {
     const alien = join(workspace, "alien.enc");
     writeFileSync(alien, Buffer.alloc(200, 7));
     expect(() => run(["verify", alien, "--key", keyPath])).toThrow(/bad header|too short/);
+  });
+});
+
+describe("the drill", () => {
+  it("restores the newest backup and starts a real service on it", () => {
+    const out = join(workspace, "drill-backups");
+    run(["create", "--key", keyPath, "--db", dbPath, "--out", out]);
+    // The question `verify` cannot answer: does the service come up on this file? The
+    // command boots a server in production mode against a temporary copy on a random port.
+    const output = run(["drill", "--key", keyPath, "--out", out]);
+    expect(output).toMatch(/\/healthz ok, page ok/);
+    expect(output).toMatch(/1 accounts/);
+    expect(output).toMatch(/the copy is deleted/);
+    // Nothing left behind, and the live database untouched.
+    expect(readdirSync(tmpdir()).filter((name) => name.startsWith("symvolon-drill-"))).toEqual([]);
+  }, 60_000);
+
+  it("says so loudly when there is nothing to drill", () => {
+    const empty = mkdtempSync(join(tmpdir(), "symvolon-empty-"));
+    try {
+      expect(() => run(["drill", "--key", keyPath, "--out", empty])).toThrow(/no backup to drill/);
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
   });
 });
 

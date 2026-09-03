@@ -151,8 +151,10 @@ Encrypted, verified, expiring — the commands and the retention policy are in
 - the backup key lives **off** this machine (`/etc/symvolon/backup.key`, mode `400`, and a
   copy somewhere the server cannot reach). A compromised server that can decrypt its own
   backup history has turned a backup into a second copy of the breach;
-- a backup you have never restored is a hypothesis. Restore into a scratch directory once a
-  quarter (`npm run backup:restore`), and note the date somewhere.
+- a backup you have never restored is a hypothesis. Once a quarter run
+  `npm run backup:drill -- --out /var/backups/symvolon`, which restores the newest backup to
+  a temporary copy and starts a real server on it, and note the date somewhere. It does not
+  touch the live database.
 
 ## 8. Monitoring
 

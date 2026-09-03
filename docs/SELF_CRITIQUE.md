@@ -183,8 +183,12 @@ written by the same person who wrote the bug.
 post-quantum handshake once an audited browser-capable ML-KEM exists (PQ-1) — noting that
 "harvest now, decrypt later" is a real threat model for a messenger, not a marketing line.
 
-**Implementation.** Not implemented. The mitigation until then is that everything is composed
-from published specifications with test vectors, and that `docs/CRYPTO.md` states the
+**Implementation.** Not implemented, and not implementable from inside the project. What has
+been done is to make the review cheap to buy: `docs/EXTERNAL_REVIEW.md` is a brief a reviewer
+can work from on day one — the five questions we want answered, the reading order with line
+counts, what CI already proves, and the weaknesses we already know about so that nobody
+spends billable hours rediscovering them. The mitigation until then is unchanged: everything
+is composed from published specifications with test vectors, and `docs/CRYPTO.md` states the
 assumptions rather than hiding them.
 
 **Verification.** `test/cryptography.test.ts` covers the nine kinds of failure the brief asks

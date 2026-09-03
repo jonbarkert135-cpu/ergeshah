@@ -24,4 +24,6 @@ answers, and the order that settles a conflict between requirements) and
 [`ROADMAP.md`](ROADMAP.md) (what is known to be missing),
 [`MECHANISMS.md`](MECHANISMS.md) (every security mechanism with its threat, property, test and
 failure mode) and [`SELF_CRITIQUE.md`](SELF_CRITIQUE.md) (the weaknesses this project found in
-itself, graded, with what was done about each).
+itself, graded, with what was done about each) and
+[`EXTERNAL_REVIEW.md`](EXTERNAL_REVIEW.md) (the brief for the cryptographic review this
+project has not had).

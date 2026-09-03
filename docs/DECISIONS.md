@@ -1742,3 +1742,32 @@ correctness bug and writing it down instead of fixing it).
 **Consequences.** Claiming is now one round trip rather than three, and correct on both
 drivers. Under heavy contention a caller can still be served without a one-time key, which is
 the documented weaker path rather than a broken one.
+
+## ADR-0061 — Recoverability is a command, not a claim
+
+**Status:** accepted (2026-09-03)
+
+**Context.** `docs/BACKUPS.md` promised "tested" backups, and what was tested was that a
+snapshot decrypts and passes `PRAGMA integrity_check`. That is a property of the file, not of
+the service: a backup can decrypt perfectly and still be one the application refuses to start
+on — a schema the current code no longer understands, a migration that fails on the restored
+copy, a file the process cannot open. The operator finds out at the worst possible moment,
+and `docs/HARDENING.md` asked for a quarterly exercise that nobody had ever run.
+
+**Decision.** `npm run backup:drill`: restore the newest backup to a temporary copy, start a
+real server against it in production mode on a random loopback port with a throwaway pepper,
+wait for `/healthz`, fetch the page, then delete the copy. It never touches the live database
+and never binds the production port. `test/backup.test.ts` runs it on every commit, so the
+procedure cannot rot between quarters.
+
+**Rejected:** a document describing the drill (that is what existed, and it was never
+executed); restoring over the live database in a maintenance window (the drill should be
+cheap enough to run often, and anything that can destroy production will not be); a
+staging environment (a second VPS to pay for and patch, to answer a question a temporary
+file answers).
+
+**Consequences.** The suite is about a second slower and starts a child process, which is
+worth it: this is the only test that proves the whole path — snapshot, encrypt, decrypt,
+migrate, boot — works end to end. The drill is SQLite-only, like the backup script;
+PostgreSQL deployments use `pg_dump` and the same rules, and their drill is not automated
+yet.

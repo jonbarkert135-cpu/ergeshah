@@ -12,7 +12,7 @@ The five properties point 50 asks for, and where each one lives:
 | Encrypted | `scripts/backup.mjs` writes AES-256-GCM only. There is no code path that writes a plaintext snapshot to the backup directory |
 | Access-controlled | The key is a file the *running service cannot read*; snapshots are written `0600`; the directory belongs to the operator, not to the app user |
 | Versioned | One file per run, named `symvolon-<UTC timestamp>.sqlite.enc`; nothing is overwritten |
-| Tested | Every `create` decrypts, runs `PRAGMA integrity_check` and counts tables before it reports success; `restore` verifies before it writes; `test/backup.test.ts` does the whole round trip, including a wrong key and a flipped byte |
+| Tested | Every `create` decrypts, runs `PRAGMA integrity_check` and counts tables before it reports success; `restore` verifies before it writes; `npm run backup:drill` boots a real service on the restored copy; `test/backup.test.ts` does the whole round trip, including a wrong key, a flipped byte and the drill |
 | Documented | This file |
 
 ## Commands
@@ -23,7 +23,16 @@ npm run backup -- --key /etc/symvolon/backup.key --out /var/backups/symvolon
 npm run backup:verify -- /var/backups/symvolon/symvolon-…​.enc --key /etc/symvolon/backup.key
 npm run backup:restore -- <file> /var/lib/symvolon/restored.sqlite --key /etc/symvolon/backup.key
 npm run backup:prune -- --out /var/backups/symvolon --days 35 --keep 7
+npm run backup:drill -- --out /var/backups/symvolon --key /etc/symvolon/backup.key
 ```
+
+`drill` is `verify` plus the question `verify` cannot answer: **does the service come up on
+this file?** It restores the newest backup (or the one you name) to a temporary copy, starts
+a real server against it in production mode on a random port with a throwaway pepper, waits
+for `/healthz`, fetches the page, and deletes the copy. It never touches the live database
+and never binds the production port. A quarterly run is the exercise
+`docs/HARDENING.md` asks for; `test/backup.test.ts` runs it on every commit, because a
+procedure nobody has executed is a wish.
 
 `--db` defaults to `SQLITE_PATH`, `--key` to `BACKUP_KEY_FILE`. The key is read from a file and
 never from a command-line argument, because arguments are visible in `ps` and in shell history.
