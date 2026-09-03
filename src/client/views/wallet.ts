@@ -20,6 +20,8 @@ interface Wallet {
   depositAddress: string | null;
   minDepositXmr: string;
   belowMinimumXmr: string;
+  minRefundXmr: string;
+  canRefund: boolean;
   minWithdrawalXmr: string;
   reviewAboveXmr: string;
   orderFeePercent: number;
@@ -137,14 +139,56 @@ export function renderWallet(root: HTMLElement): void {
       el(
         "p",
         { class: "meta" },
-        `Minimum ${price(wallet.minDepositXmr)}, and it is enforced: a smaller transfer is recorded against your account but not credited, because the fees to move it cost more than it is worth. Ask support and it is refunded by hand.`,
+        `Minimum ${price(wallet.minDepositXmr)}, and it is enforced: a smaller transfer is recorded against your account but not credited, because the fees to move it cost more than it is worth.`,
       ),
-      wallet.belowMinimumXmr === "0"
-        ? null
-        : notice(
-            `${price(wallet.belowMinimumXmr)} arrived below the minimum and is not on your balance. Contact support to have it sent back.`,
-            "error",
-          ),
+      wallet.belowMinimumXmr === "0" ? null : refundCard(wallet),
+    );
+  }
+
+  /**
+   * The way out for a top-up that was too small to credit: the owner names an address and it
+   * is queued like any other payout (ADR-0071). Below the refund floor there is nothing to
+   * offer but the truth — it waits until there is enough of it to be worth a transfer.
+   */
+  function refundCard(wallet: Wallet): HTMLElement {
+    const stuck = `${price(wallet.belowMinimumXmr)} arrived below the minimum, so it is not on your balance.`;
+    if (!wallet.canRefund) {
+      return notice(
+        `${stuck} Sending it back costs more in network fees than it is worth, so it stays on your account until there is at least ${price(wallet.minRefundXmr)} of it — or ask support and a person will settle it.`,
+        "error",
+      );
+    }
+    const address = input("refundAddress", { placeholder: "4… or 8…", spellcheck: "false" });
+    const submit = el("button", { type: "submit", class: "primary" }, "Send it back");
+    const form = el(
+      "form",
+      { class: "stack" },
+      field(
+        "Where to send it",
+        address,
+        "Your own Monero address. Paste it — this is the only place it is used, and it is deleted once the transfer is sent.",
+      ),
+      el("div", { class: "row" }, submit),
+    );
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void withBusy(submit, async () => {
+        try {
+          await api("/api/wallet/refunds", { method: "POST", body: { address: address.value.trim() } });
+          toast("Refund queued — it goes out with the next payouts");
+          address.value = "";
+          await load();
+        } catch (error) {
+          toast((error as Error).message, "error");
+        }
+      });
+    });
+    return el(
+      "div",
+      { class: "card" },
+      el("h3", {}, "Send back an uncredited top-up"),
+      el("p", {}, `${stuck} You can have it back: it goes out through the ordinary payout queue, all of it at once, and the marketplace pays the network fee.`),
+      form,
     );
   }
 
@@ -197,7 +241,7 @@ export function renderWallet(root: HTMLElement): void {
       el(
         "p",
         { class: "meta" },
-        `The network fee is deducted from the amount you withdraw. Selling on this marketplace costs ${wallet.orderFeePercent}% of a completed order, taken from the seller's side.`,
+        `You receive the amount you asked for — the marketplace pays the Monero network fee. Selling here costs ${wallet.orderFeePercent}% of a completed order, taken from the seller's side.`,
       ),
     );
   }

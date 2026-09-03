@@ -78,6 +78,14 @@ export interface Config {
    */
   minDepositPico: number;
   /**
+   * The smallest below-minimum total this server will send back to its payer on request
+   * (ADR-0071). It exists because a refund costs a network fee the platform pays: below this
+   * figure, returning dust is a way to bleed the payout float, and the money waits — visible
+   * on the owner's screen — until enough has arrived or an operator settles it by hand. The
+   * default is roughly twenty times a typical Monero fee.
+   */
+  minRefundPico: number;
+  /**
    * Where `monero-wallet-rpc` answers, on the internal network — `http://wallet:18082`.
    * Null means this deployment has no wallet tier: no deposit address is handed out, no scan
    * runs, and `GET /api/wallet` says top-ups are not open rather than inventing an address.
@@ -309,6 +317,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     minWithdrawalPico: picoFromEnv("MIN_WITHDRAWAL_XMR", process.env.MIN_WITHDRAWAL_XMR, "0.02"),
     autoPayoutMaxPico: picoFromEnv("AUTO_PAYOUT_MAX_XMR", process.env.AUTO_PAYOUT_MAX_XMR, "2"),
     minDepositPico: picoFromEnv("MIN_DEPOSIT_XMR", process.env.MIN_DEPOSIT_XMR, "0.02"),
+    minRefundPico: picoFromEnv("MIN_REFUND_XMR", process.env.MIN_REFUND_XMR, "0.001"),
     moneroWalletRpcUrl: walletRpcUrl(process.env.MONERO_WALLET_RPC_URL),
     depositConfirmations: positiveInteger(
       "DEPOSIT_CONFIRMATIONS",

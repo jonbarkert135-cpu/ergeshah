@@ -342,40 +342,56 @@ export async function requestWithdrawal(
     limitPico: number;
   },
 ): Promise<{ id: string; status: WithdrawalStatus }> {
-  const now = Date.now();
+  return db.transaction((tx) => queueWithdrawal(tx, input));
+}
+
+/**
+ * The same thing inside a transaction the caller already owns, because one caller needs the
+ * payout to be part of a larger movement: a refund of an uncredited top-up credits the
+ * deposit and queues its return in one step (`lib/refunds.ts`), and a crash between those two
+ * would either lose the money or make it spendable.
+ */
+export async function queueWithdrawal(
+  tx: Db,
+  input: {
+    userId: string;
+    amountPico: number;
+    address: string;
+    limitPico: number;
+  },
+  now = Date.now(),
+): Promise<{ id: string; status: WithdrawalStatus }> {
   const id = newId();
-  return db.transaction(async (tx) => {
-    const recent = await tx.get<{ total: number | null }>(
-      `SELECT SUM(amount_pico) AS total FROM withdrawals
-        WHERE user_id = ? AND requested_at > ? AND status IN ('queued', 'sending', 'sent')`,
-      [input.userId, now - 24 * 60 * 60 * 1000],
-    );
-    const automatic =
-      input.amountPico <= input.limitPico &&
-      Number(recent?.total ?? 0) + input.amountPico <= input.limitPico;
-    const status: WithdrawalStatus = automatic ? "queued" : "approval_required";
-    await tx.run(
-      `INSERT INTO withdrawals (id, user_id, amount_pico, address, address_hint, status,
-                                requested_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, input.userId, input.amountPico, input.address, addressHint(input.address), status, now],
-    );
-    await apply(
-      tx,
-      [
-        {
-          accountId: accountFor(input.userId),
-          userId: input.userId,
-          kind: "withdrawal_hold",
-          availableDelta: -input.amountPico,
-          heldDelta: input.amountPico,
-          withdrawalId: id,
-        },
-      ],
-      now,
-    );
-    return { id, status };
-  });
+  const recent = await tx.get<{ total: number | null }>(
+    `SELECT SUM(amount_pico) AS total FROM withdrawals
+      WHERE user_id = ? AND requested_at > ? AND status IN ('queued', 'sending', 'sent')`,
+    [input.userId, now - 24 * 60 * 60 * 1000],
+  );
+  const automatic =
+    input.amountPico <= input.limitPico &&
+    Number(recent?.total ?? 0) + input.amountPico <= input.limitPico;
+  const status: WithdrawalStatus = automatic ? "queued" : "approval_required";
+  await tx.run(
+    `INSERT INTO withdrawals (id, user_id, amount_pico, address, address_hint, status,
+                              requested_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, input.userId, input.amountPico, input.address, addressHint(input.address), status, now],
+  );
+  await apply(
+    tx,
+    [
+      {
+        accountId: accountFor(input.userId),
+        userId: input.userId,
+        kind: "withdrawal_hold",
+        availableDelta: -input.amountPico,
+        heldDelta: input.amountPico,
+        withdrawalId: id,
+      },
+    ],
+    now,
+  );
+  return { id, status };
 }
 
 /**

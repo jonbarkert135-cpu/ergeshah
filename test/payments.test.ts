@@ -139,11 +139,14 @@ describe("the payment shape, now that payments exist (point 82, ADR-0066)", () =
     // a card, a checkout, a processor's invoice — because that is the one that brings a PAN,
     // a billing address and a compliance surface with it.
     expect(routes.filter((url) => /card|checkout|invoice|paypal|stripe|iban/i.test(url))).toEqual([]);
-    // And the wallet routes that do exist take an amount and a destination, nothing else.
+    // And the wallet routes that do exist take an amount and a destination, nothing else —
+    // the refund route (ADR-0071) takes only the destination, because the amount is whatever
+    // arrived below the minimum and is not the caller's to choose.
     const wallet = routes.filter((url) => url.startsWith("/api/wallet"));
     expect(wallet.sort()).toEqual([
       "/api/wallet",
       "/api/wallet/entries",
+      "/api/wallet/refunds",
       "/api/wallet/withdrawals",
       "/api/wallet/withdrawals",
       "/api/wallet/withdrawals/:id/cancel",

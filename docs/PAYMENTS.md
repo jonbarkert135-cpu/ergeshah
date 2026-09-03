@@ -81,9 +81,13 @@ no escrow.
 
 `ORDER_FEE_BPS`, default 500 = **5% of a completed order, charged to the seller**, deducted at
 settlement, rounded down so the odd piconero stays with the seller. Nothing is charged on a
-top-up, on a payout, or on a cancelled order; the Monero network fee is paid by whoever moves
-money — the buyer's wallet pays to send a top-up, and a payout has the network fee deducted
-from the amount withdrawn. Boot refuses a fee above 20%, because `5000` where `500` was meant
+top-up, on a payout, or on a cancelled order. The Monero network fee follows the same rule as
+the movement: a payer's own wallet pays to send a top-up, and on a payout **the platform pays
+it out of the float** — the payee receives the amount they asked for, to the piconero, and
+`withdrawals.network_fee_pico` records what the sending cost so an operator can see what the
+float is spending. (This corrects the earlier claim that the fee was deducted from the amount:
+`scripts/payout-worker.mjs` has always sent the full amount, and the sentence was wrong rather
+than the code. It is also why a refund of uncredited dust has a floor of its own — ADR-0071.) Boot refuses a fee above 20%, because `5000` where `500` was meant
 is a typo nothing downstream would question.
 
 ## Limits
@@ -92,7 +96,10 @@ The minimums exist because a payment smaller than the fee to move it is not a pa
 both `MIN_WITHDRAWAL_XMR` and `MIN_DEPOSIT_XMR` (default 0.02 each) are enforced (ADR-0067).
 A payout below the floor is refused at the request. A top-up below it is *recorded and not
 credited*: the row is written with status `below_minimum`, its total appears on the owner's own
-wallet screen, and an operator returns it by hand if the payer asks — the money is never
+wallet screen, and its owner can send it back to an address they name (`POST
+/api/wallet/refunds`, ADR-0071) once the uncredited total reaches `MIN_REFUND_XMR` (default
+0.001, about twenty network fees, because the platform pays the fee on the way out). Below that
+floor an operator settles it by hand — the money is never
 quietly kept, because Monero gives no sender address to refund to automatically.
 
 Payout ceilings are about automation, never about the money:

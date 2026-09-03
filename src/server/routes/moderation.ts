@@ -27,6 +27,7 @@ import { sellerReputation } from "../lib/reputation.ts";
 import { notify, notifyQuietly } from "../lib/notify.ts";
 import { decideWithdrawal, PLATFORM_ACCOUNT, setPayoutLimit } from "../lib/ledger.ts";
 import { solvency } from "../lib/deposits.ts";
+import { belowMinimumLiability } from "../lib/refunds.ts";
 import { quietly } from "../lib/monero.ts";
 
 export async function registerModerationRoutes(app: FastifyInstance): Promise<void> {
@@ -464,6 +465,10 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     const queued = await db.get<{ total: number | null }>(
       "SELECT SUM(amount_pico) AS total FROM withdrawals WHERE status IN ('queued', 'approval_required', 'sending')",
     );
+    // Top-ups that arrived below the minimum and were never credited (ADR-0067). They are
+    // in the wallet and they are owed to whoever sent them — either refunded on request
+    // (ADR-0071) or by hand — so they belong in the liability, not in the surplus.
+    const uncredited = await belowMinimumLiability(db);
     // The comparison that matters, when there is a wallet to compare against: what the books
     // say is owed, against what the wallet actually holds. A deployment with no Monero tier
     // gets nulls rather than a reassuring zero (ADR-0070).
@@ -475,8 +480,10 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
       userHeldXmr: xmrString(held),
       platformEarnedXmr: xmrString(earned),
       queuedPayoutsXmr: xmrString(Number(queued?.total ?? 0)),
-      // What the wallet must hold for this platform to be solvent, fees included.
-      liabilitiesXmr: xmrString(available + held + earned),
+      uncreditedTopUpsXmr: xmrString(uncredited),
+      // What the wallet must hold for this platform to be solvent, fees and uncredited
+      // top-ups included.
+      liabilitiesXmr: xmrString(available + held + earned + uncredited),
       walletXmr: books ? xmrString(books.walletPico) : null,
       shortfallXmr: books ? xmrString(books.shortfallPico) : null,
       orderFeePercent: app.config.orderFeeBps / 100,

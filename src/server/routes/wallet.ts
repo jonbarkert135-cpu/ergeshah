@@ -27,6 +27,7 @@ import {
   type LedgerKind,
 } from "../lib/ledger.ts";
 import { depositAddressFor } from "../lib/deposits.ts";
+import { belowMinimumTotal, refundBelowMinimum } from "../lib/refunds.ts";
 import { quietly } from "../lib/monero.ts";
 import { xmrString } from "../../shared/money.ts";
 
@@ -54,6 +55,7 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
     await app.limit(request, "read");
     const user = await app.authenticate(request);
     const balance = await balanceOf(db, accountFor(user.id));
+    const belowMinimum = await belowMinimumTotal(db, user.id);
     // Created on first sight of this screen, from the wallet itself, and stored for good: an
     // account keeps one address for its lifetime, so a payer who saved it can use it again
     // (lib/deposits.ts). A wallet that is down answers null and the screen says so.
@@ -71,16 +73,12 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
       // Enforced, not advertised (ADR-0067): a smaller transfer is recorded and not credited.
       // The total sits here so the owner sees it on their own screen instead of finding a
       // balance that does not match what they sent.
-      belowMinimumXmr: xmrString(
-        Number(
-          (
-            await db.get<{ total: number | null }>(
-              "SELECT SUM(amount_pico) AS total FROM deposits WHERE user_id = ? AND status = 'below_minimum'",
-              [user.id],
-            )
-          )?.total ?? 0,
-        ),
-      ),
+      belowMinimumXmr: xmrString(belowMinimum),
+      // What that money has to add up to before it can be sent back (ADR-0071), so the
+      // screen can say "wait until there is this much" with the deployment's own figure —
+      // and the decision itself, so no client has to compare decimal strings.
+      minRefundXmr: xmrString(config.minRefundPico),
+      canRefund: belowMinimum >= config.minRefundPico,
       minWithdrawalXmr: xmrString(config.minWithdrawalPico),
       // The account's own automatic ceiling, so the screen can say "above this a payout waits
       // for approval" with the number that will actually apply to this person.
@@ -160,6 +158,44 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
       id: created.id,
       status: created.status,
       amountXmr: xmrString(amountPico),
+      addressHint: addressHint(address),
+    };
+  });
+
+  /**
+   * Sends an uncredited top-up back to its payer (ADR-0071).
+   *
+   * The address is the owner's to name, because this server does not know it: a Monero
+   * transfer carries no sender, so the money arrived from nowhere as far as the database is
+   * concerned. Everything below the minimum goes back at once — the network fee is charged
+   * per transfer, so refunding in instalments would be worse for both sides — and it travels
+   * through the ordinary payout queue, which is why this route cannot send anything either.
+   */
+  app.post("/api/wallet/refunds", async (request) => {
+    const user = await app.authenticate(request);
+    await app.limit(request, "wallet_write");
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    onlyKeys(body, ["address"]);
+    const address = asMoneroAddress(body.address, "address");
+
+    // A refund *is* a payout, so the one-at-a-time rule is the same rule, not a copy of it.
+    const pending = await db.get<{ id: string }>(
+      "SELECT id FROM withdrawals WHERE user_id = ? AND status IN ('queued', 'approval_required', 'sending')",
+      [user.id],
+    );
+    if (pending) throw badRequest("finish or cancel your pending payout first", "payout_pending");
+
+    const refund = await refundBelowMinimum(db, {
+      userId: user.id,
+      address,
+      minRefundPico: config.minRefundPico,
+      limitPico: await payoutLimitFor(db, user.id, config.autoPayoutMaxPico),
+    });
+    return {
+      id: refund.withdrawalId,
+      status: refund.status,
+      amountXmr: xmrString(refund.amountPico),
+      deposits: refund.deposits,
       addressHint: addressHint(address),
     };
   });

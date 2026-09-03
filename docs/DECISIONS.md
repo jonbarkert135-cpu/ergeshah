@@ -2152,3 +2152,59 @@ operator has a node to run, a float to keep topped up, a cold reserve to sweep t
 shortfall number somebody has to look at. What this decision does *not* buy is confidence in
 the RPC vocabulary — every test here runs against a fake wallet, so the first stagenet run is a
 roadmap item (PAY-6) and not a formality.
+
+## ADR-0071 — Uncredited dust goes back to its payer, and the refund pays its own way
+
+**Status:** accepted (2026-09-03)
+
+**Context.** ADR-0067 made the deposit minimum real: a transfer under `MIN_DEPOSIT_XMR` is
+written to `deposits` with status `below_minimum` and no ledger entry. That was the right call
+— crediting a 0.0001 XMR top-up costs more in payout fees than it is worth — but it left the
+platform holding money with somebody's name on it and no way to return it except a support
+conversation. "You have my coins and there is no button" is the complaint a custodial
+marketplace deserves to be judged by, and roadmap PAY-4 is it.
+
+Two facts shape the answer. First, this server does not know where the money came from: a
+Monero transfer carries no sender, so only the payer can name a destination. Second, a payout
+costs a network fee **that the platform pays** — `scripts/payout-worker.mjs` sends the full
+requested amount out of the float — so a refund of dust is a small, real cost to the operator,
+and an unbounded one if a stranger sends a hundred one-piconero transfers and asks for a
+hundred refunds. (This ADR also corrects `docs/PAYMENTS.md`, which claimed the fee was
+deducted from the amount withdrawn. The code never did that; the sentence was wrong.)
+
+**Decision.** `POST /api/wallet/refunds` takes an address and returns everything below the
+minimum to it, as one payout in the ordinary queue.
+
+- **It is not a new kind of money movement.** A refund is the moment those deposits are
+  *finally credited* — one `deposit` ledger entry per row, each naming its deposit — and
+  immediately held for a payout. Both halves are one transaction, so there is no instant in
+  which the money is spendable and no crash that credits without queueing (`lib/refunds.ts`).
+- **Claim first, credit second.** `UPDATE deposits SET status = 'credited' … WHERE status =
+  'below_minimum' RETURNING` takes the rows before anything is written, so two requests racing
+  produce one refund and one `nothing_to_refund` rather than the same dust sent twice.
+- **All of it, or none.** The fee is per transfer, so refunding in instalments is worse for
+  both sides. Under `MIN_REFUND_XMR` (default 0.001 — about twenty network fees) the whole
+  transaction rolls back and the screen says what it is waiting for: an honest "not yet" beats
+  a refund that costs the float more than it returns.
+- **It is a payout, so every payout rule applies**: one pending payout per account, the
+  account's automatic ceiling (a payer of a hundred small transfers can exceed it, and then a
+  human approves it), the destination stored only until the transfer is sent, and the sending
+  done by a process this server cannot reach (ADR-0070).
+- **Uncredited dust is a liability and now says so.** `solvency()` and
+  `GET /api/admin/treasury` count it (`uncreditedTopUpsXmr`): it sits in the wallet, it is owed
+  to whoever sent it, and leaving it out reported a surplus exactly the size of that debt.
+
+**Rejected:** crediting below-minimum top-ups to the spendable balance on request (it makes the
+minimum a suggestion — a payer could fund an account entirely in dust and buy with it);
+deducting the network fee from the refunded amount via `subtract_fee_from_outputs` (correct in
+principle, but it puts an RPC parameter this repository has never run on the path where money
+leaves, and `MIN_REFUND_XMR` buys the same protection with arithmetic already tested); a
+per-account refund cooldown (the floor already makes dust-spam uneconomic for the spammer:
+they lose the dust and the platform loses one fee); refunding automatically to nowhere (there
+is no address to refund *to* — that is the whole problem).
+
+**Consequences.** Dust stops being a support queue, and the treasury number gets slightly
+worse and considerably more honest. What is still manual is the case below the floor: a payer
+who sent 0.0002 XMR once and never returns has money on this platform that only an operator
+can move, and the wallet screen says so in those words rather than implying it will be
+returned.

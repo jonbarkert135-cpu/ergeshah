@@ -20,6 +20,7 @@
  */
 import type { Db } from "../db/index.ts";
 import { creditDeposit } from "./ledger.ts";
+import { belowMinimumLiability } from "./refunds.ts";
 import type { WalletRpc } from "./monero.ts";
 import { log } from "./log.ts";
 
@@ -141,7 +142,9 @@ export interface Solvency {
  *
  * Liabilities are every balance in the table, the platform's own fee account included: the
  * fee is earned money that has not been swept, and a comparison that ignored it would report
- * a surplus that is really somebody's payout waiting to happen. A shortfall is logged loudly
+ * a surplus that is really somebody's payout waiting to happen. Uncredited top-ups count too
+ * (ADR-0071): they are in the wallet, they are owed to the people who sent them, and leaving
+ * them out would show a surplus exactly the size of what the platform owes its dust payers. A shortfall is logged loudly
  * because it has exactly two causes, and both need a human today: a bug in the ledger, or a
  * wallet that is not the one this deployment thinks it is.
  */
@@ -149,7 +152,8 @@ export async function solvency(db: Db, wallet: WalletRpc): Promise<Solvency> {
   const row = await db.get<{ available: number | null; held: number | null }>(
     "SELECT SUM(available_pico) AS available, SUM(held_pico) AS held FROM balances",
   );
-  const liabilitiesPico = Number(row?.available ?? 0) + Number(row?.held ?? 0);
+  const liabilitiesPico =
+    Number(row?.available ?? 0) + Number(row?.held ?? 0) + (await belowMinimumLiability(db));
   const walletPico = await wallet.totalPico();
   const shortfallPico = Math.max(0, liabilitiesPico - walletPico);
   if (shortfallPico > 0) {

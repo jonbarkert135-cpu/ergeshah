@@ -81,9 +81,13 @@ a wallet address, an email address, another messenger or a "pay me directly" off
 and the deposit minimum is enforced, with a smaller transfer recorded uncredited and refunded
 by hand rather than credited or kept (ADR-0067). The chat is untouched and stays unread.*
 
-- **PAY-4 — Refunding a below-minimum top-up without a support conversation.** Today an
-  operator makes a manual payout to an address the payer supplies. Wanted: the owner naming a
-  destination on their own wallet screen, and the queue treating it like any other payout.
+*Shipped (PAY-4, 2026-09-03, ADR-0071): `POST /api/wallet/refunds`. An uncredited top-up goes
+back to an address its owner names, all of it as one payout in the ordinary queue, claimed out
+of `below_minimum` before it is credited so it cannot be refunded twice. `MIN_REFUND_XMR`
+(0.001) is the floor, because the platform pays the network fee; below it the money waits on
+the owner's screen and an operator settles it by hand. Uncredited dust is now counted as a
+liability on the treasury, which it always was.*
+
 - **PAY-5 — Level decay and a suspended seller's rank.** A level, once earned, does not fall.
   A seller who stops trading keeps their catalogue position, and a suspension removes the
   listings but not the standing behind them.

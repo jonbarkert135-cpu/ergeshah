@@ -168,9 +168,10 @@ strings of XMR; the server stores piconero as integers.
 
 | Endpoint | Auth | Limit | Notes |
 | --- | --- | --- | --- |
-| `GET /api/wallet` | session | `read` | Available and held balance, this account's deposit address (`null` until the deployment has a wallet), the minimums, `belowMinimumXmr` (top-ups that arrived under `MIN_DEPOSIT_XMR`, recorded and not credited — ADR-0067), the amount above which a payout waits for approval, and the marketplace fee |
+| `GET /api/wallet` | session | `read` | Available and held balance, this account's deposit address (`null` until the deployment has a wallet), the minimums, `belowMinimumXmr` (top-ups that arrived under `MIN_DEPOSIT_XMR`, recorded and not credited — ADR-0067) with `minRefundXmr` and `canRefund` beside it, the amount above which a payout waits for approval, and the marketplace fee |
 | `GET /api/wallet/entries` | session | `read` | This account's ledger: every movement, signed, with the order it belongs to and a day-granularity date |
 | `POST /api/wallet/withdrawals` | session | `wallet_write` | Request a payout: `{ amountXmr, address }`. The amount leaves the spendable balance at once; the answer says whether it was `queued` or needs approval. One pending payout per account (`payout_pending`) |
+| `POST /api/wallet/refunds` | session | `wallet_write` | Send an uncredited top-up back: `{ address }`. Everything below the minimum goes at once, as one payout through the ordinary queue — `{ id, status, amountXmr, deposits, addressHint }`. Errors: `nothing_to_refund` (409), `refund_too_small` (400, under `MIN_REFUND_XMR`), `payout_pending` (400) — ADR-0071 |
 | `GET /api/wallet/withdrawals` | session | `read` | This account's payouts, with the destination shown as a hint and the transaction id once sent |
 | `POST /api/wallet/withdrawals/:id/cancel` | session (owner) | `wallet_write` | Cancel one that has not been sent; the money returns to the balance |
 
@@ -197,8 +198,10 @@ an operator reading their own wallet history — the alternative pays somebody t
 
 The deposit minimum is enforced (ADR-0067). A transfer smaller than `MIN_DEPOSIT_XMR` is
 recorded as a `below_minimum` deposit and not credited — it is not kept quietly either: the
-total appears on the owner's own wallet response, and an operator refunds it by hand from the
-payout wallet if the payer asks.
+total appears on the owner's own wallet response, and its owner can send it back to an address
+they name with `POST /api/wallet/refunds` (ADR-0071) — one payout for all of it, subject to
+`MIN_REFUND_XMR`, because the platform pays the network fee on the way out. Below that floor an
+operator still settles it by hand.
 
 ## Moderation and administration
 
@@ -217,7 +220,7 @@ result, including refusals (`docs/PRIVACY.md`, ADR-0024).
 | `GET /api/moderation/withdrawals` | session (staff) | `moderation` | Payouts awaiting approval or waiting to be sent, oldest first, destinations as hints |
 | `POST /api/moderation/withdrawals/:id/decide` | session (admin) | `moderation` | `{ decision: "approved" \| "rejected" }`. Approving queues it — this process cannot send. Refusing returns the money to the owner. Audited |
 | `POST /api/admin/users/:username/payout-limit` | session (admin) | `moderation` | `{ limitXmr }` or `{ limitXmr: "default" }`: how much this account may withdraw without approval, per request and per 24 hours. Audited with the amount |
-| `GET /api/admin/treasury` | session (admin) | `moderation` | The books as four totals plus liabilities, and — when a wallet tier exists — what the wallet actually holds and the shortfall between them (`null` otherwise). Names nobody |
+| `GET /api/admin/treasury` | session (admin) | `moderation` | The books as five totals (uncredited top-ups among them) plus liabilities, and — when a wallet tier exists — what the wallet actually holds and the shortfall between them (`null` otherwise). Names nobody |
 | `GET /api/moderation/audit` | staff | `moderation` | Read the administrative log |
 | `POST /api/admin/users/:username/role` | admin | `moderation` | Grant or remove staff roles |
 
@@ -240,6 +243,8 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `invalid_txid` | 400 | The payout worker reported something that is not a 64-character Monero transaction hash |
 | `bad_address` | 400 | Not a Monero address: wrong length, a character base58 does not contain, or a prefix no Monero network uses. The wallet's own `validate_address` is the authority before anything is sent |
 | `payout_pending` | 400 | This account already has a payout queued or awaiting approval |
+| `nothing_to_refund` | 409 | A refund was asked for and this account has no uncredited top-up — already refunded, already settled by an operator, or never there |
+| `refund_too_small` | 400 | The uncredited total is under `MIN_REFUND_XMR`, which is less than the network fee to return it is worth. It stays on the account, visible, until there is more of it |
 | `off_platform_offer` | 400 | A listing, or a seller application, carried a wallet address, an email address, another messenger or an offer to be paid outside the escrow (ADR-0069). The message names the rule, never the pattern that matched |
 | `balance_not_empty` | 409 | Account deletion, with money still on the balance or held in an open order. Withdraw first — deleting must not silently keep it |
 | `unauthorized` | 401 | No session, or an expired one |
