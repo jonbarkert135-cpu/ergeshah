@@ -28,6 +28,7 @@ import { notify, notifyQuietly } from "../lib/notify.ts";
 import { decideWithdrawal, PLATFORM_ACCOUNT, setPayoutLimit } from "../lib/ledger.ts";
 import { solvency } from "../lib/deposits.ts";
 import { belowMinimumLiability } from "../lib/refunds.ts";
+import { penaliseSellerStanding, restoreSellerStanding } from "../lib/reputation.ts";
 import { quietly } from "../lib/monero.ts";
 
 export async function registerModerationRoutes(app: FastifyInstance): Promise<void> {
@@ -242,8 +243,19 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
     if (status === "suspended") {
       await destroyAllSessions(db, target.id);
       await db.run("UPDATE sellers SET status = 'suspended' WHERE user_id = ?", [target.id]);
+      // The listings go out of the catalogue with the suspension; the standing behind them
+      // used to survive it untouched, so a reinstated account came back above every seller
+      // who had been trading honestly throughout. It costs a level now (ADR-0072).
+      await penaliseSellerStanding(db, target.id, {
+        decayDays: app.config.sellerLevelDecayDays,
+      });
     } else {
       await db.run("UPDATE sellers SET status = 'active' WHERE user_id = ?", [target.id]);
+      // Back in the catalogue at the standing their own trade currently supports — the
+      // penalty stays, and so does whatever dormancy accumulated while they were gone.
+      await restoreSellerStanding(db, target.id, {
+        decayDays: app.config.sellerLevelDecayDays,
+      });
     }
     await notifyQuietly(db, {
       userId: target.id,

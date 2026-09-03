@@ -86,6 +86,12 @@ export interface Config {
    */
   minRefundPico: number;
   /**
+   * Days without a settled sale before a seller's level falls one step (ADR-0072). It is the
+   * catalogue's definition of "still trading": the level a seller earned is never deleted,
+   * but what the catalogue shows fades while they are away and comes back with one sale.
+   */
+  sellerLevelDecayDays: number;
+  /**
    * Where `monero-wallet-rpc` answers, on the internal network — `http://wallet:18082`.
    * Null means this deployment has no wallet tier: no deposit address is handed out, no scan
    * runs, and `GET /api/wallet` says top-ups are not open rather than inventing an address.
@@ -318,6 +324,11 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     autoPayoutMaxPico: picoFromEnv("AUTO_PAYOUT_MAX_XMR", process.env.AUTO_PAYOUT_MAX_XMR, "2"),
     minDepositPico: picoFromEnv("MIN_DEPOSIT_XMR", process.env.MIN_DEPOSIT_XMR, "0.02"),
     minRefundPico: picoFromEnv("MIN_REFUND_XMR", process.env.MIN_REFUND_XMR, "0.001"),
+    sellerLevelDecayDays: positiveInteger(
+      "SELLER_LEVEL_DECAY_DAYS",
+      process.env.SELLER_LEVEL_DECAY_DAYS,
+      90,
+    ),
     moneroWalletRpcUrl: walletRpcUrl(process.env.MONERO_WALLET_RPC_URL),
     depositConfirmations: positiveInteger(
       "DEPOSIT_CONFIRMATIONS",

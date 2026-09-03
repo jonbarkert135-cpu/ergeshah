@@ -88,9 +88,13 @@ of `below_minimum` before it is credited so it cannot be refunded twice. `MIN_RE
 the owner's screen and an operator settles it by hand. Uncredited dust is now counted as a
 liability on the treasury, which it always was.*
 
-- **PAY-5 — Level decay and a suspended seller's rank.** A level, once earned, does not fall.
-  A seller who stops trading keeps their catalogue position, and a suspension removes the
-  listings but not the standing behind them.
+*Shipped (PAY-5, 2026-09-03, ADR-0072): a level that falls. One step per
+`SELLER_LEVEL_DECAY_DAYS` (90) without a settled sale — reversible, because one sale restores
+the level the volume already paid for — and one step per suspension that reinstatement does not
+return. `sellers.last_settled_day` and `sellers.level_penalty` decide how much of the earned
+level the catalogue shows; the earned level itself is still a sum of real money movements and
+is never rewritten. Swept hourly from the housekeeping interval, idempotent, with the level and
+`listings.rank_key` written by one function so they cannot drift.*
 
 *Shipped: MKT-2, client-encrypted digital delivery with blind server-side storage. MKT-4,
 physical orders whose delivery details are a message rather than a database column.*

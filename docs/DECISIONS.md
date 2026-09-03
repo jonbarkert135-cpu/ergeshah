@@ -2208,3 +2208,59 @@ worse and considerably more honest. What is still manual is the case below the f
 who sent 0.0002 XMR once and never returns has money on this platform that only an operator
 can move, and the wallet screen says so in those words rather than implying it will be
 returned.
+
+## ADR-0072 — A level falls: dormancy fades it, a suspension costs it
+
+**Status:** accepted (2026-09-03)
+
+**Context.** ADR-0068 made standing expensive to fake — only money this escrow moved counts —
+and impossible to lose. Both halves of that were deliberate and only one was right. A level
+that rises and never falls means the catalogue is sorted by *history*: a seller who traded for
+a month in 2026 and left outranks everybody working today, forever, and a new seller's honest
+listing sits below a dead shop. Worse, a suspension hid a seller's listings and touched nothing
+else, so an account suspended during a fraud investigation and later reinstated came straight
+back above every seller who had been trading throughout. Roadmap PAY-5 is both.
+
+The constraint is that `settled_pico` and the count of completed orders are *facts*: they are
+sums of ledger movements and rows in `orders`, and nothing should delete them to express a
+policy about visibility.
+
+**Decision.** Keep the earned level as a derived fact and subtract from it.
+
+`standingLevel = max(0, levelFor(settled, completed) − dormancy_steps − level_penalty)`
+
+- **Dormancy is one step per `SELLER_LEVEL_DECAY_DAYS`** (default 90) since
+  `sellers.last_settled_day`, which a settled sale sets to today in the same statement that
+  adds the earnings. It is **reversible on purpose**: one sale restores the level the volume
+  already paid for. The question the catalogue answers is "who is trading here", and a seller
+  who returns after a year away *is* trading.
+- **A suspension is one step, and it stays.** `sellers.level_penalty` is incremented when a
+  moderator suspends the account (capped at 3, which is level 0 for anybody) and is *not*
+  decremented on reinstatement. The way back up is crossing the next volume threshold — more
+  trade — rather than an administrator's forgiveness, which keeps the mechanism out of the
+  business of measuring remorse.
+- **Two writers, one function.** A settled sale and an hourly sweep are the only things that
+  write a level, and both go through `writeLevel()`, which updates `sellers.level` and re-keys
+  `listings.rank_key` together or not at all. The pair drifting apart would be a catalogue
+  sorted by a number nobody can see.
+- **Nothing is decayed retroactively.** `last_settled_day` is null for a seller who earned
+  standing before the column existed; the sweep starts their clock at today rather than
+  reading null as "idle since the epoch".
+
+**Rejected:** computing the level from a trailing 90-day window instead of a cumulative total
+(cleaner in principle, and it makes `rank_key` — a stored column an index sorts by, ADR-0030 —
+wrong on every day boundary rather than when something happens); decaying `settled_pico`
+itself (it is a sum of real money movements and lying about it to express a ranking policy
+would corrupt the one number an operator reconciles against the wallet); resetting standing on
+suspension (a permanent death sentence delivered by one moderator's click, with no route back
+for a seller who was suspended in error); giving the level back on reinstatement (that is the
+state this ADR exists to fix); a nightly cron (the hourly housekeeping interval already exists,
+the sweep is idempotent and a no-op 23 times a day, and a second scheduler is a second thing
+to forget).
+
+**Consequences.** The catalogue now decays towards whoever is currently active, which is what a
+buyer wants and what a dormant seller will notice on their profile without being told. Two
+things are worth saying plainly: a seller reinstated after a *mistaken* suspension keeps the
+penalty — the honest remedy is trade, and an operator who wants to undo it has to write SQL,
+deliberately — and the sweep is a loop over sellers with a level, which is fine for this size
+of marketplace and is marked in the code as the place to write one joined UPDATE when it is not.

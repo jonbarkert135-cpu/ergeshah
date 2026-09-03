@@ -54,7 +54,7 @@ a blocked sender can still spend your rate-limit allowance and briefly occupy st
 | Storage flooding | `attachment` bucket (12 burst, 3/min), a byte-exact size cap, and a 30-day expiry. There is no per-account quota, because a quota needs an owner column | `routes/deliveries.ts`, migration 011 |
 | Listing spam | `listing_write`, `seller_application` buckets, and seller applications are approved by a human before anything can be listed | `routes/market.ts` |
 | Fake reputation | A review requires a *completed order*, counts once per buyer per seller, and the buyer count is published beside the average (ADR-0029) | `lib/reputation.ts` |
-| Bad sellers | Suspension, which also suspends the seller record and destroys their sessions; listing removal; the dispute record | `routes/moderation.ts` |
+| Bad sellers | Suspension, which also suspends the seller record, destroys their sessions and costs a standing level that reinstatement does not return (ADR-0072); listing removal; the dispute record | `routes/moderation.ts` |
 | Transaction disputes | A buyer moves the order to `disputed` with a reason, which files a report; a moderator settles it to `completed` or `cancelled`, and the settlement is audited | `routes/market.ts` |
 | Search and read abuse | `search`, `read` and `key_bundle` buckets; keyset pagination with no `OFFSET` and no total count | `lib/search.ts` |
 | Staff abuse | Every privileged action is written to `audit_log`, readable by all staff rather than only admins, and refusals are logged as route *patterns* | `lib/audit.ts` |

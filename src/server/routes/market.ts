@@ -518,7 +518,9 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
         });
         // Standing is counted here, from money this escrow actually moved (ADR-0068): a
         // sale settled elsewhere earns no level and no place in the catalogue.
-        await recordSettledSale(tx, order.seller_user_id, settled.earningsPico);
+        await recordSettledSale(tx, order.seller_user_id, settled.earningsPico, {
+          decayDays: app.config.sellerLevelDecayDays,
+        });
       } else if (next === "cancelled") {
         await releaseHold(tx, {
           userId: order.buyer_user_id,

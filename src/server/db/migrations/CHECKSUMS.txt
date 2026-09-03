@@ -13,3 +13,4 @@ sha256-DqnDOwFcWxo+wduIMBodTxL0+vXD1wmrVOX+rpYdgy8=  012_widen_timestamps.postgr
 sha256-cjClpfBx6VG0MdWq3+hqdwQtv5HBGlkZfl5ScEyXv2s=  013_price_xmr.sql
 sha256-oX3rEEANMUV9uKNjDZVQUfQbLYHoL+NWkvQOZt7+H/o=  014_balances.sql
 sha256-ic86MTPNU0s4QZyW8HrS6ToryCmJU0RKCwg5NVoCYQU=  015_seller_standing.sql
+sha256-BmHMULvdqZL/Gg2Upfqo9xUPNAupsuCTheBorHBhCbk=  016_seller_standing_decay.sql

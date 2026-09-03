@@ -264,7 +264,11 @@ Because the chat is end-to-end encrypted and stays unread, the rules that keep t
 platform are incentives and publishing rules, not surveillance:
 
 - a seller's **level** (0–3) comes only from settled on-platform orders, and the catalogue is
-  sorted by it, so a deal taken off the platform costs visibility (ADR-0068);
+  sorted by it, so a deal taken off the platform costs visibility (ADR-0068). It also **falls**:
+  one step per `SELLER_LEVEL_DECAY_DAYS` (90) without a settled sale, and one step per
+  suspension that reinstatement does not return (ADR-0072). The volume earned is never deleted
+  — one sale restores what dormancy took — so the catalogue answers "who is trading here" and
+  not "who once did";
 - a **listing** may not carry a wallet address, an email address, another messenger or a "pay
   me directly" offer (ADR-0069);
 - **reviews and ratings** count only completed on-platform orders, once per buyer (ADR-0029).

@@ -7,6 +7,7 @@ import { pruneRateLimits } from "./lib/rate_limit.ts";
 import { pruneAuditLog } from "./lib/audit.ts";
 import { backfillSearchIndex } from "./lib/search.ts";
 import { pruneNotifications } from "./lib/notify.ts";
+import { decaySellerLevels } from "./lib/reputation.ts";
 import { scanDeposits, solvency } from "./lib/deposits.ts";
 import { quietly } from "./lib/monero.ts";
 import { log } from "./lib/log.ts";
@@ -27,6 +28,10 @@ const housekeeping = setInterval(
         await db.run("DELETE FROM envelopes WHERE expires_at < ?", [Date.now()]);
         await pruneAuditLog(db, config.auditRetentionMs);
         await pruneNotifications(db, config.notificationRetentionMs);
+        // A seller's level falls if they stop trading (ADR-0072). Hourly rather than daily
+        // because it is cheap and idempotent, and an hourly job that is a no-op 23 times a
+        // day needs no scheduler of its own.
+        await decaySellerLevels(db, { decayDays: config.sellerLevelDecayDays });
       } catch (error) {
         log({ level: "error", event: "housekeeping.failed", message: (error as Error).message });
       }
