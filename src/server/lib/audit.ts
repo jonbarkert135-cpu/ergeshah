@@ -41,7 +41,14 @@ export type AuditAction =
   /** An administrator set or cleared an account's automatic payout ceiling. */
   | "payout_limit.set"
   /** An authenticated account was refused a privileged route: recorded, not silent. */
-  | "privileged.denied";
+  | "privileged.denied"
+  /**
+   * The operator froze every write on the deployment, or lifted the freeze (ADR-0080).
+   * Written by `scripts/incident.mjs` with no actor: nobody was signed in — it is a command
+   * run on the machine.
+   */
+  | "platform.locked_down"
+  | "platform.reopened";
 
 /**
  * How the action ended. A denied attempt is worth more than a successful one during an

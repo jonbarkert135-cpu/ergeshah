@@ -2542,3 +2542,100 @@ construction).
 **Consequences.** One failing sweep is now one log line with a name in it instead of five
 silent omissions. The module is deliberately 50 lines and has no state; if this project ever
 needs retries or fan-out, that is a queue in the database and a different decision.
+
+## ADR-0080 — Lockdown, not self-destruct
+
+**Status:** accepted (2026-09-03)
+
+**Context.** The proposal was a self-destruct: on detecting unauthorised access, stop the
+services and `rm -rf` the users, the orders, the payments and the logs. The instinct behind it
+is right — a breach should have a switch — and the mechanism is worse than the breach it
+answers, for four separate reasons.
+
+1. **The ledger is what the platform owes people.** Deleting `/data/payments` converts a
+   security incident into a theft from every seller with a balance, and there is no way back:
+   the money is still in the wallet and nobody can prove whose it is.
+2. **A trigger is a weapon.** Any detector precise enough to fire automatically is a
+   permanent denial of service handed to whoever can make it fire.
+3. **There is nothing readable to save.** Messages are end-to-end encrypted, the vault is
+   encrypted with a key the server never sees, and `log()` cannot record an address or a body
+   (`test/logging.test.ts`). The data the self-destruct would burn is the boring half — and
+   the evidence.
+4. **`fs.rm` does not erase anything.** On a journalling or copy-on-write filesystem it
+   unlinks. Erasure at rest is full-disk encryption plus destroying the key, which is an
+   operating-system operation (`docs/INCIDENT_RESPONSE.md`), not a loop in Node.
+
+**Decision.** Freeze, keep the evidence, keep the books.
+
+`scripts/incident.mjs lockdown:on --yes` writes one row, and while it exists:
+
+- **every write is refused** with `503 locked_down` — checked before CSRF and before
+  authentication, so it covers signed-in users, administrators, registration, login and the
+  payout worker's queue alike. A stolen admin session cannot move money; a stolen user session
+  cannot spend a balance; nothing leaves the wallet.
+- **every read still works.** Balances, orders, the catalogue, the treasury, the audit log. A
+  frozen marketplace that also hides balances is indistinguishable from an exit scam, and the
+  operator needs those same reads to work out what happened.
+- **nothing is deleted, and no session is revoked.** Revoking sessions is a separate command
+  for a separate belief about what was stolen; composing the two is the operator's call, and
+  it is spelled out in the output of `lockdown:on` rather than assumed.
+- **it is audited with no actor** (`platform.locked_down`), because nobody was signed in —
+  somebody ran a command on the machine.
+- The flag lives in the database, not in the environment, so throwing it needs no restart; it
+  is cached for two seconds, so a freeze does not add a query to every request forever. The
+  write that slips through in those two seconds is one the attacker was already making.
+
+**Rejected:** automatic triggering from a detector (see 2 above — and every candidate signal
+here, a failed admin login or a solvency shortfall, has innocent causes); deleting data on
+engage (see 1 and 3); an environment variable and a restart (a restart during an incident is
+the moment you least want to reload configuration); refusing reads as well (indistinguishable
+from an exit scam, and it blinds the operator); a per-route allowlist for admins during a
+freeze (the admin session is the one most likely to be the compromised one).
+
+**Consequences.** The switch exists and it is boring: it stops the bleeding, and it makes the
+operator do the thinking. What it does *not* do is protect against an attacker who already has
+the database file — for that the answers are disk encryption, the fact that message content is
+useless without client keys, and retention (`docs/DELETION.md`). The two-second cache means the
+freeze is immediate in practice and not instantaneous in theory.
+
+## ADR-0081 — No outbound webhooks: a seller polls, the server never calls out
+
+**Status:** accepted (2026-09-03)
+
+**Context.** A proposal from a payments product: a seller stores a URL, and the platform POSTs
+a signed payload to it when an order is paid, retrying every five minutes until it succeeds. It
+is a genuinely useful feature for a seller with their own systems, and it cannot be built here
+without breaking the property the deployment is shaped around.
+
+**Decision.** No outbound HTTP from the application, and therefore no webhooks. Sellers poll
+their own orders.
+
+- **The application container has no route to the internet.** `deploy/docker-compose.yml`
+  puts it on an `internal: true` network with no gateway; the only containers with egress are
+  the reverse proxy and, optionally, the Monero daemon — which holds no key
+  (`docs/NETWORK.md`). A webhook means giving the process that serves untrusted input the
+  ability to make requests, which is also the definition of an SSRF primitive.
+- **A URL a stranger supplies is a request the server makes on their behalf.** Even with
+  egress, the platform would be a proxy for probing anything reachable — the wallet RPC, the
+  database, a cloud metadata endpoint. Blocklists for that are a losing game.
+- **It leaks the thing the marketplace is careful about.** A webhook tells a third party — a
+  seller's VPS, often a cloud provider — that an order happened, when, and for how much. The
+  URL itself is a correlation handle stored in this database.
+- **`setTimeout` retries lose the notification at the next restart**, which turns "reliable
+  delivery" into a promise the platform cannot keep.
+
+The pull-shaped equivalent already exists and works over Tor: `GET /api/market/orders` and
+`GET /api/notifications`, which is how the client itself learns about an order (ADR-0032 — no
+push, no sockets). A seller who wants automation runs a script against those endpoints from
+their own machine, with their own session.
+
+**Rejected:** webhooks through the reverse proxy (moves the egress, keeps the SSRF and the
+metadata leak, and adds a proxy that can be asked to make arbitrary requests); an allowlist of
+approved webhook hosts (an operator maintaining a list of sellers' servers, forever); a
+queue-and-forward daemon on the host with egress (a second service to run, and it still tells
+a third party about every order).
+
+**Consequences.** Sellers automate by polling, which costs them a cron job and costs this
+platform nothing. What is genuinely missing for that audience is a **scoped, revocable
+read-only token** so a script does not need a full browser session — a real feature, in
+`docs/ROADMAP.md` as MKT-5 rather than pretended at here.

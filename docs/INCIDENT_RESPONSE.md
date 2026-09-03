@@ -89,6 +89,43 @@ npm run incident sessions:revoke alice -- --yes
 npm run incident links:purge -- --yes      # pending device-link codes, if any are open
 ```
 
+## 2a. The freeze: when you are not yet sure what happened
+
+Between "something is wrong" and "I know what to do" there is usually an hour, and during that
+hour a live attacker is still spending balances and approving payouts. That hour is what the
+freeze is for (ADR-0080):
+
+```bash
+npm run incident lockdown:on -- --note "unexplained admin login" --yes
+```
+
+While it is on, **every write in the deployment is refused with 503** — signed-in users,
+administrators, registration, login, and the payout worker's queue, so nothing leaves the
+wallet — and **every read still works**. That second half is deliberate: a marketplace that
+freezes *and* hides balances is indistinguishable, from the outside, from one that has run off
+with the money, and you need those same reads (the treasury, the queue, the audit log) to work
+out what happened.
+
+It touches no data and revokes no session. If you also believe a session was stolen, compose
+the two:
+
+```bash
+npm run incident sessions:revoke-all -- --yes
+```
+
+Lift it when you know what you are dealing with:
+
+```bash
+npm run incident lockdown:off -- --yes
+```
+
+**What this is not.** There is no self-destruct here and there will not be: deleting the
+ledger destroys the record of what this platform owes its sellers, an automatic trigger is a
+denial of service handed to whoever can fire it, and there is no readable message content on
+the server to save — it is encrypted end to end. Erasure at rest is full-disk encryption plus
+destroying the key, which is §4 and an operating-system operation, not something the
+application can do to itself.
+
 ## 3. Compromised server
 
 Assume the attacker had root on the VPS. What that gives them, precisely:
@@ -105,6 +142,8 @@ against its own server. Treat every session and every message sent *after* the c
 window began as suspect.
 
 ```bash
+# 0. If you are still deciding, freeze first (§2a): writes stop, reads and evidence stay.
+npm run incident lockdown:on -- --note "suspected host compromise" --yes
 # 1. Cut it off. Availability is the cheapest thing to sacrifice.
 docker compose -f deploy/docker-compose.yml stop app caddy tor
 # 2. Preserve: image or copy the disk, and the container logs, before anything else.

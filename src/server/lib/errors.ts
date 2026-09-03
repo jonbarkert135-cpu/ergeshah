@@ -34,6 +34,12 @@ export const forbidden = (message = "not allowed") => new HttpError(403, "forbid
 export const notFound = (message = "not found") => new HttpError(404, "not_found", message);
 export const conflict = (message: string, code = "conflict") => new HttpError(409, code, message);
 /**
+ * 503: the service is deliberately refusing to change anything. Used by the lockdown freeze
+ * (ADR-0080) — a 503 is the honest status for "working, but not accepting writes", and it
+ * tells a client to come back rather than to treat the request as invalid.
+ */
+export const lockedDown = (message: string) => new HttpError(503, "locked_down", message);
+/**
  * The bucket is empty. `retryAfterSeconds` is how long it takes to refill one token, sent
  * both as the standard header and in the body — a machine-readable answer needs no header
  * parsing, and the client shows it instead of inventing a backoff.

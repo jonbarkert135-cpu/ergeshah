@@ -252,6 +252,7 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `invalid_digest` | 400 | An evidence commitment was not 64 lower-case hex characters. The shape is the only thing this server can check about a digest — whether it is the digest of anything is between the two parties, who both have the file |
 | `already_committed` | 409 | The same digest is already on the record for this party and this order. Committing twice is one commitment |
 | `evidence_full` | 409 | Ten commitments from one party on one order is the limit: enough for any honest dispute, too few to use this as storage or as a channel |
+| `locked_down` | 503 | The operator has frozen the deployment (ADR-0080): every write is refused and every read still works. Nothing has been deleted; the message says so, because a bare 503 on a marketplace reads as "they have taken my money" |
 | `nothing_to_refund` | 409 | A refund was asked for and this account has no uncredited top-up — already refunded, already settled by an operator, or never there |
 | `refund_too_small` | 400 | The uncredited total is under `MIN_REFUND_XMR`, which is less than the network fee to return it is worth. It stays on the account, visible, until there is more of it |
 | `off_platform_offer` | 400 | A listing, or a seller application, carried a wallet address, an email address, another messenger or an offer to be paid outside the escrow (ADR-0069). The message names the rule, never the pattern that matched |

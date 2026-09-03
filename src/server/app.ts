@@ -1,7 +1,8 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { Config } from "./config.ts";
 import type { Db } from "./db/index.ts";
-import { HttpError, unauthorized, forbidden, isConstraintViolation } from "./lib/errors.ts";
+import { isLockedDown } from "./lib/lockdown.ts";
+import { HttpError, unauthorized, forbidden, isConstraintViolation, lockedDown } from "./lib/errors.ts";
 import { parseCookies, serializeCookie } from "./lib/cookies.ts";
 import { resolveSession, type SessionUser } from "./lib/sessions.ts";
 import { requireProofOfWork } from "./lib/pow.ts";
@@ -172,6 +173,16 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
 
   app.addHook("preHandler", async (request, reply) => {
     if (!request.url.startsWith("/api/")) return;
+    // The freeze (ADR-0080), before anything else: while it is on, this service accepts no
+    // writes at all, and it says that rather than answering a CSRF or authentication error
+    // to a request it was never going to perform. It covers the routes that have no session
+    // either — registration, login, and the payout worker's queue.
+    if (request.method !== "GET" && request.method !== "HEAD" && (await isLockedDown(db))) {
+      throw lockedDown(
+        "this marketplace is temporarily frozen by its operator: nothing can be changed, " +
+          "and nothing has been lost. Your balance and your orders are still readable.",
+      );
+    }
     enforceCsrf(request, reply);
     // Resolve the session once, before the handler runs, and without deciding anything:
     // routes still call `authenticate`, and public routes still work without a session.

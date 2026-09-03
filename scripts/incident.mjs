@@ -13,6 +13,8 @@
  *   node scripts/incident.mjs suspend <username> --reason "under investigation" --yes
  *   node scripts/incident.mjs reinstate <username> --yes
  *   node scripts/incident.mjs links:purge --yes                  # pending device links
+ *   node scripts/incident.mjs lockdown:on --yes [--note "…"]     # freeze every write
+ *   node scripts/incident.mjs lockdown:off --yes                 # thaw
  *
  * What it deliberately cannot do: read a message, read a vault, change a password, or mint
  * a session. None of those would help an incident, and each would turn this file into the
@@ -24,9 +26,12 @@
  * device that can no longer read them.
  */
 import { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 
 const DESTRUCTIVE = new Set([
+  "lockdown:on",
+  "lockdown:off",
   "sessions:revoke-all",
   "sessions:revoke",
   "devices:revoke",
@@ -116,8 +121,22 @@ function status(db) {
     `undelivered:       ${count(db, "SELECT COUNT(*) AS n FROM envelopes")}`,
     `pending links:     ${count(db, "SELECT COUNT(*) AS n FROM device_links")}`,
     `open challenges:   ${count(db, "SELECT COUNT(*) AS n FROM auth_challenges")}`,
+    // First line an operator wants when the service is answering 503 to every write.
+    `lockdown:          ${count(db, "SELECT COUNT(*) AS n FROM lockdown") > 0 ? "ON — every write refused" : "off"}`,
   ];
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * An entry in the same audit log the application writes, with no actor: nobody was signed
+ * in — this is a command run on the machine. An incident nobody can reconstruct afterwards
+ * is an incident that happens twice.
+ */
+function audit(db, action, note) {
+  db.prepare(
+    `INSERT INTO audit_log (id, actor_user_id, action, subject_type, subject_id, note, result, created_at)
+     VALUES (?, NULL, ?, 'platform', 'platform', ?, 'ok', ?)`,
+  ).run(randomUUID(), action, note.slice(0, 64), Date.now());
 }
 
 function revokeDevices(db, username, deviceId) {
@@ -162,7 +181,9 @@ function main(argv) {
         "  devices:revoke <username>       revoke devices, drop their prekeys and envelopes\n" +
         "  suspend <username> --reason …   suspend an account (its sessions stop working)\n" +
         "  reinstate <username>            undo a suspension\n" +
-        "  links:purge                     delete pending device-link authorisations\n",
+        "  links:purge                     delete pending device-link authorisations\n" +
+        "  lockdown:on --note …            freeze every write; reads keep working\n" +
+        "  lockdown:off                    thaw\n",
     );
     return;
   }
@@ -211,6 +232,30 @@ function main(argv) {
           userIdOf(db, username),
         );
         process.stdout.write(`reinstated @${username}\n`);
+        return;
+      }
+      case "lockdown:on": {
+        const note = typeof flags.note === "string" ? flags.note.slice(0, 200) : "incident";
+        // A freeze is not destructive and not a deletion: it stops every write, keeps the
+        // books and the evidence, and leaves reads working (ADR-0080).
+        db.prepare(
+          "INSERT INTO lockdown (id, engaged_at, note) VALUES (1, ?, ?) " +
+            "ON CONFLICT (id) DO UPDATE SET engaged_at = excluded.engaged_at, note = excluded.note",
+        ).run(Date.now(), note);
+        audit(db, "platform.locked_down", note);
+        process.stdout.write(
+          `lockdown ON (${note}): every write is refused with 503, reads still work.\n` +
+            "sessions are untouched — run sessions:revoke-all as well if you believe one was stolen.\n" +
+            "the payout worker's queue is frozen too, so nothing leaves the wallet.\n",
+        );
+        return;
+      }
+      case "lockdown:off": {
+        const gone = db.prepare("DELETE FROM lockdown").run().changes;
+        if (gone > 0) audit(db, "platform.reopened", "lockdown lifted");
+        process.stdout.write(
+          gone > 0 ? "lockdown off: writes accepted again\n" : "lockdown was not on\n",
+        );
         return;
       }
       case "links:purge": {

@@ -189,3 +189,36 @@ describe("what it refuses to be", () => {
     }
   });
 });
+
+describe("the freeze (ADR-0080)", () => {
+  it("turns every write off, keeps the books, and can be lifted", async () => {
+    const engaged = run(["lockdown:on", "--note", "unexplained admin login", "--yes"]);
+    expect(engaged).toContain("lockdown ON");
+    // What it is *not*: a deletion. The accounts, sessions and history are all still there —
+    // the ledger is the record of what this platform owes people.
+    expect(await db.all("SELECT id FROM users")).toHaveLength(2);
+    expect(await db.all("SELECT id FROM sessions")).toHaveLength(2);
+    const row = await db.get<{ note: string }>("SELECT note FROM lockdown WHERE id = 1");
+    expect(row?.note).toBe("unexplained admin login");
+    // And it is in the audit log with no actor, because nobody was signed in.
+    const audited = await db.get<{ action: string; actor_user_id: string | null }>(
+      "SELECT action, actor_user_id FROM audit_log ORDER BY created_at DESC",
+    );
+    expect(audited).toMatchObject({ action: "platform.locked_down", actor_user_id: null });
+
+    expect(run(["status"])).toContain("lockdown:          ON");
+    // Throwing it twice is not an error: an operator repeating a command at 3am should not
+    // have to think about whether it already worked.
+    expect(run(["lockdown:on", "--note", "again", "--yes"])).toContain("lockdown ON");
+    expect(await db.all("SELECT id FROM lockdown")).toHaveLength(1);
+
+    expect(run(["lockdown:off", "--yes"])).toContain("writes accepted again");
+    expect(await db.all("SELECT id FROM lockdown")).toHaveLength(0);
+    expect(run(["lockdown:off", "--yes"])).toContain("was not on");
+    expect(run(["status"])).toContain("lockdown:          off");
+  });
+
+  it("refuses to freeze without --yes", () => {
+    expect(() => run(["lockdown:on"])).toThrow(/--yes/);
+  });
+});

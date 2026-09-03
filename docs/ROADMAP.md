@@ -107,6 +107,11 @@ with a caption saying exactly what they prove: that a story has not changed, and
 The file never leaves the encrypted channel. Escrow shipped earlier with ADR-0066.*
 
 - **MKT-3 — Categories, pagination and search quality.** Currently a `LIKE` query.
+- **MKT-5 — A scoped, revocable read token for a seller's own scripts.** Sellers automate by
+  polling (ADR-0081: this server makes no outbound requests), and today that means a script
+  holding a full browser session. What is wanted: a token a seller creates and revokes
+  themselves, read-only, scoped to their own orders and notifications, rate-limited on its own
+  bucket, and never able to move money or read a message.
 
 ## Operations
 

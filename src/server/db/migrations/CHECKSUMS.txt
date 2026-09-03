@@ -17,3 +17,4 @@ sha256-BmHMULvdqZL/Gg2Upfqo9xUPNAupsuCTheBorHBhCbk=  016_seller_standing_decay.s
 sha256-2L0GIUFzGZTWaeSDrhJOcwmKS7iABGbZ8T9yjj/PdOo=  017_withdrawal_claimed_at.sql
 sha256-G4P/8qLg3f//9mSxTZwaqB3T+JSXEbtFC75wwj67Dzg=  018_order_evidence.sql
 sha256-GqOgMgb6dgg2stwMjxxjKYdYS4yVNypTVuhA12JgsZU=  019_withdrawal_approvals.sql
+sha256-W9qOanPPtayTo4uc17+eea6yoSfOQiaJ93p5fpSX3u8=  020_lockdown.sql

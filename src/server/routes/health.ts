@@ -17,6 +17,7 @@ import { dirname } from "node:path";
 import { freemem, loadavg, totalmem, cpus } from "node:os";
 import type { FastifyInstance } from "fastify";
 import { requestMetrics } from "../lib/metrics.ts";
+import { isLockedDown } from "../lib/lockdown.ts";
 
 /** CPU time this process has used, as a share of one core, since it started. */
 function cpuPercent(): number {
@@ -66,6 +67,9 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
 
     return {
       status: databaseOk ? "ok" : "degraded",
+      // Whether the operator's freeze is on (ADR-0080). A boolean, and the first thing to
+      // check when every write in the service is answering 503.
+      lockdown: await isLockedDown(db),
       uptimeSeconds: Math.round(process.uptime()),
       process: {
         cpuPercent: cpuPercent(),
