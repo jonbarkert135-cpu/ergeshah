@@ -20,6 +20,7 @@ interface Queue {
       seller: string;
       updatedOn: string;
       sellerRecord: { completedOrders: number; disputedOrders: number; distinctReviewers: number; averageRating: number | null };
+      buyerRecord: { completedOrders: number; disputedOrders: number; disputeRate: number; orders: number };
       evidence: Array<{ by: string; kind: string; digest: string; on: string; beforeDispute: boolean }>;
     } | null;
   }>;
@@ -139,6 +140,19 @@ export function renderModeration(root: HTMLElement): void {
                 `${order.title} (${order.kind}), ${formatPrice(order.priceXmr)} · buyer @${order.buyer}, seller @${order.seller} · ${order.status} since ${order.updatedOn}. ` +
                   `Seller record: ${order.sellerRecord.completedOrders} completed, ${order.sellerRecord.disputedOrders} disputed, ` +
                   (order.sellerRecord.averageRating === null ? "no reviews." : `★ ${order.sellerRecord.averageRating} from ${order.sellerRecord.distinctReviewers} buyers.`),
+              )
+            : null,
+          order
+            ? el(
+                "p",
+                { class: "muted small" },
+                // The other side of the argument. Facts, not a verdict: the moderator decides
+                // (ADR-0083).
+                `Buyer record: ${order.buyerRecord.orders} orders, ${order.buyerRecord.completedOrders} completed, ` +
+                  `${order.buyerRecord.disputedOrders} disputed` +
+                  (order.buyerRecord.orders >= 4
+                    ? ` (${order.buyerRecord.disputeRate}% of their orders).`
+                    : "."),
               )
             : null,
           order && order.evidence.length > 0 ? evidenceCard(order.evidence) : null,

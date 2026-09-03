@@ -154,3 +154,4 @@ or if a record is missing a section.
 | [ADR-0080](../DECISIONS.md#adr-0080--lockdown-not-self-destruct) | Lockdown, not self-destruct |
 | [ADR-0081](../DECISIONS.md#adr-0081--no-outbound-webhooks-a-seller-polls-the-server-never-calls-out) | No outbound webhooks: a seller polls, the server never calls out |
 | [ADR-0082](../DECISIONS.md#adr-0082--categories-are-folded-seller-words-not-an-enum) | Categories are folded seller words, not an enum |
+| [ADR-0083](../DECISIONS.md#adr-0083--second-review-anonymous-payment-splitting-deposits-automatic-disputes-bonds) | Second review: anonymous payment splitting, deposits, automatic disputes, bonds |

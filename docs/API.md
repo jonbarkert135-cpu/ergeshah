@@ -216,7 +216,7 @@ result, including refusals (`docs/PRIVACY.md`, ADR-0024).
 
 | Method & path | Auth | Limit | Purpose |
 | --- | --- | --- | --- |
-| `GET /api/moderation/queue` | staff | `moderation` | Open reports and pending applications. A report about an order carries the order's public facts and the seller's record (completed and disputed orders, distinct reviewers) — never its channel |
+| `GET /api/moderation/queue` | staff | `moderation` | Open reports and pending applications. A report about an order carries the order's public facts and both parties' records — the seller's (completed and disputed orders, distinct reviewers) and the buyer's (orders, completed, disputed, and disputes as a share of their orders; ADR-0083) — never its channel |
 | `POST /api/moderation/reports` | session | `moderation` | Report a listing, review, user or order. `reason: dispute` is refused here — disputes are opened on the order by its buyer |
 | `POST /api/moderation/reports/:id/resolve` | staff | `moderation` | Close a report with a note |
 | `POST /api/moderation/seller-applications/:id/decide` | staff | `moderation` | Approve or reject an application |

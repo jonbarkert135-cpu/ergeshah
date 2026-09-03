@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { approveSeller, promote, register, startTestServer, type TestServer } from "./helpers.ts";
+import { approveSeller, fund, promote, register, startTestServer, type TestServer } from "./helpers.ts";
 
 let server: TestServer;
 
@@ -123,5 +123,57 @@ describe("moderation powers and their limits", () => {
       // The only table that holds ciphertext must never be read by moderation code.
       if (file === "moderation.ts") expect(text).not.toContain("envelopes");
     }
+  });
+});
+
+describe("what a moderator sees about both sides of a dispute (ADR-0083)", () => {
+  it("shows the buyer's record beside the seller's, and no verdict", async () => {
+    const moderator = await register(server, "referee2");
+    await promote(server, "referee2", "moderator");
+    const seller = await register(server, "vendor2");
+    await approveSeller(server, seller, "Vendor Two");
+    const listings: string[] = [];
+    for (const title of ["A thing that will be argued about", "Another thing, same story"]) {
+      const created = await seller.post<{ id: string }>("/api/market/listings", {
+        title,
+        description: "A description long enough to satisfy the validator on this route, honestly.",
+        category: "software",
+        kind: "digital_good",
+        priceXmr: "0.1",
+      });
+      listings.push(created.body.id);
+    }
+    const buyer = await register(server, "serialdisputer");
+    await fund(server, buyer, "1");
+
+    // Two orders, both disputed: the pattern the seller's record alone cannot show.
+    for (const listingId of listings) {
+      const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
+      await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
+      await buyer.post(`/api/market/orders/${order.body.id}/status`, {
+        status: "disputed",
+        reason: "Nothing was delivered and the seller has stopped answering me entirely.",
+      });
+    }
+
+    const queue = await moderator.get<{
+      reports: Array<{
+        order: {
+          buyerRecord: { orders: number; completedOrders: number; disputedOrders: number; disputeRate: number };
+          sellerRecord: { completedOrders: number };
+        } | null;
+      }>;
+    }>("/api/moderation/queue");
+    expect(queue.status).toBe(200);
+    const entry = queue.body.reports.find((report) => report.order !== null);
+    expect(entry?.order?.buyerRecord).toEqual({
+      orders: 2,
+      completedOrders: 0,
+      disputedOrders: 2,
+      disputeRate: 100,
+    });
+    // And the seller's record is still there: the queue gained a second column, not a score
+    // that decides anything.
+    expect(entry?.order?.sellerRecord.completedOrders).toBe(0);
   });
 });

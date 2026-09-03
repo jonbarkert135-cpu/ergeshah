@@ -113,6 +113,13 @@ The file never leaves the encrypted channel. Escrow shipped earlier with ADR-006
   it. Ranking by match quality conflicts with the keyset cursor, which is the listing's stored
   rank key; doing both needs either a second sort key computed per query or an accepted limit
   on how deep a relevance-ordered search can page.
+- **MKT-6 — A seller bond (ADR-0083).** A seller may stake XMR from their own balance, held
+  by the ledger like any other hold and shown on their listings as a number a buyer can read.
+  A moderator who upholds a dispute may take the buyer's loss out of it, which makes the bond
+  a compensation fund rather than a fine: nothing is burnt and nothing goes to the platform.
+  Released on request after a cool-off with no open disputes. Needs: a `bonds` table, a hold
+  the payout path already understands, one moderation action, the number on the listing card,
+  and a rule for what happens to the bond of a suspended seller.
 - **MKT-5 — A scoped, revocable read token for a seller's own scripts.** Sellers automate by
   polling (ADR-0081: this server makes no outbound requests), and today that means a script
   holding a full browser session. What is wanted: a token a seller creates and revokes
@@ -149,6 +156,12 @@ this project does not have (ADR-0051).*
 `docs/AUDIT.md`. Reproducible client builds (OPS-1) with published digests, subresource
 integrity and `npm run audit:deployment`.*
 
+- **OPS-7 — A canary (ADR-0083).** A short statement the operator signs and refreshes on a
+  schedule — no warrant received, no key handed over — published with the date it was signed
+  and the date the next one is due. The client shows its age, so a canary nobody has refreshed
+  in six weeks is visible to every user rather than to nobody. Needs: a signed text an admin
+  posts, a public endpoint, a line in the footer, and no cleverness at all — the value is in
+  the operator's signature and in users noticing it went stale.
 - **OPS-3 — Container image signing and an SBOM.**
 - **OPS-6 — The first real deployment.** Every step in `docs/DEPLOYMENT.md` has been
   rehearsed locally, including a restore drill on a production-mode instance

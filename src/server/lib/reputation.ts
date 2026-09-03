@@ -293,3 +293,45 @@ export async function sellerReputation(db: Db, sellerUserId: string) {
     disputedOrders: Number(orders?.disputed ?? 0),
   };
 }
+
+/**
+ * What a moderator is allowed to know about the *buyer* in a dispute (ADR-0083).
+ *
+ * The proposal this answers computed a "trust coefficient" for both parties and awarded the
+ * money to the higher one automatically. That is refused — a score that decides disputes is a
+ * score worth farming, and it convicts every new account by construction. What is true in it
+ * is that the moderator was working half-blind: the queue showed the seller's record and
+ * nothing at all about the person on the other side, and the pattern that actually costs
+ * money here is one buyer disputing everything they order.
+ *
+ * So: the same shape of facts, for the other party, with no verdict attached. Every number is
+ * derived from orders that already exist — nothing new is recorded about anybody, and there
+ * is no response-time or activity metric, because this project does not keep the timestamps
+ * that would need.
+ */
+export async function buyerRecord(db: Db, buyerUserId: string) {
+  const orders = await db.get<{ completed: number; disputed: number; total: number }>(
+    `SELECT
+       (SELECT COUNT(*) FROM orders WHERE buyer_user_id = ? AND status = 'completed') AS completed,
+       (SELECT COUNT(DISTINCT e.order_id) FROM order_events e JOIN orders o ON o.id = e.order_id
+         WHERE o.buyer_user_id = ? AND e.to_status = 'disputed') AS disputed,
+       (SELECT COUNT(*) FROM orders WHERE buyer_user_id = ?) AS total`,
+    [buyerUserId, buyerUserId, buyerUserId],
+  );
+  const completed = Number(orders?.completed ?? 0);
+  const disputed = Number(orders?.disputed ?? 0);
+  const total = Number(orders?.total ?? 0);
+  return {
+    completedOrders: completed,
+    /** Orders this buyer disputed at any point, whichever way they were settled. */
+    disputedOrders: disputed,
+    /**
+     * Disputes as a share of everything they ordered, rounded to a percent — the one number
+     * a moderator would otherwise compute in their head, and the one that separates "an
+     * unlucky order" from "this is how they shop". It decides nothing on its own: a buyer
+     * with two orders and one dispute reads 50% and means nothing.
+     */
+    disputeRate: total === 0 ? 0 : Math.round((disputed / total) * 100),
+    orders: total,
+  };
+}

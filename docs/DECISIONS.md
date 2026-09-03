@@ -2678,3 +2678,36 @@ thing to garbage-collect, for a string).
 sellers from choosing "software" and "software tools", and the counts make that visible rather
 than fixing it. If the untidiness ever matters more than the freedom, the fix is a merge tool
 for moderators, not an enum.
+
+## ADR-0083 — Second review: anonymous payment splitting, deposits, automatic disputes, bonds
+
+**Status:** accepted (2026-09-03)
+
+**Context.** A second batch of mechanisms proposed from other privacy marketplaces:
+multi-address payment distribution, a double deposit, automatic dispute resolution from a
+trust score, a vendor bond, plus principles (encrypted logs, uniform errors, automatic
+anomaly blocking, memory-only storage, price adjustment, a dead man's switch). This ADR
+records what was implemented, what was changed, and what was refused with the reason —
+refusals included, so nobody re-proposes them from scratch.
+
+| Proposal | Verdict |
+| --- | --- |
+| Multi-address distribution (split a payment over 3–5 subaddresses) | **Refused.** It is a Bitcoin defence applied to Monero. RingCT hides amounts and stealth addresses hide recipients: there is no "full amount" to correlate on-chain. Meanwhile the buyer would pay 3–5 transaction fees, wait for 3–5 confirmations, and every partially arrived payment would become a support case. This deployment already derives a fresh subaddress per deposit, which is the part of the idea that is real |
+| Double deposit (both parties stake 10–20%) | **Refused as designed.** The buyer's money is already escrowed for the whole price, so their stake adds nothing; the seller's stake is the good half and is the bond below. The forfeiture rule also creates an incentive to provoke a breach ruling, and it prices out exactly the buyer this marketplace is for — someone with one order's worth of XMR and no float |
+| Automatic dispute resolution by trust score | **Refused, and the useful half implemented.** A score that decides who gets the money is a score worth farming: complete fifty small self-dealt orders and every dispute after that is won automatically. It also convicts every new account by construction, and `averageResponseTime` needs message timing this project deliberately does not store. What was true is that the moderator was working half-blind — the queue showed the seller's record and nothing about the buyer. It now shows both, including the share of that buyer's orders that ended in a dispute, with no verdict attached |
+| Vendor bond | **Accepted, redesigned, and queued as MKT-6.** Money staked by a seller is a real signal and a real compensation fund. Two changes: a forfeited bond goes to the buyers who were harmed, never burnt and never to the platform (a platform that profits from forfeiture will find reasons to forfeit), and the trigger is a moderator's decision on an upheld dispute, not a complaint counter — three complaints as an automatic trigger is three coordinated accounts away from robbing an honest seller |
+| Automatic price adjustment to the XMR rate | **Refused.** Prices here are denominated in XMR because that is what is settled; an exchange rate needs an outbound request to a third party, which the application container cannot make and would not be told the truth by (ADR-0081). A seller who prices against a fiat number can edit their listing |
+| Encrypted logs, minimal logging | **Already the case, encryption refused** (ADR-0075): `log()` takes a level and a message, cannot record an address, a body or a URL, and is enforced by `test/logging.test.ts`. Encrypting what is left needs a key on the same host and buys nothing |
+| One uniform error for everything | **Refused.** The client, the documentation and the tests are built on distinct error codes, and a single "Operation failed" is a support burden paid by honest users. The specific concern — telling an attacker whether an account exists — is already handled where it matters: login does constant work and answers one message for both cases |
+| Automatic blocking on anomalies | **Refused.** An automatic block is a denial of service anybody can trigger against a competitor. The rate limits are already per-account and per-route, and suspension stays a human decision that is audited and reversible |
+| Memory-only storage | **Refused.** The ledger is what this platform owes its sellers; losing it on restart is not a privacy feature |
+| Dead man's switch | **Half refused, half queued as OPS-7.** Deleting data when the operator stops appearing is ADR-0080 again, with a longer fuse. The mechanism that does work is a canary: a short signed statement the operator refreshes, published with its date, so users can see for themselves that nobody has refreshed it in six weeks |
+| Ephemeral keys, no metadata storage | **Already the case:** X3DH one-time prekeys consumed on use with a signed prekey that rotates (ADR-0078), and message rows that carry sender, recipient, ciphertext and time and nothing else |
+
+**Decision.** Implement the buyer's record in the dispute queue; queue MKT-6 and OPS-7; refuse
+the rest as above.
+
+**Consequences.** The moderation queue gained facts, not automation: a moderator can see a
+serial disputer in one line, and they still have to decide. The two accepted-but-unbuilt items
+are on the roadmap with their designs, which is where a good idea that has not been built
+belongs.

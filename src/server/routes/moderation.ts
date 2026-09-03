@@ -39,6 +39,7 @@ import { solvency } from "../lib/deposits.ts";
 import { belowMinimumLiability } from "../lib/refunds.ts";
 import { evidenceForOrder } from "../lib/evidence.ts";
 import {
+  buyerRecord,
   penaliseSellerStanding,
   restoreSellerStanding,
   sellerReputation,
@@ -664,6 +665,10 @@ async function orderSummary(app: FastifyInstance, id: string) {
     seller: row.seller,
     updatedOn: dayToIsoDate(Math.floor(row.updated_at / 86_400_000)),
     sellerRecord: await sellerReputation(app.db, row.seller_user_id),
+    // The other side of the argument, in the same shape and with no verdict attached
+    // (ADR-0083). A moderator who can see only the seller's record cannot see the buyer who
+    // disputes everything they order.
+    buyerRecord: await buyerRecord(app.db, row.buyer_user_id),
     // The digests both parties committed to, and whether each was published before the
     // argument started (ADR-0074). It is not evidence that a file was good — it is proof
     // that neither side's story has changed since.
