@@ -16,6 +16,7 @@ import { registerKeyRoutes } from "./routes/keys.ts";
 import { registerMessageRoutes } from "./routes/messages.ts";
 import { registerMarketRoutes } from "./routes/market.ts";
 import { registerDeliveryRoutes } from "./routes/deliveries.ts";
+import { registerEvidenceRoutes } from "./routes/evidence.ts";
 import { registerWalletRoutes } from "./routes/wallet.ts";
 import { registerPayoutRoutes } from "./routes/payouts.ts";
 import { registerModerationRoutes } from "./routes/moderation.ts";
@@ -254,6 +255,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   await registerMessageRoutes(app);
   await registerMarketRoutes(app);
   await registerDeliveryRoutes(app);
+  await registerEvidenceRoutes(app);
   await registerWalletRoutes(app);
   await registerPayoutRoutes(app);
   await registerModerationRoutes(app);

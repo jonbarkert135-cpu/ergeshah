@@ -2313,3 +2313,56 @@ judgement with real consequences: a wrong "it never left" pays the payee twice, 
 says exactly that before the button works. The two-hour threshold is a constant rather than
 configuration, on the grounds that an operator who needs a different number has a different
 problem; it moves to `config.ts` the first time somebody asks.
+
+## ADR-0074 — Dispute evidence is a keyed commitment, and the file never arrives
+
+**Status:** accepted (2026-09-03)
+
+**Context.** A dispute here is two stories. The buyer says the archive was broken, the seller
+says they sent the right one, and the channel between them is end-to-end encrypted, so a
+moderator has prose, the order's public facts and the seller's record (ADR-0029, ADR-0068) —
+nothing that connects either story to a file. Roadmap MKT-1 asked for the missing piece.
+
+The obvious answer is the wrong one. A marketplace that lets parties upload evidence becomes a
+marketplace that stores other people's files, reads them, is asked to hand them over, and has
+to moderate them; it also destroys the property the rest of this project is built on. So the
+question is what a server that must **not** see a file can usefully hold.
+
+**Decision.** A commitment, computed in the browser, keyed to the order.
+
+- **`HMAC-SHA256(order id, file bytes)`**, hex, 64 characters. Keyed rather than a bare
+  SHA-256, and this is the whole privacy argument: a bare hash of a file that exists anywhere
+  else is recognisable to anybody who has that file, so a table of bare hashes would answer
+  "did these two exchange this known file?" for any stranger who guessed. The order id is
+  unguessable (a v4 UUID) and known to precisely the people entitled to check — the two
+  parties, and a moderator once there is a dispute.
+- **The server validates the shape and stores it.** It never computes a digest, never sees a
+  file, and never claims a digest corresponds to anything. `order_evidence` has six columns
+  and not one that could hold a file or a sentence; `test/evidence.test.ts` asserts the column
+  list, so a future commit cannot quietly add `note TEXT`.
+- **The record carries `beforeDispute`.** A digest published before the argument started
+  cannot be swapped for a more convenient one afterwards; one published after is worth less,
+  and a moderator should not have to work that out from two timestamps. The moderator and the
+  parties read the same list, because a dispute where they see different records is one nobody
+  can trust.
+- **Only a party may commit, only while the order is live, ten times at most.** A moderator
+  may read and never add — a moderator putting a fact into a case they are about to decide is
+  not a route. After `completed` or `cancelled` there is nothing left to argue about. Ten is
+  more than an honest dispute needs and few enough that this is not storage.
+- **What it proves is stated in the interface**, under the table, in those words: that a story
+  has not changed since it was told. Not that a file was good, not that it was delivered.
+
+**Rejected:** uploading evidence (a file store this project refuses to be, plus a moderation
+surface, plus a subpoena target); a bare SHA-256 (turns the table into an index of who holds
+which known file); a server-side hash of a file streamed through the server (the server would
+have the bytes — the thing being avoided); a third-party timestamping authority or a chain
+anchor (an external dependency and a public record of when a dispute happened, to prove a
+minute nobody is arguing about); free text beside the digest (the one piece of dispute prose
+this platform stores is the buyer's reason in `reports`, and a second unmoderated text field
+on an order is a channel).
+
+**Consequences.** A moderator can now catch the specific lie this mechanism is aimed at: a
+party who committed to a digest before the dispute and then produces a different file. What it
+cannot do is tell a moderator who is right when neither side committed anything, which will be
+most disputes for a while — the feature only helps people who used it before they needed it,
+and the order screen offers it on every live order for exactly that reason.

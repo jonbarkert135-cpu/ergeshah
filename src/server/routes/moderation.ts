@@ -36,6 +36,7 @@ import {
 } from "../lib/ledger.ts";
 import { solvency } from "../lib/deposits.ts";
 import { belowMinimumLiability } from "../lib/refunds.ts";
+import { evidenceForOrder } from "../lib/evidence.ts";
 import {
   penaliseSellerStanding,
   restoreSellerStanding,
@@ -616,11 +617,12 @@ async function orderSummary(app: FastifyInstance, id: string) {
     price_pico: number;
     buyer: string;
     seller: string;
+    buyer_user_id: string;
     seller_user_id: string;
     updated_at: number;
   }>(
     `SELECT o.id, o.status, l.title, l.kind, o.price_pico, o.updated_at, o.seller_user_id,
-            b.username AS buyer, s.username AS seller
+            o.buyer_user_id, b.username AS buyer, s.username AS seller
        FROM orders o
        JOIN listings l ON l.id = o.listing_id
        JOIN users b ON b.id = o.buyer_user_id
@@ -639,5 +641,9 @@ async function orderSummary(app: FastifyInstance, id: string) {
     seller: row.seller,
     updatedOn: dayToIsoDate(Math.floor(row.updated_at / 86_400_000)),
     sellerRecord: await sellerReputation(app.db, row.seller_user_id),
+    // The digests both parties committed to, and whether each was published before the
+    // argument started (ADR-0074). It is not evidence that a file was good — it is proof
+    // that neither side's story has changed since.
+    evidence: await evidenceForOrder(app.db, row),
   };
 }

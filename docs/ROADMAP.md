@@ -99,10 +99,13 @@ bytes with the kind carried in the channel), disputes filed with a reason into t
 queue with the order's public facts and the seller's record, per-buyer ratings with the buyer
 count published, and an audited `order.settled` action.*
 
-- **MKT-1 — Escrow and dispute evidence.** Today a moderator reads the buyer's stated reason
-  and the public facts; evidence stays in the encrypted channel, described in words. What
-  remains: a hash of exchanged evidence committed server-side, so a party cannot later
-  claim a different file was sent. Escrow shipped with ADR-0066: the price is held from the buyer's balance while the order runs.
+*Shipped (MKT-1, 2026-09-03, ADR-0074): dispute evidence, without the evidence. A party
+commits `HMAC-SHA256(order id, file bytes)` — computed in the browser, keyed so that a
+stranger holding the same file recognises nothing — and the record carries the date and
+whether it was published before the dispute. The moderation queue shows both sides' digests
+with a caption saying exactly what they prove: that a story has not changed, and nothing more.
+The file never leaves the encrypted channel. Escrow shipped earlier with ADR-0066.*
+
 - **MKT-3 — Categories, pagination and search quality.** Currently a `LIKE` query.
 
 ## Operations

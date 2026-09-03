@@ -145,3 +145,4 @@ or if a record is missing a section.
 | [ADR-0071](../DECISIONS.md#adr-0071--uncredited-dust-goes-back-to-its-payer-and-the-refund-pays-its-own-way) | Uncredited dust goes back to its payer, and the refund pays its own way |
 | [ADR-0072](../DECISIONS.md#adr-0072--a-level-falls-dormancy-fades-it-a-suspension-costs-it) | A level falls: dormancy fades it, a suspension costs it |
 | [ADR-0073](../DECISIONS.md#adr-0073--a-payout-stuck-in-sending-is-an-operators-decision-and-it-needs-a-screen) | A payout stuck in `sending` is an operator's decision, and it needs a screen |
+| [ADR-0074](../DECISIONS.md#adr-0074--dispute-evidence-is-a-keyed-commitment-and-the-file-never-arrives) | Dispute evidence is a keyed commitment, and the file never arrives |

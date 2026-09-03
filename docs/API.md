@@ -168,6 +168,8 @@ strings of XMR; the server stores piconero as integers.
 
 | Endpoint | Auth | Limit | Notes |
 | --- | --- | --- | --- |
+| `POST /api/market/orders/:id/evidence` | session (buyer or seller) | `order_write` | Commit a digest of bytes the party says were exchanged: `{ digest, kind }`. `digest` is 64 lower-case hex characters — `HMAC-SHA256(order id, file bytes)`, computed in the browser (ADR-0074). The server stores it and never sees the file. Errors: `invalid_digest` (400), `already_committed` (409), `evidence_full` (409, ten per party), `stale_status` (409, the order is finished). A moderator gets 404: they may read, never add |
+| `GET /api/market/orders/:id/evidence` | session (parties or staff) | `read` | Every commitment on the order, oldest first: `{ id, by: "buyer" \| "seller", kind, digest, on, beforeDispute }`. Same list for both parties and the moderator |
 | `GET /api/wallet` | session | `read` | Available and held balance, this account's deposit address (`null` until the deployment has a wallet), the minimums, `belowMinimumXmr` (top-ups that arrived under `MIN_DEPOSIT_XMR`, recorded and not credited — ADR-0067) with `minRefundXmr` and `canRefund` beside it, the amount above which a payout waits for approval, and the marketplace fee |
 | `GET /api/wallet/entries` | session | `read` | This account's ledger: every movement, signed, with the order it belongs to and a day-granularity date |
 | `POST /api/wallet/withdrawals` | session | `wallet_write` | Request a payout: `{ amountXmr, address }`. The amount leaves the spendable balance at once; the answer says whether it was `queued` or needs approval. One pending payout per account (`payout_pending`) |
@@ -247,6 +249,9 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `invalid_txid` | 400 | The payout worker reported something that is not a 64-character Monero transaction hash |
 | `bad_address` | 400 | Not a Monero address: wrong length, a character base58 does not contain, or a prefix no Monero network uses. The wallet's own `validate_address` is the authority before anything is sent |
 | `payout_pending` | 400 | This account already has a payout queued or awaiting approval |
+| `invalid_digest` | 400 | An evidence commitment was not 64 lower-case hex characters. The shape is the only thing this server can check about a digest — whether it is the digest of anything is between the two parties, who both have the file |
+| `already_committed` | 409 | The same digest is already on the record for this party and this order. Committing twice is one commitment |
+| `evidence_full` | 409 | Ten commitments from one party on one order is the limit: enough for any honest dispute, too few to use this as storage or as a channel |
 | `nothing_to_refund` | 409 | A refund was asked for and this account has no uncredited top-up — already refunded, already settled by an operator, or never there |
 | `refund_too_small` | 400 | The uncredited total is under `MIN_REFUND_XMR`, which is less than the network fee to return it is worth. It stays on the account, visible, until there is more of it |
 | `off_platform_offer` | 400 | A listing, or a seller application, carried a wallet address, an email address, another messenger or an offer to be paid outside the escrow (ADR-0069). The message names the rule, never the pattern that matched |

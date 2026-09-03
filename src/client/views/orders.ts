@@ -35,6 +35,44 @@ const NEXT_STEPS: Record<string, Array<{ status: string; label: string; role: "b
   ],
 };
 
+interface Evidence {
+  id: string;
+  by: "buyer" | "seller";
+  kind: string;
+  digest: string;
+  on: string;
+  beforeDispute: boolean;
+}
+
+const EVIDENCE_KINDS: Array<[value: string, label: string]> = [
+  ["delivery", "The delivered file"],
+  ["attachment", "A file sent in the chat"],
+  ["screenshot", "A screenshot"],
+  ["other", "Something else"],
+];
+
+/**
+ * The digest this platform commits to: `HMAC-SHA256(order id, file bytes)`, computed here and
+ * never anywhere else (ADR-0074).
+ *
+ * Keyed with the order id rather than a bare SHA-256 on purpose. A bare hash of a file that
+ * exists elsewhere is recognisable to anybody holding that file, so a table of bare hashes
+ * would say "these two people exchanged this known file" to any stranger who guessed right.
+ * The order id is unguessable and known to exactly the people who are allowed to check: the
+ * two parties and, in a dispute, the moderator.
+ */
+async function orderDigest(orderId: string, bytes: Uint8Array): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(orderId),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, bytes as BufferSource);
+  return [...new Uint8Array(mac)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 /** Hands bytes to the browser's own download machinery: no library, no server round-trip. */
 function save(bytes: Uint8Array, name: string): void {
   // `application/octet-stream` and a sanitised name: the bytes came from a seller, so they
@@ -123,7 +161,75 @@ export function renderOrders(root: HTMLElement): void {
       if (shipment) actions.append(shippingControl(shipment.text));
     }
     if (order.status === "delivered" && role === "buyer") actions.append(collectControl(order));
+    // Evidence is worth committing while there is still something to argue about, and it is
+    // worth most *before* an argument starts — so it is offered on a live order, to both
+    // sides, and not only once a dispute is open.
+    if (["accepted", "delivered", "disputed"].includes(order.status)) {
+      actions.append(evidenceControls(order));
+    }
     return actions;
+  }
+
+  /**
+   * Committing to a file without uploading it, and checking a file against what the other
+   * side committed to (ADR-0074).
+   *
+   * Nothing here sends bytes anywhere: the file is read in this browser, reduced to a keyed
+   * digest, and the digest is what travels. The server cannot reconstruct the file from it,
+   * and a stranger who does not know the order id cannot recognise the file either.
+   */
+  function evidenceControls(order: Order): HTMLElement {
+    const commitPicker = el("input", { type: "file", class: "hidden", "aria-label": "File to commit" }) as HTMLInputElement;
+    const checkPicker = el("input", { type: "file", class: "hidden", "aria-label": "File to check" }) as HTMLInputElement;
+    const commit = el("button", { type: "button" }, "Commit a file digest");
+    const check = el("button", { type: "button" }, "Check a file");
+
+    commit.addEventListener("click", () => commitPicker.click());
+    commitPicker.addEventListener("change", () => {
+      const chosen = commitPicker.files?.[0];
+      if (!chosen) return;
+      void formDialog({
+        title: "Commit to this file",
+        body: `Nothing is uploaded. ${chosen.name} is reduced to a digest in this browser, and the digest is recorded with today's date — so neither side can later claim a different file was the one exchanged. The other party has the file and can check it themselves.`,
+        fields: [{ name: "kind", label: "What is it?", kind: "select", options: EVIDENCE_KINDS }],
+        confirmLabel: "Commit digest",
+      }).then((answer) => {
+        if (!answer) return;
+        void run(commit, "Hashing…", async () => {
+          const digest = await orderDigest(order.id, new Uint8Array(await chosen.arrayBuffer()));
+          await api(`/api/market/orders/${order.id}/evidence`, {
+            method: "POST",
+            body: { digest, kind: answer.kind ?? "other" },
+          });
+          toast("Digest committed");
+        });
+      });
+    });
+
+    check.addEventListener("click", () => checkPicker.click());
+    checkPicker.addEventListener("change", () => {
+      const chosen = checkPicker.files?.[0];
+      if (!chosen) return;
+      void run(check, "Hashing…", async () => {
+        const digest = await orderDigest(order.id, new Uint8Array(await chosen.arrayBuffer()));
+        const committed = await api<{ evidence: Evidence[] }>(`/api/market/orders/${order.id}/evidence`);
+        const match = committed.evidence.find((entry) => entry.digest === digest);
+        body.append(
+          match
+            ? notice(
+                `This file is the one the ${match.by} committed to on ${match.on}${match.beforeDispute ? ", before the dispute" : ", after the dispute was opened"}.`,
+                "info",
+              )
+            : notice(
+                committed.evidence.length === 0
+                  ? "Nobody has committed a digest on this order yet, so there is nothing to compare this file with."
+                  : "This file matches none of the digests committed on this order. Either it is not the file they meant, or it has been changed since.",
+                "error",
+              ),
+        );
+      });
+    });
+    return el("span", { class: "row" }, commit, commitPicker, check, checkPicker);
   }
 
   async function transition(order: Order, status: string, button: HTMLButtonElement) {

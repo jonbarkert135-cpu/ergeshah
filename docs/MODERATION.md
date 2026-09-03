@@ -72,6 +72,13 @@ The line, written down so that a future feature has to argue against it:
 - **No identity as a spam filter.** No phone number, no email, no ID document, no third-party
   CAPTCHA — each of those defends the service by identifying the user, which is the trade
   this project refuses (ADR-0039).
+- **Digests, not files.** A dispute now carries what each party committed to: a keyed digest
+  of the bytes they say were exchanged, with the date and whether it was published before the
+  argument started (ADR-0074). It is worth being exact about what that proves — that a story
+  has not changed since it was told, and nothing else. It is not evidence that a file was
+  delivered, or that it was any good, and the moderation screen says so under the table. The
+  file itself stays in the encrypted channel; this platform still cannot read it.
+
 - **No shadow bans.** A suspended account is told it is suspended, and a removed listing
   notifies its seller.
 

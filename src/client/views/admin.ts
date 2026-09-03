@@ -20,6 +20,7 @@ interface Queue {
       seller: string;
       updatedOn: string;
       sellerRecord: { completedOrders: number; disputedOrders: number; distinctReviewers: number; averageRating: number | null };
+      evidence: Array<{ by: string; kind: string; digest: string; on: string; beforeDispute: boolean }>;
     } | null;
   }>;
   sellerApplications: Array<{
@@ -138,6 +139,7 @@ export function renderModeration(root: HTMLElement): void {
                   (order.sellerRecord.averageRating === null ? "no reviews." : `★ ${order.sellerRecord.averageRating} from ${order.sellerRecord.distinctReviewers} buyers.`),
               )
             : null,
+          order && order.evidence.length > 0 ? evidenceCard(order.evidence) : null,
           el(
             "div",
             { class: "row" },
@@ -180,6 +182,28 @@ export function renderModeration(root: HTMLElement): void {
         ]),
         { caption: "Administrative actions, newest first" },
       ),
+    );
+  }
+
+  /**
+   * What the two parties committed to (ADR-0074). It is not proof that a file was good or
+   * even sent — it is proof that neither side's story has changed since they published it,
+   * and the caption says exactly that so nobody reads more into a digest than it holds.
+   */
+  function evidenceCard(evidence: NonNullable<Queue["reports"][number]["order"]>["evidence"]): HTMLElement {
+    return table(
+      ["Side", "What they say it is", "Digest", "Committed", "Before the dispute"],
+      evidence.map((entry) => [
+        entry.by,
+        entry.kind,
+        el("span", { class: "mono" }, `${entry.digest.slice(0, 16)}…`),
+        el("span", { class: "mono" }, entry.on),
+        entry.beforeDispute ? "yes" : "no",
+      ]),
+      {
+        caption:
+          "Digests the parties published, keyed to this order. They show that a story has not changed; they are not evidence that a file was delivered or was any good.",
+      },
     );
   }
 
