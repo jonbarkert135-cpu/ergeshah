@@ -6,12 +6,18 @@
   column exists at all, and why its precision is what it is.
 - [`../BACKUPS.md`](../BACKUPS.md) — what a copy of this database is worth to an attacker,
   and how long copies are kept.
+- [`../STORAGE.md`](../STORAGE.md) — why uploaded files are rows in this database rather than
+  files on a disk, and what that costs and buys.
 
 **Code:** `src/server/db/` — the small driver interface, the SQLite and PostgreSQL drivers,
 `migrate.ts`, and `migrations/` (append-only; an applied migration is never edited, and
 `npm run migrate:checksums` records their digests).
 
-**Kept honest by:** `test/migrations.test.ts` (they apply to an empty database, a second run
+**Deployment:** `deploy/postgres-roles.sql` — a non-superuser application role that owns one
+schema, plus a read-only role for `pg_dump` (ADR-0095).
+
+**Kept honest by:** `test/compromise.test.ts` (a complete dump contains no plaintext, no key
+and no secret), `test/migrations.test.ts` (they apply to an empty database, a second run
 is a no-op, hot columns are indexed), `test/integrity.test.ts` (the invariants hold under
 concurrency, in the database rather than in the order requests arrived),
 `test/docs.test.ts` (every table the migrations create is documented), and

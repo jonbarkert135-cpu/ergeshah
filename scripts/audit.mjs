@@ -12,6 +12,8 @@
  *   node scripts/audit.mjs migrations  — migrations are ordered, and released ones are
  *                                        byte-for-byte what they were when released
  *   node scripts/audit.mjs supply      — lockfile, pinning and install-script policy
+ *   node scripts/audit.mjs cost        — the core deployment needs no paid service, no
+ *                                        API key and nothing hosted by anybody else
  *   node scripts/audit.mjs dependencies
  *                                      — every production dependency is justified in
  *                                        docs/DEPENDENCIES.md, licensed acceptably, and
@@ -356,6 +358,7 @@ function supply() {
   for (const [path, entry] of Object.entries(lock.packages ?? {})) {
     if (!path || entry.link) continue;
     if (entry.resolved && !entry.integrity) problems.push(`${path}: no integrity hash in the lockfile`);
+    // audit:allow — the registry is where dependencies are installed from at build time, not a service the deployment calls.
     if (entry.resolved && !entry.resolved.startsWith("https://registry.npmjs.org/")) {
       problems.push(`${path}: resolved from ${entry.resolved} — only the public registry is expected`);
     }
@@ -474,6 +477,102 @@ function secrets() {
   console.log(`secret audit: ${tracked.length} tracked files, nothing that looks like a credential`);
 }
 
+/**
+ * Point 99: the cost audit. The promise is that a core deployment costs nothing but the
+ * VPS it runs on — no SaaS, no API key, no hosted database, no object store, no analytics
+ * — and a promise nobody checks is a promise until the first commit that quietly adds a
+ * client library for one.
+ *
+ * Three greps with that threat model attached: a dependency that is an SDK for somebody's
+ * service, a request in the code to a host we do not operate, and a configuration variable
+ * that is a credential for one. Anything the *operator* chooses to run themselves — their
+ * own PostgreSQL, their own Monero node, their own reverse proxy — is not a cost of the
+ * software and is listed rather than counted.
+ */
+const HOSTED_SERVICE_SDK =
+  /^(?:@aws-sdk\/|aws-sdk$|@google-cloud\/|@azure\/|firebase|@sentry\/|@datadog\/|dd-trace$|newrelic$|@segment\/|analytics-node$|mixpanel|amplitude|posthog|stripe$|@stripe\/|braintree|paypal|@sendgrid\/|nodemailer-sendgrid|mailgun|postmark|resend$|twilio|@twilio\/|@supabase\/|@clerk\/|auth0|@auth0\/|algolia|cloudinary|pusher|openai$|@anthropic-ai\/|@vercel\/|@planetscale\/|@upstash\/|@neondatabase\/|mongodb\+srv|contentful|recaptcha|hcaptcha)/i;
+
+/** Configuration that would be a credential for somebody else's service. */
+const HOSTED_SERVICE_ENV =
+  /\b(?:STRIPE|SENDGRID|MAILGUN|POSTMARK|TWILIO|SENTRY|DATADOG|NEWRELIC|SEGMENT|MIXPANEL|AMPLITUDE|POSTHOG|GOOGLE|GCP|AWS|AZURE|CLOUDFLARE|OPENAI|ANTHROPIC|RECAPTCHA|HCAPTCHA|AUTH0|CLERK|SUPABASE|ALGOLIA|CLOUDINARY|SMTP)_[A-Z0-9_]+/;
+
+/** Hosts the running software may name. Everything here is the operator's own machine. */
+const LOCAL_HOST = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|app|db|proxy|monerod|wallet)(?::\d+)?$/;
+
+/** Comments cite specifications by URL; only code that *runs* is evidence of a dependency. */
+function withoutComments(text) {
+  // Blanked, not deleted: the line numbers have to keep matching the file on disk, both for
+  // the report and for the `audit:allow` marker that is read from the original line.
+  const blank = (match) => match.replace(/[^\n]/g, " ");
+  return text.replace(/\/\*[\s\S]*?\*\//g, blank).replace(/(^|[^:])(\/\/[^\n]*)/g, (_, before, comment) => before + blank(comment));
+}
+
+function cost() {
+  const problems = [];
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+
+  for (const name of Object.keys(pkg.dependencies ?? {})) {
+    if (HOSTED_SERVICE_SDK.test(name)) {
+      problems.push(`${name}: a client for a hosted service — the core deployment may not require one`);
+    }
+  }
+
+  const tracked = execFileSync("git", ["ls-files", "-z", "src", "scripts", "deploy", ".env.example"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .split("\0")
+    .filter(Boolean);
+
+  for (const file of tracked) {
+    const text = readFileSync(join(root, file), "utf8");
+    if (file.endsWith(".env.example") || file === ".env.example") {
+      for (const match of text.matchAll(/^([A-Z][A-Z0-9_]*)=/gm)) {
+        if (HOSTED_SERVICE_ENV.test(match[1])) {
+          problems.push(`${file}: ${match[1]} configures a third-party service`);
+        }
+      }
+      continue;
+    }
+    const code = withoutComments(text);
+    for (const match of code.matchAll(/\b(?:https?|wss?):\/\/([a-z0-9.-]+)(?::[\d$][^\s"'`]*)?(?:\/[^\s"'`]*)?/gi)) {
+      const host = match[1];
+      if (LOCAL_HOST.test(host) || NAMESPACES.test(match[0])) continue;
+      const line = code.slice(0, match.index).split("\n").length;
+      const lines = text.split("\n");
+      // The waiver may sit on the line or in the comment directly above it, as everywhere else.
+      if (`${lines[line - 2] ?? ""}${lines[line - 1] ?? ""}`.includes("audit:allow")) continue;
+      problems.push(`${file}:${line}: names ${host}, a host this deployment does not operate`);
+    }
+    for (const match of text.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) {
+      if (HOSTED_SERVICE_ENV.test(match[1])) problems.push(`${file}: reads ${match[1]}`);
+    }
+  }
+
+  if (problems.length) {
+    for (const problem of problems) console.error(`  ${problem}`);
+    console.error(`\n${problems.length} finding(s): the zero-cost promise (docs/AUDIT.md) is broken.`);
+    process.exit(1);
+  }
+
+  console.log("cost audit:");
+  for (const line of [
+    "MANDATORY EXTERNAL SERVICES: 0",
+    "MANDATORY PAID APIS: 0",
+    "MANDATORY API KEYS: 0",
+    "MANDATORY CLOUD SERVICES: 0",
+    "MANDATORY THIRD-PARTY TRACKERS: 0",
+    "MANDATORY EXTERNAL DATABASES: 0",
+    "MANDATORY EXTERNAL STORAGE: 0",
+  ]) {
+    console.log(`  ${line}`);
+  }
+  console.log(
+    "  optional, and run by the operator on their own hardware: PostgreSQL, a Monero node\n" +
+      "  and wallet RPC, a reverse proxy. Infrastructure the operator chooses, not a fee.",
+  );
+}
+
 // Only when run as a command; the tests import the scanners.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
@@ -483,13 +582,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   else if (mode === "migrations") migrations(process.argv.includes("--update"));
   else if (mode === "supply") supply();
   else if (mode === "dependencies") dependencies();
+  else if (mode === "cost") cost();
   else if (mode === "deployment") {
     const origin = process.argv[3];
+    // audit:allow — a usage string; the origin is the operator's own deployment, supplied on the command line.
     if (!origin) throw new Error("usage: node scripts/audit.mjs deployment https://host");
     await deployment(origin);
   } else {
     throw new Error(
-      `usage: node scripts/audit.mjs bundle|secrets|history|migrations|supply|dependencies|deployment (got '${mode ?? ""}')`,
+      `usage: node scripts/audit.mjs bundle|secrets|history|migrations|supply|dependencies|cost|deployment (got '${mode ?? ""}')`,
     );
   }
 }

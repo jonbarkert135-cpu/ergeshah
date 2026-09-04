@@ -132,6 +132,22 @@ rather than by intent.
 | Cryptography as a service | libsodium and OpenPGP.js, both local, both open source | `docs/DEPENDENCIES.md` |
 | AI APIs | None, anywhere in the product | — |
 
+### `npm run audit:cost` (ADR-0094)
+
+The table above is reviewed; the script is not optional. `audit:cost` — part of `npm run
+audit`, so it runs on every push — fails the build on three things and prints the result of
+the fourth:
+
+1. a production dependency whose name is an SDK for somebody's hosted service;
+2. a URL in *code* (comments and citations excluded) naming a host this deployment does not
+   operate;
+3. a configuration variable that would be a credential for one.
+
+Then it prints the seven lines the brief asks for — `MANDATORY EXTERNAL SERVICES: 0`,
+`MANDATORY PAID APIS: 0`, `MANDATORY API KEYS: 0`, `MANDATORY CLOUD SERVICES: 0`, `MANDATORY
+THIRD-PARTY TRACKERS: 0`, `MANDATORY EXTERNAL DATABASES: 0`, `MANDATORY EXTERNAL STORAGE: 0`
+— and lists what an operator may run on their own hardware if they choose to.
+
 The one external service this system can talk to is a **Monero node and wallet RPC**, which
 is open-source software the operator runs themselves, on their own hardware, and which the
 deployment works without: with no wallet configured the marketplace still runs and the screen

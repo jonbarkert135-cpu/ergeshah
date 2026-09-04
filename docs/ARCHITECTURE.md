@@ -20,6 +20,34 @@ background worker. Every feature in this repository runs inside those four boxes
 is what makes the deployment fit on one VPS and the attack surface small enough to read
 end to end.
 
+Where the domains sit inside the third box, and what each of them may reach:
+
+```
+                        user (browser)
+                              │
+                      reverse proxy (Caddy)
+                              │
+      ┌───────────────────────┴───────────────────────┐
+      │           application (one process)           │
+      │                                               │
+      │   AUTH ─ IDENTITY ─ MESSAGING ─ MARKETPLACE   │
+      │   MONEY ─ MONERO ─ STORAGE ─ MODERATION/ADMIN │
+      │   WORKERS: hourly sweeps, in-process          │
+      └───────────────────────┬───────────────────────┘
+                              │
+                           database
+             rows only: ciphertext, hashes, counters
+          (no cache server, no object store, no queue server)
+                              ▲
+                              │ pull, never push
+        payout worker on another host — holds the only spend key
+```
+
+The boundaries between those names are module boundaries, not network hops, and
+`test/architecture.test.ts` fails if an import crosses one. The one component that is
+deliberately *not* in the application box is the payout worker: it is the only piece that
+can move money, it runs elsewhere, and it reaches in rather than being reached.
+
 ## Trust boundaries
 
 | Boundary | What crosses it | What is assumed |
@@ -45,7 +73,8 @@ residual risk #1 in [`THREAT_MODEL.md`](THREAT_MODEL.md).
 
 ```
 src/shared/crypto/   protocol: hkdf, aead, identity, x3dh, ratchet, vault, session, file
-src/shared/          encoding helpers and the QR encoder used by both sides
+src/shared/          encoding helpers, the QR encoder, and media.ts — the metadata
+                     stripper both upload paths run before they encrypt (ADR-0092)
 src/server/
   app.ts             Fastify wiring, authentication, CSRF, rate limiting
   security.ts        CSP and the rest of the browser-level hardening

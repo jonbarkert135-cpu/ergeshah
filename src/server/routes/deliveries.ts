@@ -65,7 +65,13 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     const ciphertext = manual
       ? null
       : asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
-    if (ciphertext) await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
+    if (ciphertext) {
+      // Two ceilings, and they answer different questions: the free-space floor keeps the
+      // service alive when the disk is nearly full (ADR-0057), and the byte budget stops one
+      // account being the reason it gets there (ADR-0093).
+      await app.limit(request, "upload_bytes", ciphertext.length);
+      await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
+    }
 
     const now = Date.now();
     await db.transaction(async (tx) => {
@@ -151,8 +157,11 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     onlyKeys(body, ["id", "ciphertext"]);
     const id = asId(body.id, "id");
     const ciphertext = asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
-    // Uploads are the only requests that turn somebody else's bytes into disk, and the
-    // rate limiter cannot see disk (docs/SELF_CRITIQUE.md, finding 1).
+    // Uploads are the only requests that turn somebody else's bytes into disk, and until
+    // ADR-0093 the rate limiter could not see disk (docs/SELF_CRITIQUE.md, finding 1): now
+    // the account pays for the bytes, and the floor still protects the service from all of
+    // them together.
+    await app.limit(request, "upload_bytes", ciphertext.length);
     await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
     const now = Date.now();
     await orConflict(

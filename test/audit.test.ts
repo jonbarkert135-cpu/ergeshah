@@ -198,3 +198,34 @@ describe("lint", () => {
     expect(lintFile("// never assign innerHTML from user content\nconst a = 1;\n", "src/client/x.ts")).toEqual([]);
   });
 });
+
+/**
+ * Point 99: the cost audit. The claim is that a core deployment needs nothing that sends an
+ * invoice, and the point of running the auditor here is that the claim is re-checked on
+ * every commit rather than on the day somebody wonders.
+ */
+describe("cost audit", () => {
+  it("reports zero mandatory external services for this tree", () => {
+    const output = execFileSync(process.execPath, ["scripts/audit.mjs", "cost"], {
+      cwd: new URL("..", import.meta.url),
+      encoding: "utf8",
+    });
+    for (const line of [
+      "MANDATORY EXTERNAL SERVICES: 0",
+      "MANDATORY PAID APIS: 0",
+      "MANDATORY API KEYS: 0",
+      "MANDATORY CLOUD SERVICES: 0",
+      "MANDATORY THIRD-PARTY TRACKERS: 0",
+      "MANDATORY EXTERNAL DATABASES: 0",
+      "MANDATORY EXTERNAL STORAGE: 0",
+    ]) {
+      expect(output).toContain(line);
+    }
+  });
+
+  it("is part of `npm run audit`, so nobody has to remember to run it", () => {
+    const scripts = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts;
+    expect(scripts["audit:cost"]).toBe("node scripts/audit.mjs cost");
+    expect(scripts.audit).toContain("audit:cost");
+  });
+});

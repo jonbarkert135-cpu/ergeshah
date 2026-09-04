@@ -74,6 +74,20 @@ export const DEFAULT_LIMITS = {
    * operator's disk pays for every one.
    */
   attachment: { burst: 12, perMinute: 3 },
+  /**
+   * The same uploads, charged in **bytes** rather than in calls (ADR-0093).
+   *
+   * `attachment` bounds how *often* a blob may be posted; this bounds how much disk one
+   * account may turn into rows, which is the thing the operator actually pays for. One
+   * token is one byte of ciphertext: 128 MiB may be spent at once, and the allowance refills
+   * at 2 MiB a minute (about 2.8 GiB a day) whether or not anything is uploaded.
+   *
+   * It needs no `owner` column on `attachments` — the bucket is an HMAC of the account with
+   * a pepper that rotates daily, exactly like every other limit, so nothing here links an
+   * account to a blob (which is why ADR-0043 and ADR-0057 refused the quota they were
+   * offered, and this one is not that quota).
+   */
+  upload_bytes: { burst: 128 * 1024 * 1024, perMinute: 2 * 1024 * 1024 },
   /** Applying to become a seller. A human does this once. */
   seller_application: { burst: 3, perMinute: 0.2 },
   /** Creating or editing a listing. */
@@ -155,6 +169,8 @@ export async function consume(
   subject: string,
   limits: Limits = DEFAULT_LIMITS,
   now = Date.now(),
+  /** How many tokens this call spends. Bytes for `upload_bytes`, one request everywhere else. */
+  cost = 1,
 ): Promise<void> {
   const limit = limits[scope];
   const key = bucketKey(pepper, scope, subject);
@@ -167,13 +183,18 @@ export async function consume(
     const tokens = row
       ? Math.min(limit.burst, row.tokens + (now - row.updated_at) * refillPerMs)
       : limit.burst;
-    if (tokens < 1) {
-      // How long one token takes to appear, rounded up: the earliest moment a retry can
-      // succeed rather than a number that sounds reassuring.
-      const seconds = Math.max(1, Math.ceil((1 - tokens) / refillPerMs / 1000));
-      throw tooManyRequests(`too many ${scope} requests — slow down`, seconds);
+    if (tokens < cost) {
+      // How long the missing tokens take to appear, rounded up: the earliest moment a retry
+      // can succeed rather than a number that sounds reassuring.
+      const seconds = Math.max(1, Math.ceil((cost - tokens) / refillPerMs / 1000));
+      // One bucket counts bytes rather than calls, and "too many upload_bytes requests"
+      // would be a sentence about the implementation instead of about what happened.
+      const message = scope === "upload_bytes"
+        ? "this account has uploaded its allowance for now — try again later"
+        : `too many ${scope} requests — slow down`;
+      throw tooManyRequests(message, seconds);
     }
-    const remaining = tokens - 1;
+    const remaining = tokens - cost;
     if (row) {
       await tx.run("UPDATE rate_limits SET tokens = ?, updated_at = ? WHERE bucket = ?", [
         remaining,

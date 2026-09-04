@@ -24,6 +24,7 @@ import { safeFileName } from "../shared/uploads.ts";
 import { randomBytes } from "../shared/crypto/sodium.ts";
 import { delayStepsSeconds } from "../shared/jitter.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../shared/crypto/file.ts";
+import { stripImageMetadata } from "../shared/media.ts";
 import {
   acceptSession,
   decryptText,
@@ -125,16 +126,19 @@ export async function sendAttachment(
   name: string,
 ): Promise<void> {
   if (isBlocked(conversation.peer)) throw new Error("you blocked this person; unblock them to write");
-  if (bytes.length > MAX_FILE_BYTES) throw new Error(`file: larger than ${MAX_FILE_BYTES} bytes`);
+  // Strip first, then measure: what is sent is what is cleaned (src/shared/media.ts). The
+  // recipient decrypts this file, so EXIF is a leak end-to-end encryption does not close.
+  const cleaned = stripImageMetadata(bytes);
+  if (cleaned.length > MAX_FILE_BYTES) throw new Error(`file: larger than ${MAX_FILE_BYTES} bytes`);
   const id = toBase64Url(randomBytes(24));
-  const { key, nonce, ciphertext } = encryptFile(id, bytes);
+  const { key, nonce, ciphertext } = encryptFile(id, cleaned);
   await api("/api/attachments", { method: "POST", body: { id, ciphertext: toBase64Url(ciphertext) } });
   const attachment: AttachmentRef = {
     id,
     key: toBase64Url(key),
     nonce: toBase64Url(nonce),
     name: safeFileName(name),
-    bytes: bytes.length,
+    bytes: cleaned.length,
   };
   // Upload first, key second: a key without a blob is a broken message, a blob without a
   // key is unopenable noise that expires on its own.

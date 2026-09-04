@@ -3,6 +3,7 @@ import { clear, el, emptyState, errorState, formDialog, notice, price as formatP
 import { receiveMessages, sendDeliveryKey } from "../messaging.ts";
 import { persistVault, state } from "../state.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
+import { stripImageMetadata } from "../../shared/media.ts";
 import { fromBase64Url, toBase64Url } from "../../shared/encoding.ts";
 import { safeFileName } from "../../shared/uploads.ts";
 
@@ -327,7 +328,9 @@ export function renderOrders(root: HTMLElement): void {
   }
 
   async function deliver(order: Order, plaintext: Uint8Array, name: string, kind: "file" | "text"): Promise<void> {
-    const { key, nonce, ciphertext } = encryptFile(order.id, plaintext);
+    // A delivered photograph reaches the buyer with whatever the camera wrote into it, and
+    // encryption does not help there: the buyer holds the key (src/shared/media.ts).
+    const { key, nonce, ciphertext } = encryptFile(order.id, stripImageMetadata(plaintext));
     await api(`/api/market/orders/${order.id}/delivery`, {
       method: "POST",
       body: { ciphertext: toBase64Url(ciphertext) },

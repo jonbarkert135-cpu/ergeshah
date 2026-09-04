@@ -142,6 +142,45 @@ DATABASE_URL=postgres://symvolon:STRONG_PASSWORD@db:5432/symvolon
 Same schema, same SQL, same migrations. Use PostgreSQL when you expect concurrent write
 load or want streaming backups; SQLite is genuinely fine for a small instance.
 
+### Least privilege (ADR-0095)
+
+Do not hand the application a superuser. `deploy/postgres-roles.sql` creates the two roles a
+deployment needs and nothing more:
+
+```bash
+psql "$ADMIN_URL" -v app_password="'…'" -v backup_password="'…'" -f deploy/postgres-roles.sql
+```
+
+- `symvolon_app` owns one schema, has no rights outside it, and is `NOSUPERUSER
+  NOCREATEDB NOCREATEROLE NOBYPASSRLS`. It owns its schema because it applies its own
+  migrations at boot.
+- `symvolon_backup` may `SELECT` and nothing else; it is what `pg_dump` connects as.
+- `PUBLIC` loses `CONNECT` on the database and everything on `public`, so a role that
+  appears later inherits no access by accident.
+
+The database listens on the internal Docker network only and is never published to the
+internet (`docs/NETWORK.md`).
+
+## Deployment profiles (ADR-0096)
+
+Two supported shapes, one architecture. The code is identical in both — the difference is
+which processes share a machine — so moving from one to the other is configuration, not a
+rewrite, and nothing below needs Kubernetes.
+
+| | **Single VPS** (the default) | **Scale mode** |
+| --- | --- | --- |
+| Orchestration | `deploy/docker-compose.yml` — app, proxy, optionally PostgreSQL and the Monero services | The same compose file split across hosts, or any orchestrator; no manifest in this repository is required |
+| Database | SQLite file on the app's volume, or PostgreSQL beside it | PostgreSQL on its own host, reachable only from the app's network, with the roles above |
+| Storage | rows in that database | rows in that database — blobs are not files, so "a storage node" is the database tier growing, not a new component (`docs/STORAGE.md`) |
+| Cache | none. Sessions, buckets and challenges are rows with expiries | still none: adding Redis would add a second store holding session and challenge material, and it buys nothing until the database is the bottleneck (ADR-0095) |
+| Workers | the housekeeping interval inside the app process; the payout worker on another host, always (ADR-0070) | the same, plus a second app instance if request volume needs one — the jobs are idempotent sweeps, and the durable queues are database tables |
+| Monero | `monerod` and a view-only `monero-wallet-rpc` on the internal network | the node on its own host; the spend key stays on the payout host and nowhere else |
+
+What does *not* change between them: the trust boundaries, the migrations, the audits, and
+the rule that the application makes no outbound requests (ADR-0081). A deployment that needs
+more than this is not a bigger version of this design; it is a different one, and it should
+be recorded as such.
+
 ## Tor onion service
 
 Two reasons to run one: users who do not want to reveal their address to your proxy or to
