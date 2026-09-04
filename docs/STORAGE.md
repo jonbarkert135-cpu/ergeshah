@@ -95,17 +95,27 @@ was cropped out. So the bytes are cleaned in the browser, before they are encryp
 
 The image is **not** decoded and re-encoded. A re-encode would need a canvas, would lose a
 generation of quality on every JPEG, and would still not touch anything hidden in the pixels
-— so this removes containers, not content. Anything that is not one of those three formats,
-and anything malformed, is passed through byte for byte: corrupting a file somebody is
-trying to send is a worse failure than a metadata block in a format this code does not parse.
+— so this removes containers, not content.
+
+HEIC and HEIF (an iPhone's default photo), AVIF, and MP4/MOV video share the ISO base media
+container, so one walker (`src/shared/isobmff.ts`, ADR-0109) closes all four. It removes the
+same class of thing without moving a byte: a `udta` user-data box — the `©xyz` GPS atom a
+phone writes into a video, the make and model — is retyped to a `free` box with its payload
+zeroed; the capture timestamps in `mvhd`/`tkhd`/`mdhd` are zeroed; and in a still image the
+`Exif` and XMP items are zeroed where `iloc` says they sit inside `mdat`. Nothing moves
+because MP4 chunk tables (`stco`/`co64`) and HEIF item locations (`iloc`) hold absolute byte
+offsets: a strip that changed the file's length would have to rewrite every one, and a bug
+there corrupts the picture. A file whose structure does not parse cleanly is passed through
+untouched and still disclosed, for the reason below.
 
 What this does not do, in the words a user deserves: it **reduces exposure**. It does not
 make a photograph anonymous. Faces, screens, street signs, the room, the filename and the
 compression history all survive it.
 
-A format the stripper does not parse — HEIC and HEIF from an iPhone camera, AVIF, TIFF and
-raw, GIF, PDF, SVG — is passed through byte for byte, because corrupting a file someone is
-trying to send is the worse failure. Silence about that would be dishonest: a sender told
+A format the stripper does not parse — TIFF and the raw formats built on it, GIF, PDF, SVG,
+and any ISO base media file too malformed for the walker to trust — is passed through byte
+for byte, because corrupting a file someone is trying to send is the worse failure. Silence
+about that would be dishonest: a sender told
 nothing reasonably assumes the file was cleaned like the others. So both upload paths say so,
 from one sentence (`METADATA_KEPT_NOTE`) gated by one check (`metadataUnhandled`) in
 `src/shared/media.ts`. The chat attachment path says it after the send; the marketplace

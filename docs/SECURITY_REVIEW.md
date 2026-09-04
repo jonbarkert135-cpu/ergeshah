@@ -203,10 +203,10 @@ that was not.
   owner column and so keeps the property ADR-0043 and ADR-0057 protected. Between that, the
   global row ceiling (R-20) and the free-space floor, what is still missing is a shorter default
   lifetime for attachments — the remaining half of roadmap OPS-5.
-- **No metadata stripping for HEIC, AVIF, TIFF, raw, video, PDF or SVG.** Those pass through, and
-  now say so on the screen rather than silently (R-29). HEIC in particular is what an iPhone
-  produces by default, which makes this the largest remaining privacy gap in the file path
-  (roadmap UI-4).
+- **Metadata stripping now covers the ISO base media formats.** HEIC/HEIF, AVIF and MP4/MOV are
+  stripped in place by the box walker (ADR-0109); TIFF and raw, GIF, PDF and SVG still pass
+  through and say so on the screen rather than silently (R-29). HEIC — an iPhone's default — was
+  the largest gap in the file path and is closed; roadmap UI-4 is done.
 - **No PostgreSQL backup script.** `docs/BACKUPS.md` describes `pg_dump` and the same rules, but
   only the SQLite path has a script and a tested drill. A deployment on PostgreSQL is following
   prose, not running code (roadmap OPS-9).

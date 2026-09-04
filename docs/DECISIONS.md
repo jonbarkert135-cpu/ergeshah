@@ -3113,8 +3113,9 @@ remove:
 - **Silence about the formats it cannot clean.** `metadataUnhandled()` recognises HEIC, HEIF,
   AVIF, MP4, MOV, TIFF and its raw derivatives, GIF, PDF and SVG by their own bytes, and the
   chat screen says so after sending one. HEIC is what an iPhone writes by default, which makes
-  this the difference between a disclosed gap and a false impression. The delivery screen does
-  not say it yet — roadmap UI-4.
+  this the difference between a disclosed gap and a false impression. The delivery screen warns
+  before the bytes leave the browser (10e784a), and the ISO base media formats named here are
+  now stripped rather than only disclosed (ADR-0109) — roadmap UI-4 is closed.
 
 `test/images.test.ts` covers all three. The second pass had also written its own stripper; it
 was deleted rather than shipped beside this one (`docs/CHANGE_REVIEW.md` §7), and what it
@@ -3761,3 +3762,45 @@ only the buyer's): the griefing vector above.
 **Consequences.** Three tests in `test/bonds.test.ts`. A deployment with a single moderator who
 also buys on the platform needs a second staff account to decide about their own orders, which is
 the point.
+
+## ADR-0109 — ISO base media metadata is stripped in place, by zeroing boxes rather than moving them
+
+**Status:** accepted (2026-09-04). Closes roadmap UI-4, extends ADR-0092.
+
+**Context.** ADR-0092 rewrites JPEG, PNG and WebP but passed four formats through with their
+metadata and only disclosed the gap: HEIC and HEIF (what an iPhone camera writes by default),
+AVIF, and MP4/MOV video. Those four share one container — the ISO base media file format
+(ISO/IEC 14496-12), which HEIF (ISO/IEC 23008-12) layers on — so a single walker can clean all
+four, closing the *stripping* half of UI-4 that the disclosure half left open. The metadata is
+exactly what ADR-0092 removes elsewhere: a video's `©xyz` GPS atom and camera model in `udta`,
+capture timestamps in the track/movie headers, and a still image's `Exif` and XMP items.
+
+**Decision.** `src/shared/isobmff.ts` walks the boxes and removes metadata **without moving a
+byte**: a `udta` (or a file-level `meta`/`uuid`) box is retyped to a `free` box of identical
+size with its payload zeroed; `mvhd`/`tkhd`/`mdhd` creation and modification times are zeroed;
+and in a still image the `Exif`/`mime`/`xml ` items are zeroed where `iloc` locates them inside
+`mdat` or `idat`, while the coded-image items are left untouched. In-place because MP4 chunk
+tables (`stco`/`co64`) and HEIF `iloc` records hold absolute byte offsets: changing the file's
+length would mean rewriting every one of them, and an arithmetic bug there corrupts the picture
+— zeroing in place cannot. If the structure does not parse cleanly (a size past the end, an
+`infe` older than version 2, an item located by reference into another item, an out-of-range
+extent) the walker refuses and changes nothing, and `metadataUnhandled` still reports the file
+so the screen discloses it. `metadataUnhandled` and `stripImageMetadata` both derive from the
+same walker, so what is disclosed and what is stripped cannot disagree.
+
+**Rejected.** Decode-and-re-encode (the textbook route, and the alternative UI-4 named): it
+needs a browser codec for HEIC/AVIF that shared code cannot assume, loses a generation of
+quality, and drops video entirely. Removing the `Exif` item's `iinf`/`iloc` records instead of
+zeroing its bytes: that only unlinks the data — a recipient's `exiftool` reads it by scanning,
+so the GPS fix would still be there. Compacting `mdat` to delete the item bytes: the offset
+surgery this decision exists to avoid. TIFF and raw, GIF, PDF and SVG stay
+disclosed-not-stripped: no shared container unifies them, so each is a separate parser for
+little marginal gain.
+
+**Consequences.** A HEIC photo and an MP4 video from a phone no longer hand their recipient the
+capture location, device or time. The claim stops exactly where ADR-0092's does — this removes
+containers, not pixels, and is not anonymity (`docs/STORAGE.md`). The disclosure note now fires
+only for the formats still not stripped. `test/isobmff.test.ts` builds a HEIC and an MP4 byte by
+byte and asserts both halves — the metadata is gone, the media and the file length are intact —
+and the fuzz corpus in `test/fuzz.test.ts` already exercises the walker for the guarantees it
+must keep whatever the bytes are: it never throws, never hangs and never grows a file.

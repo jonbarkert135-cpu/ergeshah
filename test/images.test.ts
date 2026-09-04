@@ -12,8 +12,9 @@
  * 2. **The evidence digest.** A delivery is stripped before it is encrypted, so a dispute
  *    commitment computed over the file the seller picked would never match the bytes the buyer
  *    holds. Both sides have to hash the same thing, which is only true if the digest strips too.
- * 3. **The formats it cannot clean.** HEIC is what an iPhone writes by default. Passing it
- *    through is the right behaviour; passing it through silently is not.
+ * 3. **The formats it cannot clean.** TIFF, GIF and SVG are passed through — the right
+ *    behaviour — but passing them through silently is not. (HEIC/HEIF/AVIF and MP4/MOV are no
+ *    longer here: the ISO base media walker strips them now, see `test/isobmff.test.ts`.)
  *
  * The fixtures are built here byte by byte, because that is the only way a test knows exactly
  * which bytes are metadata and which are the picture — and every case asserts both halves: the
@@ -99,12 +100,12 @@ describe("a JPEG with a trailer after its end marker", () => {
 
 describe("the formats it does not clean", () => {
   it("names them, so a screen can say so instead of implying the file was cleaned", () => {
-    const heic = bytes(0, 0, 0, 0x18, ascii("ftypheic"), ascii("mif1"));
-    const mp4 = bytes(0, 0, 0, 0x18, ascii("ftypisom"), ascii("iso2"));
+    // HEIC/HEIF/AVIF and MP4/MOV moved to the ISO base media walker (roadmap UI-4,
+    // `test/isobmff.test.ts`); what stays disclosed-not-stripped is TIFF, GIF and SVG.
     const tiff = bytes(0x49, 0x49, 0x2a, 0x00, 0x08, 0, 0, 0, ascii("GPS"));
     const gif = bytes(ascii("GIF89a"), 0x10, 0, 0x10, 0);
     const svg = bytes(ascii('<svg xmlns="http://www.w3.org/2000/svg"><metadata>home</metadata></svg>'));
-    for (const [name, file] of [["heic", heic], ["mp4", mp4], ["tiff", tiff], ["gif", gif], ["svg", svg]] as const) {
+    for (const [name, file] of [["tiff", tiff], ["gif", gif], ["svg", svg]] as const) {
       expect(metadataUnhandled(file), name).toBe(true);
       // Passed through byte for byte, which is the honest behaviour once it is disclosed.
       expect([...stripImageMetadata(file)], name).toEqual([...file]);
@@ -131,9 +132,9 @@ describe("the formats it does not clean", () => {
     // not called cleaned or stripped — it says what stays, which is the honest half.
     expect(METADATA_KEPT_NOTE).not.toMatch(/anonymous|cleaned|stripped/i);
     // The delivery screen shows this note exactly when the strip could not touch the file —
-    // the same gate the chat screen uses — so a HEIC warns and a JPEG stays silent.
-    const heic = bytes(0, 0, 0, 0x18, ascii("ftypheic"), ascii("mif1"));
-    expect(metadataUnhandled(heic) && METADATA_KEPT_NOTE.length > 0).toBe(true);
+    // the same gate the chat screen uses — so a TIFF warns and a JPEG stays silent.
+    const tiff = bytes(0x49, 0x49, 0x2a, 0x00, 0x08, 0, 0, 0, ascii("GPS"));
+    expect(metadataUnhandled(tiff) && METADATA_KEPT_NOTE.length > 0).toBe(true);
     expect(metadataUnhandled(jpegWithTrailer())).toBe(false);
   });
 });

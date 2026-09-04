@@ -242,7 +242,8 @@ and review dates, fuzzed parsers, an authorisation matrix generated from the rou
 - **SEC-3 — Coverage-guided fuzzing for the container walker.** `test/fuzz.test.ts` is a seeded
   corpus: it covers shapes, not paths. A real fuzzer over `stripImageMetadata` (and the ratchet
   frame decoder) would need a harness and a corpus directory, which is a dependency and a
-  workflow, and is worth it only once UI-4 makes that walker handle ISO base media boxes.
+  workflow. UI-4 has now added the ISO base media box walker to that same entry point, which
+  raises the value of coverage-guided fuzzing over it.
 - **SEC-4 — Semgrep rules for this codebase.** The twelve patterns in `scripts/security.mjs`
   are regular expressions and say so; a handful of them (mass assignment, URL sinks) would be
   more precise as Semgrep rules with real dataflow. The rules would live in the repository and
@@ -253,18 +254,22 @@ and review dates, fuzzed parsers, an authorisation matrix generated from the rou
 *Shipped: UI-1, the safety-number verification flow — a scannable code, a per-device
 verified state, and a warning when an unverified device appears.*
 
-- **UI-4 — Metadata stripping for the formats the walker does not know.** JPEG, PNG and WebP
-  are rewritten before encryption (ADR-0092). HEIC and HEIF — what an iPhone camera produces by
-  default — plus AVIF, TIFF, raw files, video, PDF and SVG are passed through with their
-  metadata, and the screen says so. Closing it means either an ISO base media box walker (HEIC,
-  AVIF, MP4 share the container, so one walker covers four formats) or a decode-and-re-encode
-  path, which costs image quality and a DOM in shared code. The disclosure is honest today; the
-  actual *stripping* of these formats is the gap that remains.
-  *Disclosure closed (2026-09-04): both upload paths now warn. The chat screen says after the
-  fact that a file's format was not cleaned; the delivery screen asks the seller to confirm
-  before the bytes leave the browser, since a delivery is a deliberate act with a Cancel. Both
-  read the same `metadataUnhandled` check and the same `METADATA_KEPT_NOTE` wording in
-  `src/shared/media.ts`, so the two screens cannot drift.*
+- **UI-4 — Metadata stripping for the formats the walker did not know. _Closed._** JPEG, PNG
+  and WebP are rewritten before encryption (ADR-0092); HEIC/HEIF (an iPhone's default), AVIF and
+  MP4/MOV are now stripped by the ISO base media walker (`src/shared/isobmff.ts`, ADR-0109),
+  which zeroes `udta`/GPS, the header timestamps and a still image's `Exif`/XMP items in place —
+  the box-walker route, chosen over decode-and-re-encode so no quality is lost and no DOM enters
+  shared code. TIFF and raw, GIF, PDF and SVG remain disclosed-not-stripped: no single container
+  unifies them and each is its own parser for little gain. What survives every format — faces,
+  screens, the compression fingerprint, the pixels themselves — is the residual this never
+  claimed to touch (`docs/STORAGE.md`).
+  *Disclosure closed (2026-09-04): both upload paths warn for the formats still not stripped.
+  The chat screen says after the fact that a file's format was not cleaned; the delivery screen
+  asks the seller to confirm before the bytes leave the browser, since a delivery is a
+  deliberate act with a Cancel. Both read the same `metadataUnhandled` check and the same
+  `METADATA_KEPT_NOTE` wording in `src/shared/media.ts`, so the two screens cannot drift.*
+  *Stripping closed (2026-09-04): the ISO base media walker landed, so the four container
+  formats are cleaned rather than only disclosed.*
 - **UI-2 — Offline queue** for messages composed without connectivity.
 *Shipped: UI-3 accessibility pass (ADR-0097) — focus is anchored across every redraw, form
 refusals name the field they are about and move the keyboard to it, results the page shows by

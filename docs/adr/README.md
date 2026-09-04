@@ -180,3 +180,4 @@ or if a record is missing a section.
 | [ADR-0086](../DECISIONS.md#adr-0086--the-seller-bond-staked-by-the-seller-payable-to-a-harmed-buyer) | The seller bond: staked by the seller, payable to a harmed buyer |
 | [ADR-0105](../DECISIONS.md#adr-0105--one-payout-in-flight-per-account-is-a-partial-unique-index) | One payout in flight per account is a partial unique index |
 | [ADR-0108](../DECISIONS.md#adr-0108--staff-decide-only-about-orders-they-are-not-party-to-and-a-report-holds-the-bond) | Staff decide only about orders they are not party to, and a report holds the bond |
+| [ADR-0109](../DECISIONS.md#adr-0109--iso-base-media-metadata-is-stripped-in-place-by-zeroing-boxes-rather-than-moving-them) | ISO base media metadata is stripped in place, by zeroing boxes rather than moving them |

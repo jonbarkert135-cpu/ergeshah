@@ -23,10 +23,13 @@
  * the compression itself and anything steganographic all survive, and `docs/STORAGE.md`
  * says so where a user can read it.
  *
- * Anything that is not a JPEG, PNG or WebP — and anything malformed — is returned
+ * This file rewrites JPEG, PNG and WebP; HEIC/HEIF, AVIF and MP4/MOV go through the ISO base
+ * media walker in `isobmff.ts` (roadmap UI-4), which zeroes their metadata boxes and items in
+ * place. Anything else — TIFF and raw, GIF, PDF, SVG — and anything malformed is returned
  * unchanged. Corrupting a file somebody is trying to send is a worse failure than leaving
  * a metadata block in a format this code does not understand.
  */
+import { stripIsoBmff } from "./isobmff.ts";
 
 /** JPEG segments dropped: APP1 (EXIF, XMP), APP3–APP13 (IPTC, Photoshop, Ducky…), APP15, COM. */
 function jpegSegmentIsMetadata(marker: number, payload: Uint8Array): boolean {
@@ -187,16 +190,6 @@ function stripWebp(bytes: Uint8Array): Uint8Array {
 }
 
 /**
- * Containers that carry camera and location metadata and are *not* cleaned here: ISO base
- * media files (HEIC and HEIF, which is what an iPhone camera writes by default, plus AVIF, MP4
- * and MOV), TIFF and the raw formats built on it, GIF, PDF and SVG.
- *
- * A caller uses this to say so on the screen. Silence would be the dishonest option: a sender
- * who is told nothing reasonably assumes the picture was cleaned like the others
- * (`docs/STORAGE.md` §Image metadata, roadmap UI-4). Recognised by the file's own bytes, never
- * by a name or a type the user supplied.
- */
-/**
  * The one sentence every screen uses to say what an unhandled format keeps. It lives here,
  * beside the check that decides when to show it, so the chat attachment path and the
  * marketplace delivery path cannot drift into two different half-true claims (roadmap UI-4).
@@ -206,8 +199,19 @@ function stripWebp(bytes: Uint8Array): Uint8Array {
 export const METADATA_KEPT_NOTE =
   "This file type keeps its own metadata — location and camera details are not removed from it.";
 
+/**
+ * Whether a file carries metadata this code does *not* remove, so a screen can disclose it
+ * instead of implying the file was cleaned like a JPEG (`docs/STORAGE.md` §Image metadata,
+ * roadmap UI-4). After the ISO base media walker landed, the formats left uncleaned are TIFF
+ * and the raw formats built on it, GIF, PDF and SVG — plus any ISO base media file too
+ * malformed for the walker to trust. Recognised by the file's own bytes, never by a name or a
+ * type the user supplied.
+ */
 export function metadataUnhandled(bytes: Uint8Array): boolean {
-  if (bytes.length >= 12 && fourCc(bytes, 4) === "ftyp") return true;
+  // ISO base media files (HEIC/HEIF/AVIF, MP4/MOV) are now stripped in place (roadmap UI-4,
+  // `isobmff.ts`); a file is only unhandled here if that walker refused to parse it.
+  const iso = stripIsoBmff(bytes);
+  if (iso) return !iso.handled;
   const tiffLittle = [0x49, 0x49, 0x2a, 0x00];
   const tiffBig = [0x4d, 0x4d, 0x00, 0x2a];
   if (bytes.length >= 4 && [tiffLittle, tiffBig].some((magic) => magic.every((byte, index) => bytes[index] === byte))) {
@@ -221,9 +225,10 @@ export function metadataUnhandled(bytes: Uint8Array): boolean {
 }
 
 /**
- * Remove the metadata blocks from an image. Returns the same bytes when the format is not
- * one of the three understood here, when it is malformed, or when there was nothing to
- * remove — so a caller can always use the result.
+ * Remove the metadata blocks from an image or video. Returns the same bytes when the format is
+ * not one this code understands, when it is malformed, or when there was nothing to remove —
+ * so a caller can always use the result. JPEG, PNG and WebP are rewritten here; HEIC/HEIF,
+ * AVIF and MP4/MOV are handled by the ISO base media walker (`isobmff.ts`, roadmap UI-4).
  */
 export function stripImageMetadata(bytes: Uint8Array): Uint8Array {
   if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
@@ -236,5 +241,7 @@ export function stripImageMetadata(bytes: Uint8Array): Uint8Array {
   if (bytes.length >= 12 && fourCc(bytes, 0) === "RIFF" && fourCc(bytes, 8) === "WEBP") {
     return stripWebp(bytes);
   }
+  const iso = stripIsoBmff(bytes);
+  if (iso) return iso.cleaned;
   return bytes;
 }

@@ -35,6 +35,8 @@ notices.
 | JPEG segment structure (SOI, APPn, COM, SOS) | ITU-T T.81 / JFIF (ECMA TR/98) | Which segments the metadata stripper may drop (`src/shared/media.ts`, ADR-0092) | `test/uploads.test.ts` builds a file per rule and asserts what survives |
 | PNG chunk structure and the ancillary chunks a decoder needs | W3C/ISO PNG (Third Edition), including `eXIf` | The keep-list in the stripper: critical chunks, display chunks, animation chunks | Same suite |
 | RIFF container and the WebP `EXIF`/`XMP ` chunks | Google WebP container specification | The two chunks removed, and the RIFF length rewritten after removal | Same suite |
+| ISO base media box structure, `udta`, `mvhd`/`tkhd`/`mdhd` timestamps | ISO/IEC 14496-12 | The box walk and the video metadata cleared in place (`src/shared/isobmff.ts`, ADR-0109) | `test/isobmff.test.ts` builds a HEIC and an MP4 byte by byte and asserts what is zeroed and what survives |
+| HEIF item structure (`meta`, `iinf`/`infe`, `iloc`, `idat`) and the `Exif`/`mime` item types | ISO/IEC 23008-12 | How a still image's Exif and XMP items are located and zeroed without moving the coded image | Same suite |
 | File upload handling | OWASP File Upload Cheat Sheet | The upload checks that are possible on ciphertext: authorisation, size in decoded bytes, no client-controlled path or name, storage outside any webroot (`docs/STORAGE.md`) | `test/uploads.test.ts`, `test/limits.test.ts` |
 | Monero spendable age (10 blocks) and ~2-minute block target | Monero technical specifications, `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` | The confirmation policy in `docs/PAYMENTS.md`: "paid" and "spendable" are different moments | Design only |
 
