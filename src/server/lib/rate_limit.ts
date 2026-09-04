@@ -111,6 +111,13 @@ export const DEFAULT_LIMITS = {
    * *consumes* something of somebody else's: one one-time prekey per device, per call.
    */
   key_bundle: { burst: 30, perMinute: 10 },
+  /**
+   * The payout worker's three routes. They have no session, so the bucket is keyed on the
+   * address; the honest worker polls from one address a few times a minute, and anything
+   * that arrives faster than this is somebody guessing at the bearer token — which the
+   * constant-time compare already makes hopeless, but not free (SEC-2026-019).
+   */
+  payout_worker: { burst: 120, perMinute: 60 },
   /** Ordinary reads. */
   read: { burst: 240, perMinute: 240 },
   /** Anything else that writes. */

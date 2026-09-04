@@ -186,6 +186,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/api/auth/logout", async (request, reply) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "sensitive");
     await destroySession(db, user.sessionId);
     reply.header("set-cookie", [
       sessionCookie(config, request, "", 0),
@@ -196,6 +197,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/api/auth/logout-everywhere", async (request, reply) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "sensitive");
     await destroyAllSessions(db, user.id);
     await recordSecurityEvent(db, user.id, "sessions.revoked_all");
     reply.header("set-cookie", [sessionCookie(config, request, "", 0), csrfCookie(config, request, "", 0)]);
@@ -352,6 +354,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get("/api/auth/me", async (request) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "read");
     const row = await db.get<{
       created_day: number;
       recovery_public_key: string | null;
@@ -383,6 +386,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get("/api/auth/security-events", async (request) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "read");
     const rows = await listSecurityEvents(db, user.id);
     return {
       retentionDays: config.securityEventRetentionDays,
@@ -396,6 +400,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/auth/sessions", async (request) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "read");
     const rows = await db.all<{
       id: string;
       label: string | null;
@@ -420,6 +425,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete("/api/auth/sessions/:id", async (request) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "sensitive");
     const { id } = request.params as { id: string };
     const row = await db.get<{ id: string }>(
       "SELECT id FROM sessions WHERE id = ? AND user_id = ?",

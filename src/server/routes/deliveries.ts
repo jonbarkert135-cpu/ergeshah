@@ -131,6 +131,7 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
    */
   app.delete("/api/market/orders/:id/delivery", async (request) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "write");
     const order = await orderFor(app, request, user.id);
     if (order.buyer_user_id !== user.id) throw forbidden("only the buyer can erase a delivery");
     await db.run("DELETE FROM deliveries WHERE order_id = ?", [order.id]);

@@ -108,10 +108,10 @@ what each one protects.
 
 ### `RATE_LIMITS`
 
-Eighteen scopes: `register`, `login`, `account_attempt`, `recovery`, `sensitive`,
+Nineteen scopes: `register`, `login`, `account_attempt`, `recovery`, `sensitive`,
 `message_send`, `send_tokens`, `attachment`, `upload_bytes`, `seller_application`,
 `listing_write`, `order_write`, `review`, `wallet_write`, `moderation`, `search`,
-`key_bundle`, `read`, `write`. Each has a `burst` (tokens available at once) and
+`key_bundle`, `payout_worker`, `read`, `write`. Each has a `burst` (tokens available at once) and
 `perMinute` (refill rate). `key_bundle` is separate from `read` because claiming a prekey
 bundle *consumes* one of the target's one-time prekeys (ADR-0035). `attachment` is separate
 from `message_send` because an attachment is megabytes, and it bounds how *often* one may be

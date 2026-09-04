@@ -46,6 +46,7 @@ export async function registerPayoutRoutes(app: FastifyInstance): Promise<void> 
    * needed, and `markWithdrawalSent` deletes it immediately afterwards.
    */
   app.post("/api/payouts/claim", async (request) => {
+    await app.limit(request, "payout_worker");
     requireWorker(request);
     const claimed = await claimWithdrawal(db);
     if (!claimed) return { payout: null };
@@ -63,6 +64,7 @@ export async function registerPayoutRoutes(app: FastifyInstance): Promise<void> 
    * for the operator's own accounting, and the destination is forgotten.
    */
   app.post("/api/payouts/:id/sent", async (request) => {
+    await app.limit(request, "payout_worker");
     requireWorker(request);
     const id = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
@@ -83,6 +85,7 @@ export async function registerPayoutRoutes(app: FastifyInstance): Promise<void> 
    * and cannot explain.
    */
   app.post("/api/payouts/:id/failed", async (request) => {
+    await app.limit(request, "payout_worker");
     requireWorker(request);
     const id = asId((request.params as { id: string }).id, "id");
     // The worker may say why in its own logs; this server does not record a reason, because

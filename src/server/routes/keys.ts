@@ -10,6 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { badRequest, conflict, notFound } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { today } from "../lib/time.ts";
+import { recordSecurityEvent } from "../lib/security_events.ts";
 import { SIGNED_PREKEY_ROTATION_MS } from "../../shared/crypto/identity.ts";
 
 /** The client's own rotation window, in days: the server reports staleness against it. */
@@ -102,6 +103,7 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get("/api/keys/status", async (request) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "read");
     const devices = await db.all<{ id: string; label: string | null; rotated_day: number }>(
       "SELECT id, label, rotated_day FROM devices WHERE user_id = ? AND revoked_at IS NULL",
       [user.id],
@@ -165,6 +167,7 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/api/keys/revoke", async (request) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "sensitive");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const device = await requireOwnDevice(app, user.id, body.deviceId);
     await db.transaction(async (tx) => {
@@ -173,6 +176,9 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
       // Undelivered envelopes for a revoked device are unreadable: drop them.
       await tx.run("DELETE FROM envelopes WHERE recipient_device_id = ?", [device.id]);
     });
+    // The one destructive key-directory action; the owner's history had a label for it
+    // (`device.revoked`) that nothing wrote until SEC-2026-019.
+    await recordSecurityEvent(db, user.id, "device.revoked");
     return { ok: true };
   });
 
@@ -201,6 +207,7 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/keys/vault", async (request) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "read");
     const row = await db.get<{ sealed: string }>("SELECT sealed FROM vaults WHERE user_id = ?", [
       user.id,
     ]);

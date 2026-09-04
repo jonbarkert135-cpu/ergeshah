@@ -167,7 +167,7 @@ the client.
 | `POST /api/market/seller/bond` | session (seller) | `write` | Stake XMR against your own conduct (ADR-0086). Minimum `BOND_MIN_XMR`; the cool-off restarts |
 | `POST /api/market/seller/bond/release` | session (seller) | `write` | Return the whole bond. 409 while the cool-off runs, one of your orders is disputed, or a buyer's report on one of your completed orders is open |
 | `GET /api/market/seller/bond` | session (seller) | `read` | What is staked, how many disputes and buyer reports are open, and when it can be released |
-| `POST /api/market/moderation/orders/:id/bond-claim` | staff | — | Pay a harmed buyer out of the seller's bond: completed orders that were disputed or reported, once each, capped at the price. `amountXmr` and a `note` for the audit log |
+| `POST /api/market/moderation/orders/:id/bond-claim` | staff (not a party to the order) | `moderation` | Pay a harmed buyer out of the seller's bond: completed orders that were disputed or reported, once each, capped at the price. `amountXmr` and a `note` for the audit log |
 | `POST /api/market/seller-applications` | session | `seller_application` | Apply to sell |
 | `GET /api/market/seller-applications/mine` | session | `read` | The state of my own application |
 | `POST /api/market/listings` | session (seller) | `listing_write` | Create a listing |
@@ -213,9 +213,9 @@ tier (ADR-0070).
 
 | Endpoint | Auth | Notes |
 | --- | --- | --- |
-| `POST /api/payouts/claim` | worker token | Takes the oldest `queued` payout and marks it `sending` in the same statement, so two workers cannot be given the same row. Answers `{ payout: null }` when the queue is empty. The destination address is returned here and nowhere else |
-| `POST /api/payouts/:id/sent` | worker token | `{ txid, networkFeeXmr }`. The transaction id must be 64 hex characters (`invalid_txid`); the destination is deleted and the hold leaves the balance |
-| `POST /api/payouts/:id/failed` | worker token | The payout was not sent: the money returns to the owner's spendable balance. No reason is stored |
+| `POST /api/payouts/claim` | worker token | Bucket `payout_worker`, keyed on the caller's address. Takes the oldest `queued` payout and marks it `sending` in the same statement, so two workers cannot be given the same row. Answers `{ payout: null }` when the queue is empty. The destination address is returned here and nowhere else |
+| `POST /api/payouts/:id/sent` | worker token | Bucket `payout_worker`. `{ txid, networkFeeXmr }`. The transaction id must be 64 hex characters (`invalid_txid`); the destination is deleted and the hold leaves the balance |
+| `POST /api/payouts/:id/failed` | worker token | Bucket `payout_worker`. The payout was not sent: the money returns to the owner's spendable balance. No reason is stored |
 
 Nothing re-queues a payout automatically. A row left in `sending` because the worker died is
 an operator reading their own wallet history — the alternative pays somebody twice. Since

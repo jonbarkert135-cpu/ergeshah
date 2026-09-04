@@ -109,6 +109,7 @@ export async function registerBondRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post("/api/market/moderation/orders/:id/bond-claim", async (request) => {
     const moderator = await app.requireRole(request, ["moderator", "admin"]);
+    await app.limit(request, "moderation");
     const orderId = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const order = await db.get<{

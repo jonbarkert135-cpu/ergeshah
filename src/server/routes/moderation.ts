@@ -348,6 +348,7 @@ export async function registerModerationRoutes(app: FastifyInstance): Promise<vo
 
   app.post("/api/admin/users/:username/role", async (request) => {
     const admin = await app.requireRole(request, ["admin"]);
+    await app.limit(request, "moderation");
     const username = asUsername((request.params as { username: string }).username);
     const role = asEnum((request.body as Record<string, unknown>)?.role, "role", [
       "user",

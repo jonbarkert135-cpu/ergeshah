@@ -6,7 +6,7 @@
  * operation, they are counted against the account rather than the address, and they can be
  * changed by an operator without changing the code.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { register, startTestServer, TestClient, type TestServer } from "./helpers.ts";
 import { DEFAULT_LIMITS, consume, resolveLimits } from "../src/server/lib/rate_limit.ts";
@@ -325,5 +325,54 @@ describe("the limiter spends in one statement (SEC-2026-011)", () => {
       "SELECT tokens FROM rate_limits ORDER BY tokens ASC LIMIT 1",
     );
     expect(Number(row!.tokens)).toBe(0);
+  });
+});
+
+/**
+ * SEC-2026-019. Sixteen routes — logout, the session list, the vault download, envelope
+ * acknowledgement, device revocation, the bond claim, the role change, the three payout-worker
+ * routes — charged no bucket, while `docs/API.md` said which bucket each of them used. The
+ * convention is now asserted over the route table, with the exceptions written down here.
+ */
+describe("every route charges a bucket (SEC-2026-019)", () => {
+  /** Routes that are not metered, and why. */
+  const UNMETERED: Record<string, string> = {
+    "GET /": "the application shell: a static file, served by a content-addressed route",
+    "GET /healthz": "two words for the container health check; it reads nothing",
+  };
+
+  it("has an app.limit call in the handler of every route not listed as unmetered", () => {
+    const missing: string[] = [];
+    for (const path of readdirSync(new URL("../src/server/routes/", import.meta.url))) {
+      const source = readFileSync(new URL(`../src/server/routes/${path}`, import.meta.url), "utf8");
+      const parts = source.split(/app\.(get|post|put|delete|patch)\(\s*"([^"]+)"/);
+      // [preamble, method, url, body, method, url, body, ...]
+      for (let index = 1; index < parts.length; index += 3) {
+        const route = `${parts[index]!.toUpperCase()} ${parts[index + 1]}`;
+        const body = parts[index + 2] ?? "";
+        if (route in UNMETERED) continue;
+        if (!body.includes("app.limit(")) missing.push(`${path}: ${route}`);
+      }
+    }
+    expect(missing, "routes with no rate-limit bucket").toEqual([]);
+  });
+
+  it("does charge: the payout worker's routes answer 429 once the bucket is empty", async () => {
+    const tight = await startTestServer({
+      rateLimits: { ...DEFAULT_LIMITS, payout_worker: { burst: 2, perMinute: 0.01 } },
+    });
+    try {
+      const attempt = () =>
+        tight.app.inject({
+          method: "POST",
+          url: "/api/payouts/claim",
+          headers: { authorization: "Bearer wrong-token-wrong-token-wrong-token-x", cookie: "csrf=x", "x-csrf-token": "x" },
+        });
+      expect((await attempt()).statusCode).toBe(401);
+      expect((await attempt()).statusCode).toBe(401);
+      expect((await attempt()).statusCode).toBe(429);
+    } finally {
+      await tight.close();
+    }
   });
 });

@@ -177,6 +177,7 @@ export async function registerMessageRoutes(app: FastifyInstance): Promise<void>
   /** Acknowledge delivery: the server forgets the envelope immediately. */
   app.post("/api/messages/ack", async (request) => {
     const user = await app.authenticate(request);
+    await app.limit(request, "write");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const device = await ownDevice(app, user.id, body.deviceId);
     const ids = asArray(body.ids, "ids", 200).map((id) => asId(id, "ids[]"));
