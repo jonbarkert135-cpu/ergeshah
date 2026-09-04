@@ -32,9 +32,12 @@ floor of verifiability for any web application, and closing the source does not 
 | Migrations | `npm run audit:migrations` | A released migration was edited, numbering has a gap, or something destructive is unexplained |
 | Supply chain | `npm run audit:supply` | The lockfile lost an integrity hash, a package resolves outside the public registry, or install scripts are no longer disabled |
 | Server egress | `npm run audit:egress` | A file under `src/server` or `scripts` grew an outbound call the audit does not name with a reason, a host was written into the source, or a telemetry package entered the lockfile |
+| Dependency freeze | `npm run audit:inventory` | A dependency changed version — direct or transitive — without the generated inventory being regenerated and reviewed (`docs/DEPENDENCY_INVENTORY.md`) |
+| Security baseline | `npm run audit:baseline` | This commit's security surface is wider than the recorded one: a port, an outbound destination, a dependency count, a missing header (`deploy/security-baseline.json`, `docs/RELEASE.md`) |
 | Reproducibility | part of `audit:bundle` | Two identical builds produced different bytes |
 
-`npm run check` runs lint and types; `npm run audit` runs the eight audits.
+`npm run check` runs lint and types; `npm run audit` runs the eleven audits. `npm run release`
+runs all of it and maps the result onto the areas a release has to clear (`docs/RELEASE.md`).
 
 They all live in `scripts/audit.mjs` and `scripts/lint.mjs`, are `String.matchAll` and
 `git` plumbing, and add no dependency.
@@ -134,6 +137,29 @@ The inventory it prints is the short form of the table in `docs/NETWORK.md` §Ev
 request. What it cannot see is a transitive package that opens a socket without saying so in
 its name; the mitigations for that are the tree size, `ignore-scripts`, and the application
 container having no gateway.
+
+### `audit:inventory` — the dependency freeze (points 111, 112)
+
+`audit:dependencies` asks whether every direct dependency is justified, licensed and inside
+the budget. This asks a different question: *did anything change without anybody looking?*
+`docs/DEPENDENCY_INVENTORY.md` is generated from `package.json`, `package-lock.json` and the
+installed tree — totals, runtime dependencies, every direct dependency with its purpose,
+security relevance, network behaviour and replacement possibility, the whole production tree
+with licences, and a freeze digest over every `name@version` and integrity hash. The audit
+regenerates it and fails if the committed copy differs, which makes a version bump a diff
+somebody approves rather than a line in a lockfile nobody reads. What it owes when it fails is
+in the document itself: security review, licence review, privacy review, regression test, then
+`npm run inventory:update`.
+
+### `audit:baseline` — the security surface, compared (point 139)
+
+`deploy/security-baseline.json` records the measured security surface of the last approved
+release: dependency counts, published ports, services with a route to the internet, files
+allowed to make an outbound call, authentication and session routes, response headers, storage
+limits and the values a log line never carries. Every one is measured from the tree by
+`scripts/release.mjs`, and the comparison fails when a count grows, a surface member appears or
+a defence disappears. The opposite direction prints as drift and asks for the baseline to be
+re-recorded. `docs/RELEASE.md` is the procedure.
 
 ## The zero-cost audit
 

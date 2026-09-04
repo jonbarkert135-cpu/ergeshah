@@ -77,6 +77,8 @@ const NOT_AN_ENDPOINT = /www\.w3\.org|registry\.npmjs\.org/i;
 const TELEMETRY = /(?:^|\/)(?:@sentry|@datadog|dd-trace|newrelic|@newrelic|bugsnag|@bugsnag|rollbar|posthog-|mixpanel|amplitude-|@segment|analytics-node|@amplitude|logrocket|fullstory|@elastic\/apm|@opentelemetry|appsignal|raygun|instabug)/i;
 
 export const scanEgress = (text) => scan(text, OUTBOUND);
+/** The files allowed to make an outbound call, for the release baseline (point 139). */
+export const egressDestinations = () => [...EGRESS_ALLOWED.keys()];
 export const isTelemetryPackage = (name) => TELEMETRY.test(name);
 
 export function egress() {

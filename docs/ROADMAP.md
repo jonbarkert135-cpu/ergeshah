@@ -173,6 +173,13 @@ text, an older statement cannot be replayed over a newer one, and an admin sessi
 cannot publish anything, because the private key is not on this machine. What it still cannot
 do is prove anything when it *is* refreshed; that limit is written into the client's own
 wording.*
+- **OPS-11 — The authorisation matrix as data (point 132).** Authorisation is proved today by
+  a test that walks Fastify's whole route table: anything not on an explicit public allowlist
+  must answer 401, ownership is checked, and every staff route refuses a normal account
+  (`test/authorization.test.ts`). What does not exist is the matrix as a *machine-readable
+  table* — role × resource × action, with CI reporting an unintended widening rather than a
+  missing refusal. The honest gap: the sweep catches a route that forgot its check, and it
+  would not catch a moderator gaining an `export` capability that nobody wrote a test for.
 - **OPS-3 — Container image signing and an SBOM.**
 - **OPS-8 — Authenticate the wallet RPC, not just its network position.** `app` reaches the
   view-only wallet over the internal network with `--disable-rpc-login`, which is the one

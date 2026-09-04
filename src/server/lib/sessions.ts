@@ -151,6 +151,31 @@ export async function revokeAllCredentials(db: Db, userId: string): Promise<void
   });
 }
 
+/**
+ * The same revocation, with one exception: the session that asked for it (ADR-0102).
+ *
+ * A change to the second factor — enrolling a PGP key, rotating it, removing it, replacing
+ * the recovery key — is a credential rotation, so the sessions minted under the old one have
+ * to end (point 131). What it is not is a reason to sign the user out of the browser they
+ * are sitting in front of: that caller has just proved the password *and* a signature from
+ * the key being replaced, which is the strongest proof this system accepts, and a rotation
+ * that logs you out is a rotation people postpone.
+ *
+ * Challenges and device-link codes are taken whatever session they belong to: neither is a
+ * session, and both were minted under the credential that just changed.
+ */
+export async function revokeOtherCredentials(
+  db: Db,
+  userId: string,
+  keepSessionId: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.run("DELETE FROM sessions WHERE user_id = ? AND id <> ?", [userId, keepSessionId]);
+    await tx.run("DELETE FROM auth_challenges WHERE user_id = ?", [userId]);
+    await tx.run("DELETE FROM device_links WHERE user_id = ?", [userId]);
+  });
+}
+
 /** Housekeeping: absolute expiry and idle expiry, without waiting for a cookie to arrive. */
 export async function pruneSessions(db: Db, idleDays: number, now = Date.now()): Promise<void> {
   await db.run("DELETE FROM sessions WHERE expires_at < ? OR last_seen_day < ?", [

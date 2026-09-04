@@ -1,0 +1,87 @@
+{
+  "recorded": "2026-09-04",
+  "why": "See docs/RELEASE.md §The baseline. Every field is measured by scripts/release.mjs.",
+  "directProductionDependencies": 4,
+  "productionPackages": 65,
+  "privilegedContainers": 0,
+  "containersWithoutHardening": 0,
+  "publishedPorts": [
+    "proxy 443:443",
+    "proxy 80:80"
+  ],
+  "servicesWithInternetRoute": [
+    "proxy"
+  ],
+  "egressDestinations": [
+    "scripts/audit.mjs",
+    "scripts/backup.mjs",
+    "scripts/payout-worker.mjs",
+    "src/server/lib/monero.ts"
+  ],
+  "authRoutes": [
+    "/api/auth/delete",
+    "/api/auth/link",
+    "/api/auth/link/claim",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/logout-everywhere",
+    "/api/auth/me",
+    "/api/auth/password",
+    "/api/auth/pgp/challenge",
+    "/api/auth/pgp/complete",
+    "/api/auth/pgp/key",
+    "/api/auth/pgp/remove",
+    "/api/auth/recovery/challenge",
+    "/api/auth/recovery/complete",
+    "/api/auth/recovery/key",
+    "/api/auth/register",
+    "/api/auth/security-events",
+    "/api/auth/sessions",
+    "/api/auth/sessions/:id"
+  ],
+  "securityHeaders": [
+    "cache-control",
+    "content-security-policy",
+    "cross-origin-opener-policy",
+    "cross-origin-resource-policy",
+    "onion-location",
+    "origin-agent-cluster",
+    "permissions-policy",
+    "referrer-policy",
+    "set-cookie",
+    "strict-transport-security",
+    "x-api-version",
+    "x-content-type-options",
+    "x-frame-options"
+  ],
+  "storageLimits": [
+    "bucket:attachment",
+    "bucket:upload_bytes",
+    "config:MAX_BLOB_ROWS",
+    "config:MAX_DELIVERY_BYTES",
+    "config:MAX_ENVELOPE_BYTES",
+    "config:STORAGE_FLOOR_BYTES"
+  ],
+  "loggingRedactions": [
+    "key:authorization",
+    "key:authsecret",
+    "key:ciphertext",
+    "key:cookie",
+    "key:key=",
+    "key:masterkey",
+    "key:mnemonic",
+    "key:password",
+    "key:payload",
+    "key:pepper",
+    "key:plaintext",
+    "key:private_key",
+    "key:privatekey",
+    "key:recoveryphrase",
+    "key:secret",
+    "key:session",
+    "key:token",
+    "key:vault",
+    "shape:address",
+    "shape:secret"
+  ]
+}

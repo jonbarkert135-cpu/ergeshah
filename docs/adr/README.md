@@ -58,6 +58,7 @@ or if a record is missing a section.
 | [ADR-0089](../DECISIONS.md#adr-0089--a-credential-rotation-revokes-credentials-not-only-sessions) | A credential rotation revokes credentials, not only sessions |
 | [ADR-0090](../DECISIONS.md#adr-0090--an-accounts-security-history-is-a-count-per-day-and-only-its-owner-reads-it) | An account's security history is a count per day, and only its owner reads it |
 | [ADR-0091](../DECISIONS.md#adr-0091--a-key-change-is-announced-by-the-client-not-prevented-by-a-tombstone) | A key change is announced by the client, not prevented by a tombstone |
+| [ADR-0102](../DECISIONS.md#adr-0102--a-change-to-the-second-factor-ends-the-other-sessions) | A change to the second factor ends the other sessions |
 
 ### Database
 
@@ -85,6 +86,7 @@ or if a record is missing a section.
 | [ADR-0094](../DECISIONS.md#adr-0094--the-zero-cost-promise-is-a-check-not-a-sentence-in-a-readme) | The zero-cost promise is a check, not a sentence in a README |
 | [ADR-0096](../DECISIONS.md#adr-0096--two-deployment-profiles-one-architecture-and-kubernetes-in-neither) | Two deployment profiles, one architecture, and Kubernetes in neither |
 | [ADR-0099](../DECISIONS.md#adr-0099--the-canary-signed-off-the-machine-published-with-its-age) | The canary: signed off the machine, published with its age |
+| [ADR-0101](../DECISIONS.md#adr-0101--a-release-gate-evidence-per-area-a-baseline-that-ratchets-and-a-clean-clone) | A release gate: evidence per area, a baseline that ratchets, and a clean clone |
 
 ### Privacy model
 
@@ -139,6 +141,7 @@ or if a record is missing a section.
 | --- | --- |
 | [ADR-0002](../DECISIONS.md#adr-0002--agpl-30-only-superseded-by-adr-0022) | AGPL-3.0-only *(superseded by ADR-0022)* |
 | [ADR-0010](../DECISIONS.md#adr-0010--dependency-budget) | Dependency budget |
+| [ADR-0100](../DECISIONS.md#adr-0100--the-dependency-inventory-is-generated-and-it-is-the-freeze) | The dependency inventory is generated, and it is the freeze |
 | [ADR-0016](../DECISIONS.md#adr-0016--audits-as-ci-checks-written-in-the-repository-not-bought) | Audits as CI checks, written in the repository, not bought |
 | [ADR-0022](../DECISIONS.md#adr-0022--proprietary-license-supersedes-adr-0002) | Proprietary license; supersedes ADR-0002 |
 | [ADR-0023](../DECISIONS.md#adr-0023--one-project-one-tree-no-pre-built-openclosed-split) | One project, one tree: no pre-built open/closed split |

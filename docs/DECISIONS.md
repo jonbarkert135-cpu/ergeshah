@@ -3407,3 +3407,142 @@ The cost is one table of a few rows a year, two routes, one environment variable
 two hundred lines including the client. There is no background work, no clock the server
 depends on, and nothing that fails if the operator disappears — which is the case it exists
 for.
+
+## ADR-0100 — The dependency inventory is generated, and it is the freeze
+
+**Status:** accepted, 2026-09-04 (points 111, 112).
+
+**Context.** `audit:dependencies` already refuses a package with no justification in
+`docs/DEPENDENCIES.md`, a licence off the allowlist, or a tree above its budget. None of that
+notices the change this project is actually exposed to: a *version* moving. A caret range
+resolving to a new minor, `npm install` refreshing a transitive package while adding
+something unrelated, a lockfile regenerated on somebody's laptop — the diff is a wall of
+integrity hashes, review skips it, and the tree that ships is not the tree that was reviewed.
+
+Point 112 asks for an inventory (direct, transitive, runtime, development, with purpose,
+licence, security relevance, network behaviour and replacement possibility per critical
+package). Point 111 asks that a dependency change pass security, licence, privacy and
+regression review. Both are documents by nature, and a document maintained by hand about 177
+packages is a document that is wrong within a week.
+
+**Decision.** Generate it, commit it, and compare it on every push.
+
+`docs/DEPENDENCY_INVENTORY.md` is produced by `scripts/audit-inventory.mjs` from
+`package.json`, `package-lock.json` and the installed tree: totals, the four runtime
+dependencies with when each is loaded, every direct dependency (production *and* development)
+with the four facts a script cannot derive, the whole production tree with licences, the
+development tree, and a freeze digest over every `name@version` and integrity hash.
+`npm run audit:inventory` — inside `npm run audit`, so CI runs it with no change to the
+workflow file — regenerates the document and fails if it differs from the committed copy.
+
+The reviewed facts live in a table in the script rather than in the document, because the
+document is overwritten. A direct dependency with no entry in that table fails the audit: the
+question "what does this package do on the network" cannot be answered by generation, so it
+is answered by a person once and then kept.
+
+**Rejected.** A `package-lock.json` diff as the review artifact: it is unreadable, which is
+why nothing is caught there today. `npm shrinkwrap` or a vendored `node_modules`: a much
+bigger repository for the same property this gives in 300 lines. An SBOM in CycloneDX or
+SPDX: a machine format for consumers this project does not have, and it would still not
+answer "who reviewed this change" (an SBOM is on the roadmap as OPS-3, for image signing,
+where it has an actual consumer). Pinning every direct dependency to an exact version:
+appealing, and it would make `npm audit` findings harder to fix quickly; the lockfile already
+pins exactly, and this check makes the pin visible.
+
+**Consequences.** Adding or updating a dependency is now four steps, and the failure message
+lists them in order. The inventory is 361 lines of generated Markdown in the repository — a
+real cost, paid because the alternative is a promise nobody checks. The freeze notices *that*
+something changed, never whether the change is safe: a hijacked release with the same
+behaviour still looks ordinary here, and the mitigations for that remain the small tree,
+`ignore-scripts=true`, integrity hashes and the reviews this check forces.
+
+## ADR-0101 — A release gate: evidence per area, a baseline that ratchets, and a clean clone
+
+**Status:** accepted, 2026-09-04 (points 109, 138, 139, 140).
+
+**Context.** Everything this project verifies existed already — lint, types, 650 tests, ten
+audits — and none of it answered the question a release asks: *is this commit shippable, and
+what is the evidence?* Three specific holes. First, the working directory was the source of
+truth, so an audit over *tracked* files could pass on a tree nobody else can reproduce (this
+happened once already, `docs/SELF_CRITIQUE.md` finding 10). Second, nothing compared one
+release with the previous one, so surface could creep outward — a port, an outbound
+destination, a header quietly dropped — with no moment where anybody had to agree. Third,
+point 140 lists fourteen areas a commit must clear, and a checklist that is not mechanical
+becomes a habit of ticking boxes (which is exactly what ADR-0057 refused to add).
+
+**Decision.** One command, three parts, and a rule about honesty.
+
+- **`npm run release`** runs `npm run check`, `npm test` and `npm run audit`, then five static
+  checks about things that are *absent* (a master credential, the break-glass tool inside the
+  runtime image, a debug switch, a development route, a credential in a deployed file), then
+  the baseline comparison. It prints the point-138 checklist and the point-140 gate with the
+  evidence each line rests on, and exits non-zero if any category failed **or did not run**.
+  A check that did not run is never a pass, which is the whole reason the report can be
+  believed.
+- **`deploy/security-baseline.json`** records eleven measurements taken from the tree, not
+  from a document: dependency counts, published ports, services with a route to the internet,
+  files allowed an outbound call, authentication and session routes, response headers, storage
+  limits, log redactions, privileged and unhardened containers. Three kinds decide the
+  direction that fails — a count that grew, a surface member that appeared, a defence that
+  disappeared. The other direction prints as drift and asks to be re-recorded, in the commit
+  that earned it.
+- **`npm run verify:clean-clone`** does the pipeline point 109 asks for in a temporary
+  directory: clone, `npm ci`, lint and types, build, tests, audits. The remote comes from
+  `git remote get-url origin`, because a host written into this repository is something
+  `audit:cost` and `audit:egress` refuse. It is opt-in from the gate (`--clean-clone`), and
+  until it has run the gate reports the commit as not production-ready.
+
+**Rejected.** Making the clean clone part of every `npm run release`: minutes and a network
+for a command people would then stop running. A second CI job for it: GitHub Actions already
+performs that pipeline on every push, and the script exists so an operator can get the same
+answer without trusting a third party. Failing on baseline *drift* in either direction: a
+contraction is an improvement, and a gate that fails on improvements teaches people to
+disable it. A YAML or human-written checklist: `test/release.test.ts` asserts that every
+suite and npm script the gate names exists, which a prose checklist cannot.
+
+**Consequences.** The baseline is now a file that changes in a security-relevant commit, and
+its diff is the most readable security diff here — one line per change. It is also a new way
+to be wrong: re-recording it thoughtlessly launders an expansion into a "recorded decision",
+so the document says plainly that the re-record belongs in the commit that caused the change
+with the reason in the message. The gate measures what it knows how to measure: a weakening
+inside a value it does not read — a looser regular expression, a widened bucket — is invisible
+to it, and that is what review and the mechanism register are for.
+
+## ADR-0102 — A change to the second factor ends the other sessions
+
+**Status:** accepted, 2026-09-04 (point 131). Extends ADR-0089.
+
+**Context.** ADR-0089 established that a password change or a recovery revokes every session,
+pending challenge and parked device-link code, because all three are credentials minted under
+the old password. Writing the point-131 matrix — the same question asked from the *other*
+browser's side — found that a change to the **second factor** did not: enrolling a PGP key,
+rotating it, removing it, or replacing the recovery key left every other session alive.
+
+That is the wrong way round. A key is rotated precisely because the old one is no longer
+trusted, and a key is removed because the account's authentication is being weakened; in both
+cases the sessions signed in under the old arrangement are the ones an attacker would be
+holding. The comment on `POST /api/auth/pgp/remove` said "sessions are left alone", which was
+a decision about the *vault* being untouched that had quietly become a decision about
+sessions.
+
+**Decision.** `revokeOtherCredentials(db, userId, keepSessionId)` — the ADR-0089 revocation
+with one exception, the session that performed the rotation — now runs on
+`POST /api/auth/pgp/key` (enrolment and rotation), `POST /api/auth/pgp/remove` and
+`POST /api/auth/recovery/key`. Challenges and device-link codes go whatever session owns them.
+
+The caller's own session survives because that caller has just proved the password *and* a
+signature from the key being replaced, which is the strongest proof this system accepts — and
+because a rotation that signs you out of the browser you are in is a rotation people postpone.
+A password change keeps its existing behaviour: it revokes everything and issues the caller a
+new session, since the old one was authorised by a password that no longer exists.
+
+**Rejected.** Revoking the caller too and making the client sign in again: correct in theory,
+worse in practice for the reason above, and it would make key rotation the most punishing
+security action in the product. Leaving enrolment alone: a session that was minted with the
+password alone is exactly what enabling a second factor is meant to stop being sufficient.
+
+**Consequences.** Four routes now end other sessions, and `test/revocation.test.ts` fails if
+any of them stops. Unspent sealed-sender tokens still survive every rotation — they carry no
+owner by design (ADR-0084), so nothing can find them to revoke — and the test states that
+rather than leaving it implied. A user with several devices will have to sign in again on the
+others after changing their key, which is the intended cost.

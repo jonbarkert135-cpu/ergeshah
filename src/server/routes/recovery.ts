@@ -10,7 +10,12 @@ import type { FastifyInstance } from "fastify";
 import { badRequest, unauthorized } from "../lib/errors.ts";
 import { sha256 } from "../lib/ids.ts";
 import { hashAuthSecret, verifyAuthSecret } from "../lib/password.ts";
-import { createSession, pruneSessions, revokeAllCredentials } from "../lib/sessions.ts";
+import {
+  createSession,
+  pruneSessions,
+  revokeAllCredentials,
+  revokeOtherCredentials,
+} from "../lib/sessions.ts";
 import { recordSecurityEvent } from "../lib/security_events.ts";
 import { today } from "../lib/time.ts";
 import {
@@ -284,6 +289,10 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
       facts.fingerprint,
       user.id,
     ]);
+    // The second factor changed, so every session that was minted without it — or with the
+    // key being replaced — ends here (point 131, ADR-0102). This session survives: it just
+    // proved the password and a signature from the outgoing key.
+    await revokeOtherCredentials(db, user.id, user.sessionId);
     await recordSecurityEvent(db, user.id, current ? "pgp.rotated" : "pgp.enrolled");
     return { fingerprint: facts.readable, algorithm: facts.algorithm, identities: facts.identities };
   });
@@ -344,8 +353,9 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
    * The password alone used to be enough, which made the factor removable by exactly the
    * attacker it exists to stop: someone holding a session and a password, and no key. Now
    * it takes all three, and the way out for a user who has lost the key is the recovery
-   * phrase. Sessions are left alone: this removes a factor from future logins, it does not
-   * touch the vault.
+   * phrase. The vault is untouched — this changes how future logins are authenticated — but
+   * the other sessions are not: taking a factor off the account ends the sessions that were
+   * signed in under it (point 131, ADR-0102).
    */
   app.post("/api/auth/pgp/remove", async (request) => {
     const user = await app.authenticate(request);
@@ -370,11 +380,16 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
       "UPDATE users SET pgp_public_key = NULL, pgp_fingerprint = NULL WHERE id = ?",
       [user.id],
     );
+    await revokeOtherCredentials(db, user.id, user.sessionId);
     await recordSecurityEvent(db, user.id, "pgp.removed");
     return { ok: true };
   });
 
-  /** Set or replace the recovery public key. Requires the current password, not a session alone. */
+  /**
+   * Set or replace the recovery public key. Requires the current password, not a session
+   * alone — and, like every other credential rotation here, it ends the other sessions
+   * (point 131, ADR-0102): the key that can mint a login without the password has changed.
+   */
   app.post("/api/auth/recovery/key", async (request) => {
     const user = await app.authenticate(request);
     const body = (request.body ?? {}) as Record<string, unknown>;
@@ -406,6 +421,7 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
         );
       }
     });
+    await revokeOtherCredentials(db, user.id, user.sessionId);
     await recordSecurityEvent(db, user.id, "recovery.key_set");
     return { ok: true };
   });

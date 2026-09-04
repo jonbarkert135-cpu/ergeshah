@@ -21,6 +21,9 @@
  *   node scripts/audit.mjs egress      — every place the *server* can reach out is a
  *                                        known one, no host is written into the source,
  *                                        and no telemetry package is in the tree
+ *   node scripts/audit.mjs inventory   — the generated dependency inventory still describes
+ *                                        this tree: nothing changed version without review
+ *                                        (`--update` regenerates it)
  *
  * Both are grep with a threat model attached. They do not replace review; they replace
  * *forgetting*. A line may opt out with an `audit:allow` comment on it, which is
@@ -37,6 +40,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 // The egress audit lives next door; `audit.mjs` was past the 700-line ceiling.
 import { egress } from "./audit-egress.mjs";
 export { egress, isTelemetryPackage, scanEgress } from "./audit-egress.mjs";
+// Same seam, same reason: the inventory generator is a document, not a grep.
+import { inventory } from "./audit-inventory.mjs";
+export { collect, INVENTORY_DOC, inventory, render } from "./audit-inventory.mjs";
 
 /** Anything that would make the browser reach a host we do not operate. */
 const EXTERNAL = [
@@ -591,6 +597,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   else if (mode === "dependencies") dependencies();
   else if (mode === "cost") cost();
   else if (mode === "egress") egress();
+  else if (mode === "inventory") inventory(process.argv.includes("--update"));
   else if (mode === "deployment") {
     const origin = process.argv[3];
     // audit:allow — a usage string; the origin is the operator's own deployment, supplied on the command line.
@@ -598,7 +605,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     await deployment(origin);
   } else {
     throw new Error(
-      `usage: node scripts/audit.mjs bundle|secrets|history|migrations|supply|dependencies|cost|egress|deployment (got '${mode ?? ""}')`,
+      "usage: node scripts/audit.mjs bundle|secrets|history|migrations|supply|dependencies|cost|" +
+        `egress|inventory|deployment (got '${mode ?? ""}')`,
     );
   }
 }

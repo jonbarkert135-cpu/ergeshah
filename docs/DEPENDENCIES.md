@@ -8,6 +8,15 @@ we do not know. The rule in this project is not "few dependencies" as a slogan �
 **budget: 68** production packages, transitive included. Today the tree is 65. Raising this
 number is allowed; raising it in a commit that does not explain why is not.
 
+**The inventory is generated, and it is a freeze (points 111, 112).**
+[`DEPENDENCY_INVENTORY.md`](DEPENDENCY_INVENTORY.md) lists the whole tree — transitive
+included, with a licence per package and the four reviewed facts per direct dependency — and
+`npm run audit:inventory` regenerates it and fails if the committed copy no longer describes
+the tree. So a version change cannot arrive unnoticed: it owes a **security review**, a
+**licence review**, a **privacy review** and a **regression test** before
+`npm run inventory:update` writes the new document. This page stays the argument; that page is
+the record.
+
 The rule that keeps the number small: *a dependency must do something we cannot do correctly
 ourselves in a comparable amount of code*. Cryptography and a database protocol qualify.
 Padding a string, generating a UUID, parsing a cookie, formatting a date, deep-cloning an
@@ -114,3 +123,5 @@ implementation rather than against themselves. None of these ship.
 2. `npm install <name>` — `.npmrc` sets `save-exact`, so the version is pinned.
 3. `npm run audit` — dependency policy, licence, lockfile integrity and install scripts.
 4. If the budget must rise, raise it in the same commit and say why in the message.
+5. Run `npm run inventory:update` and commit the regenerated inventory with the four reviews
+   named in the message. `npm run audit` fails until you do.

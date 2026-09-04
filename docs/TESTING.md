@@ -34,6 +34,8 @@ about the system is worse than no test, and the cheapest way to lie is to test a
 | `auth.test.ts`, `messaging.test.ts`, `market.test.ts`, `delivery.test.ts`, `moderation.test.ts` | Integration | The API as a browser uses it: cookies, CSRF header, state machines, ownership |
 | `authorization.test.ts` | **Security** | Walks Fastify's whole route table and calls every endpoint anonymously; anything not on an explicit public allowlist must answer 401. Also ownership and staff-role refusals, and that refusals are audited |
 | `limits.test.ts` | **Security** | Per-operation buckets, per-account fairness, oversized bodies, 500s that leak nothing, login responses that do not reveal whether an account exists |
+| `revocation.test.ts` | **Security** | The point-131 matrix from the other browser's side: a password change, a PGP enrolment, rotation or removal, a recovery, a replaced recovery key and a sign-out everywhere each end the sessions minted under the old credential — and unspent send tokens, which cannot be revoked, are stated rather than implied |
+| `release.test.ts` | **Security** | The release gate describes a system that exists: the generated dependency inventory matches the tree, the security baseline matches the measurements, every suite and npm script the gate names is real, the static checks pass, and a category that did not run is not a pass |
 | `hardening.test.ts` | **Security** | Security headers, URL-scheme allowlist in the DOM builder, timeouts, parameter length |
 | `defaults.test.ts` | **Security** | Privacy by default: the shipped configuration is the private one, and no protection is a setting |
 | `migrations.test.ts` | Integration | Migrations apply to an empty database, twice is a no-op, hot columns are indexed |
@@ -97,11 +99,12 @@ The nine cryptographic test kinds of point 54 are mapped in the header comment o
 - No `.only` (the linter rejects it: it silently disables the suite while CI stays green).
 - No `Math.random` (the linter rejects it: use `node:crypto`, so a failure reproduces).
 - A regression test names the bug in the test name, not in a comment.
-- **Run the suite from a clean clone now and then**, on a different filesystem:
+- **Run the suite from a clean clone now and then**, on a different filesystem. There is a
+  script for it, and it is the official gate rather than a habit (point 109, `docs/RELEASE.md`):
 
   ```bash
-  git clone https://github.com/jonbarkert135-cpu/ergeshah.git /tmp/clean && cd /tmp/clean
-  npm ci && npm run check && npm test
+  npm run verify:clean-clone        # empty directory -> clone -> npm ci -> check -> build -> tests -> audits
+  npm run verify:clean-clone -- --keep   # leave the directory to poke at
   ```
 
   This is not ceremony. It caught a test that passed in the working copy and failed under

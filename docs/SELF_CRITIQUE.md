@@ -279,3 +279,37 @@ clean-clone rehearsal is written up in `docs/TESTING.md` with the command.
 
 **Verification.** The suite passes both in this working copy and in a fresh clone under
 `/tmp`; the previously failing test now fails only if the mechanism itself stops refusing.
+
+## 11. A change to the second factor left the other sessions signed in
+
+**Why it matters.** ADR-0089 made a password change and a recovery revoke every session,
+challenge and device-link code. A change to the *second* factor did not: enrolling a PGP key,
+rotating it, removing it, or replacing the recovery key updated the row and left every other
+session alive. The comment on `POST /api/auth/pgp/remove` even said so — "sessions are left
+alone" — a sentence about the vault that had become a decision about sessions.
+
+It was found by writing the point-131 matrix from the other browser's side
+(`test/revocation.test.ts`): open a second session, rotate, and ask whether it still works. It
+did. Two of the five tests in that file fail against the previous commit, which is the
+evidence that the hole was real and not a documentation gap.
+
+**Severity:** medium. It needed an attacker who already held a session — the case a key
+rotation is performed to end. Nothing about the vault, the messages or the money was exposed
+by it; the rotation simply did not evict who it was supposed to evict.
+
+**Attack scenario.** An attacker with a stolen session cookie. The user notices something
+wrong, rotates the PGP key (or removes it and re-enrols), and reasonably believes the account
+has been taken back. Before this fix, the stolen session kept working until it expired, and
+the visible security history said the key had been rotated.
+
+**Proposed fix.** Treat a factor change as the credential rotation it is.
+
+**Implementation.** `revokeOtherCredentials()` in `src/server/lib/sessions.ts` — the ADR-0089
+revocation, keeping only the session that performed it — now runs on `POST /api/auth/pgp/key`,
+`POST /api/auth/pgp/remove` and `POST /api/auth/recovery/key` (ADR-0102). The caller survives
+because it has just proved the password *and* a signature from the key being replaced.
+
+**Verification.** `test/revocation.test.ts`: the point-131 matrix, one case per trigger, each
+asserting a *second* session is 401 afterwards — plus the one thing a rotation cannot revoke,
+unspent sealed-sender tokens, asserted rather than claimed.
+

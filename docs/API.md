@@ -85,15 +85,15 @@ page says how long v1 answers and what replaced it.
 
 | Method & path | Auth | Limit | Purpose |
 | --- | --- | --- | --- |
-| `POST /api/auth/recovery/key` | session | `sensitive` | Register the public half of a recovery phrase |
+| `POST /api/auth/recovery/key` | session | `sensitive` | Register the public half of a recovery phrase. Ends every other session (ADR-0102) |
 | `POST /api/auth/recovery/challenge` | — | `recovery` | Get a challenge to sign with the recovery key. Answered for every username, including ones nobody registered, and issuing one invalidates the account's previous challenge |
 | `POST /api/auth/recovery/complete` | — | `recovery` | Prove the signature, set a new `authSecret` and vault. Every way of failing — unknown challenge, expired, wrong signature, no recovery key, suspended account — returns one message |
 | `POST /api/auth/link` | session | `sensitive` | Start linking a second device; returns a one-time link secret |
 | `POST /api/auth/link/claim` | — | `sensitive` | Claim a link secret from the new device |
-| `POST /api/auth/pgp/key` | session | `sensitive` | Enrol a PGP public key, or replace the one that is there. Enrolling needs the password and a signature from the key arriving; **replacing needs a `currentSignature` from the key being replaced** (ADR-0088) |
+| `POST /api/auth/pgp/key` | session | `sensitive` | Enrol a PGP public key, or replace the one that is there. Enrolling needs the password and a signature from the key arriving; **replacing needs a `currentSignature` from the key being replaced** (ADR-0088). Ends every other session, pending challenge and parked device code (ADR-0102) |
 | `POST /api/auth/pgp/challenge` | session | `sensitive` | A challenge to sign. `intent: "key"` (default) yields `pgp-enroll` or `pgp-rotate` depending on whether a key is already set; `intent: "remove"` yields `pgp-remove`. The reply names the `purpose` and whether a current-key signature is required |
 | `POST /api/auth/pgp/complete` | — | `sensitive` | Log in with a PGP signature |
-| `POST /api/auth/pgp/remove` | session | `sensitive` | Detach the PGP key: password, a `pgp-remove` challenge, and a signature from the key being removed. Lost the key? Use the recovery phrase, which clears the factor |
+| `POST /api/auth/pgp/remove` | session | `sensitive` | Detach the PGP key: password, a `pgp-remove` challenge, and a signature from the key being removed. Lost the key? Use the recovery phrase, which clears the factor. Ends every other session (ADR-0102) |
 
 ### What a challenge says (ADR-0087)
 

@@ -51,10 +51,12 @@ jobs:
       - name: Build client
         run: npm run build:client
 
-      # One step, eight audits: dependency CVEs, dependency policy and licences, client
+      # One step, eleven audits: dependency CVEs, dependency policy and licences, client
       # bundle and build reproducibility, secrets in the working tree, secrets anywhere in
-      # git history, migration order and checksums, supply-chain policy, and server-side
-      # egress (every outbound call named, no host in the source, no telemetry package).
+      # git history, migration order and checksums, supply-chain policy, server-side egress
+      # (every outbound call named, no host in the source, no telemetry package), the
+      # dependency inventory freeze, and the security baseline. All of them are npm scripts
+      # inside `npm run audit`, so adding one needs no change to this file.
       - name: Security audits
         run: npm run audit
 
