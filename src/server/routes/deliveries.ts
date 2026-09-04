@@ -20,7 +20,7 @@ import type { FastifyInstance } from "fastify";
 import { badRequest, conflict, forbidden, notFound, orConflict } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { asBase64Url, asId, onlyKeys } from "../lib/validate.ts";
-import { requireSpaceFor } from "../lib/storage.ts";
+import { pruneBlobs, requireBlobHeadroom, requireSpaceFor } from "../lib/storage.ts";
 import { dirname } from "node:path";
 
 interface OrderParties {
@@ -65,7 +65,10 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     const ciphertext = manual
       ? null
       : asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
-    if (ciphertext) await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
+    if (ciphertext) {
+      await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
+      await requireBlobHeadroom(db, config.maxBlobRows);
+    }
 
     const now = Date.now();
     await db.transaction(async (tx) => {
@@ -152,8 +155,10 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     const id = asId(body.id, "id");
     const ciphertext = asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
     // Uploads are the only requests that turn somebody else's bytes into disk, and the
-    // rate limiter cannot see disk (docs/SELF_CRITIQUE.md, finding 1).
+    // rate limiter cannot see disk (docs/SELF_CRITIQUE.md, finding 1). Bytes first, then the
+    // object count: a million small blobs cost little disk and plenty of everything else.
     await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
+    await requireBlobHeadroom(db, config.maxBlobRows);
     const now = Date.now();
     await orConflict(
       db.run("INSERT INTO attachments (id, ciphertext, created_at, expires_at) VALUES (?, ?, ?, ?)", [
@@ -203,11 +208,13 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
   });
 }
 
-/** Expired blobs are removed opportunistically; there is no scheduler to compromise. */
+/**
+ * Expired blobs are removed on the way past, so a fetch can never serve one that should have
+ * gone. Housekeeping runs the same function hourly (`lib/storage.ts`), because an instance
+ * nobody uploads to still has a retention promise to keep.
+ */
 export async function sweep(app: FastifyInstance): Promise<void> {
-  const now = Date.now();
-  await app.db.run("DELETE FROM deliveries WHERE expires_at < ?", [now]);
-  await app.db.run("DELETE FROM attachments WHERE expires_at < ?", [now]);
+  await pruneBlobs(app.db);
 }
 
 async function orderFor(

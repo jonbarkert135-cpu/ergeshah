@@ -60,6 +60,7 @@ out of a crash dump.
 | `DB_DIALECT` | `sqlite`, or `postgres` if `DATABASE_URL` is set | |
 | `SQLITE_PATH` | `data/symvolon.sqlite` | |
 | `STORAGE_FLOOR_BYTES` | `536870912` (512 MB) | Free space that must remain after a blob write. Below it, uploads answer `503 storage_full` while everything else keeps working — a full disk stops the database, not just the uploads (`docs/SELF_CRITIQUE.md`, finding 1). `0` disables the floor |
+| `MAX_BLOB_ROWS` | `200000` | How many blob rows (order deliveries plus message attachments) this server holds before refusing another upload with `503 storage_full`. The floor above guards bytes; this guards the count, which is what a million 64-byte uploads cost in index size, sweep time and backup time. The count is cached for 30 seconds, so the ceiling is approximate by a handful of rows. `0` disables it |
 | `DB_STATEMENT_TIMEOUT_MS` | `5000` | PostgreSQL only: the ceiling on one statement, and on a transaction left idle. A query that runs longer is a bug or an attack, and the request that started it is long gone. SQLite has no server-side equivalent — there its protection is the indexes and the `LIMIT` on every list query |
 
 ## Limits and retention

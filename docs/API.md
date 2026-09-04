@@ -63,7 +63,7 @@ page says how long v1 answers and what replaced it.
 | `GET /favicon.svg` | — | Icon |
 | `GET /build.txt` | — | Digests of exactly these files, so a visitor can verify the build (`npm run audit:deployment`) |
 | `GET /healthz` | — | Liveness for the container healthcheck. Reveals nothing |
-| `GET /api/admin/health` | admin | Operational health: uptime, CPU, memory, disk, database latency, request count, error rate and latency percentiles. Numbers only — see `docs/OBSERVABILITY.md` |
+| `GET /api/admin/health` | admin | Operational health: uptime, CPU, memory, disk, database latency, storage and housekeeping state, request count, error rate and latency percentiles. Numbers, booleans and four fixed words only — see `docs/OBSERVABILITY.md` |
 
 ## Accounts and sessions
 

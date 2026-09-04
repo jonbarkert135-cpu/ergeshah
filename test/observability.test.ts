@@ -67,6 +67,14 @@ describe("health is for the operator, not for the internet", () => {
       "disk.availableBytes",
       "database.ok",
       "database.latencyMs",
+      // Point 64: a state per component that exists here. There is no cache tier and no
+      // server-side media processing, and docs/OBSERVABILITY.md says so rather than
+      // reporting an invented "ok" for either.
+      "storage.ok",
+      "storage.checked",
+      "jobs.ranAgoSeconds",
+      "jobs.ran",
+      "jobs.failed",
       "requests.total",
       "requests.errorRate",
       "requests.latencyMsP95",

@@ -26,11 +26,48 @@ review instead of in production.
   "system":   { "cpuCount": 2, "loadAverage1": 0.11, "memoryTotalBytes": 4127195136, "memoryFreeBytes": 2411945984 },
   "disk":     { "totalBytes": 84140883968, "availableBytes": 61932105728 },
   "database": { "ok": true, "latencyMs": 0.412, "dialect": "sqlite" },
+  "storage":  { "ok": true, "checked": true },
+  "jobs":     { "ranAgoSeconds": 812, "ran": 10, "failed": 0 },
   "requests": { "total": 18422, "byClass": { "2xx": 17994, "3xx": 0, "4xx": 421, "5xx": 7 },
                 "errorRate": 0.0004, "latencyMsP50": 3.1, "latencyMsP95": 21.7,
                 "latencyMsMax": 812.4, "sinceSeconds": 84213 }
 }
 ```
+
+## A state per component (point 64)
+
+Six components are named in the brief. Four exist here and report a state; two do not exist at
+all, and the honest answer is to say so rather than to fill in an invented `"ok"`.
+
+| Component | Where its state is | What `false` means |
+| --- | --- | --- |
+| Application | `status`, `uptimeSeconds`, `/healthz` | The process is not answering, or one of the two below is degraded |
+| Database | `database.ok`, `database.latencyMs` | `SELECT 1` failed. The reason is in the error log, never in the response — a driver message names hosts, ports and paths |
+| Storage | `storage.ok`, `storage.checked` | The data filesystem answered before and has stopped, so blob uploads are refused with `503 storage_unavailable`. `checked: false` means `statfs` has never had an answer on this deployment (a Postgres host, a container without the data directory) and neither number says anything about the disk |
+| Queue (the hourly sweeps) | `jobs.ranAgoSeconds`, `jobs.ran`, `jobs.failed` | `failed` above zero, or `ranAgoSeconds` far past 3600, means housekeeping is not keeping up; which job failed is a log line, because this document holds counts, not names. `-1` means the first sweep has not run yet |
+| Cache | — | There is no cache tier. Nothing in this service depends on Redis or memcached, so there is no state to report and no fallback to test (`docs/NETWORK.md`) |
+| Media processing | — | There is none. The server stores opaque ciphertext and never decodes an image, so there is no worker whose health could differ from the application's (`docs/THREAT_MODEL.md` §Hostile uploads) |
+
+## Degraded mode: what keeps working (point 65)
+
+Failure here is deliberately partial. Every row below is a component that can be down while
+the rest of the service answers, and each one is a refusal a client can retry rather than a
+500 nobody can act on.
+
+| What is down | What happens | What still works |
+| --- | --- | --- |
+| Disk nearly full | Blob uploads answer `503 storage_full` | Everything else: messages, orders, reads, deletions — and deletions are how an operator frees space |
+| Data filesystem not answering | Blob uploads answer `503 storage_unavailable`, `storage.ok` is `false` | The same, and the state is visible before a user reports it |
+| Blob ceiling reached | Uploads answer `503 storage_full` | The same. Raise `MAX_BLOB_ROWS` or wait for the sweep |
+| Monero wallet or daemon unreachable | Top-ups are closed with a plain sentence, never a 500; the watcher retries on its own clock | The whole marketplace, on balances already credited (`docs/PAYMENTS.md`) |
+| Payout worker stopped | Payouts queue and say so on the screen | Everything else; a payout stuck in `sending` has an operator screen (ADR-0073) |
+| Notifications failing | The write is swallowed and logged | The action that would have notified still completes — a delivery is not lost because an inbox row was not written |
+| One housekeeping sweep failing | That job's name in the error log, `jobs.failed` above zero | The other eight sweeps, which used to be cancelled by the first failure (ADR-0079) |
+| Lockdown on | Writes answer `503`, deliberately | Reads: balances, orders, the audit log — the point of a freeze is to investigate, not to lose access (ADR-0080) |
+| Database down | `/healthz` fails, `status: "degraded"`, requests answer `500` with a reference and no driver detail | Nothing much: this is the one component with no fallback, which is why it is the only tier with a backup and a restore drill (`docs/BACKUPS.md`) |
+
+There is no cache to fall back from, which is the reason the *cache down → database fallback*
+row the brief asks about is absent: the fallback is the only path there has ever been.
 
 ## What is counted, and what cannot be
 

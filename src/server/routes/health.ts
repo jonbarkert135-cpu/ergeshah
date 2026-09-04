@@ -18,6 +18,8 @@ import { freemem, loadavg, totalmem, cpus } from "node:os";
 import type { FastifyInstance } from "fastify";
 import { requestMetrics } from "../lib/metrics.ts";
 import { isLockedDown } from "../lib/lockdown.ts";
+import { storageChecked, storageOk } from "../lib/storage.ts";
+import { lastJobsRun } from "../lib/jobs.ts";
 
 /** CPU time this process has used, as a share of one core, since it started. */
 function cpuPercent(): number {
@@ -65,8 +67,14 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     }
     const databaseLatencyMs = Math.round((performance.now() - startedAt) * 1000) / 1000;
 
+    // Point 64 asks for a state per component. Four of the six named there exist here:
+    // application (this response), database, storage and the sweeps. There is no cache tier
+    // and no server-side media processing to report on, which `docs/OBSERVABILITY.md` says
+    // rather than filling in with an invented `"ok"`.
+    const jobs = lastJobsRun();
+    const storage = storageOk();
     return {
-      status: databaseOk ? "ok" : "degraded",
+      status: databaseOk && storage ? "ok" : "degraded",
       // Whether the operator's freeze is on (ADR-0080). A boolean, and the first thing to
       // check when every write in the service is answering 503.
       lockdown: await isLockedDown(db),
@@ -84,6 +92,14 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
       },
       disk: await disk(dataPath),
       database: { ok: databaseOk, latencyMs: databaseLatencyMs, dialect: db.dialect },
+      // `ok: false` here means the data filesystem answered before and has stopped, so blob
+      // uploads are being refused with 503 while everything else keeps working. `checked:
+      // false` means the free-space check has never had an answer on this deployment — a
+      // Postgres host, or a container without the data directory — and neither number is
+      // saying anything about the disk (`lib/storage.ts`).
+      storage: { ok: storage, checked: storageChecked() },
+      // `null` until the first hourly sweep has run, which on a fresh process is normal.
+      jobs: jobs ?? { ranAgoSeconds: -1, ran: 0, failed: 0 },
       requests: requestMetrics(),
     };
   });

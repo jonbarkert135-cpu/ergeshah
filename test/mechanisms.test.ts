@@ -9,7 +9,12 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { requireSpaceFor, resetStorageCache } from "../src/server/lib/storage.ts";
+import {
+  requireSpaceFor,
+  resetStorageCache,
+  storageChecked,
+  storageOk,
+} from "../src/server/lib/storage.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (path: string) => readFileSync(`${root}${path}`, "utf8");
@@ -154,6 +159,37 @@ describe("the free-space floor", () => {
     await expect(
       requireSpaceFor("/nonexistent-path-for-a-test", 1_000, 1024),
     ).resolves.toBeUndefined();
+    expect(storageOk()).toBe(true);
+  });
+
+  it("degrades when a filesystem that used to answer stops (point 29)", async () => {
+    resetStorageCache();
+    // A path that never answered is a deployment where this check cannot run, not a fault:
+    // three failures from a cold start change nothing.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await requireSpaceFor("/nonexistent-path-for-a-test", 1_000, 1024);
+    }
+    expect(storageOk()).toBe(true);
+    expect(storageChecked()).toBe(false);
+
+    // A path that answered and then stopped is a storage layer that has gone away, and
+    // accepting uploads into it loses them. Blob writes are refused — distinctly from a full
+    // disk — and everything else carries on.
+    const start = Date.now();
+    await requireSpaceFor(root, 1_000, 1, start);
+    expect(storageChecked()).toBe(true);
+    // Each attempt is minutes after the last, because a good answer is cached for five
+    // seconds and a cached answer is not a filesystem that failed.
+    await requireSpaceFor("/nonexistent-path-for-a-test", 1_000, 1024, start + 60_000);
+    await requireSpaceFor("/nonexistent-path-for-a-test", 1_000, 1024, start + 120_000);
+    await expect(
+      requireSpaceFor("/nonexistent-path-for-a-test", 1_000, 1024, start + 180_000),
+    ).rejects.toMatchObject({ statusCode: 503, code: "storage_unavailable" });
+    expect(storageOk()).toBe(false);
+
+    // And it recovers on its own: one readable answer clears the count.
+    await requireSpaceFor(root, 1_000, 1, start + 240_000);
+    expect(storageOk()).toBe(true);
   });
 });
 

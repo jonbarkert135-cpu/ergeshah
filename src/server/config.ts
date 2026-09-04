@@ -64,6 +64,12 @@ export interface Config {
   /** Bytes that must stay free before this server accepts another blob. 0 disables the floor. */
   storageFloorBytes: number;
   /**
+   * How many blob rows (attachments plus order deliveries) this server will hold before it
+   * refuses another upload. The free-space floor guards bytes; this guards the count, which
+   * is what a million tiny uploads cost. 0 disables the ceiling.
+   */
+  maxBlobRows: number;
+  /**
    * The platform's cut of a completed order, in basis points (500 = 5%). Charged to the
    * seller, deducted at settlement, and rounded down in the seller's favour
    * (`lib/ledger.ts`). Zero is supported and means a marketplace that earns nothing per
@@ -376,6 +382,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       5_000,
     ),
     storageFloorBytes: Number(process.env.STORAGE_FLOOR_BYTES ?? 512 * 1024 * 1024),
+    maxBlobRows: Number(process.env.MAX_BLOB_ROWS ?? 200_000),
     rateLimits: resolveLimits(process.env.RATE_LIMITS),
     orderFeeBps: feeBasisPoints(process.env.ORDER_FEE_BPS),
     minWithdrawalPico: picoFromEnv("MIN_WITHDRAWAL_XMR", process.env.MIN_WITHDRAWAL_XMR, "0.02"),

@@ -13,6 +13,7 @@ import { decaySellerLevels } from "./lib/reputation.ts";
 import { scanDeposits, solvency } from "./lib/deposits.ts";
 import { quietly } from "./lib/monero.ts";
 import { runJobs } from "./lib/jobs.ts";
+import { checkStorageIntegrity, pruneBlobs } from "./lib/storage.ts";
 import { log } from "./lib/log.ts";
 
 const config = loadConfig();
@@ -30,8 +31,10 @@ const app = await buildApp(config, db);
  * the session prune was silently also a notification, audit and rate-limit prune that never
  * ran. `runJobs` never throws, so a failing sweep is a log line and the timer survives.
  */
+let hours = 0;
 const housekeeping = setInterval(
   () => {
+    hours += 1;
     void runJobs([
       // Security first: a session that should have expired is the one piece of stale state
       // here that is worth something to an attacker.
@@ -45,12 +48,30 @@ const housekeeping = setInterval(
         run: () => pruneSecurityEvents(db, config.securityEventRetentionDays),
       },
       { name: "send_tokens", run: () => pruneSendTokens(db) },
+      // Expired blobs used to be swept only by the requests that touched them, so an
+      // instance with no traffic kept ciphertext past its TTL (point 77).
+      { name: "blobs", run: () => pruneBlobs(db) },
       { name: "notifications", run: () => pruneNotifications(db, config.notificationRetentionMs) },
       // Last: a catalogue ranking that is a day stale is nobody's emergency (ADR-0072).
       {
         name: "seller_levels",
         run: () => decaySellerLevels(db, { decayDays: config.sellerLevelDecayDays }),
       },
+      // Once a day, not every hour: an integrity check that runs often enough to be
+      // reassuring is also a load spike on a small VPS (point 68). It reports; it repairs
+      // nothing, because a sweep that rewrites a corrupt database unattended is worse than
+      // the corruption.
+      ...(hours % 24 === 0
+        ? [
+            {
+              name: "storage_integrity",
+              run: async () => {
+                const problem = await checkStorageIntegrity(db);
+                if (problem) log({ level: "error", event: `storage.integrity.${problem}`, message: problem });
+              },
+            },
+          ]
+        : []),
     ]);
   },
   60 * 60 * 1000,

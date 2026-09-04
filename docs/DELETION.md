@@ -79,6 +79,23 @@ And the ceiling, stated plainly:
   because the mechanism that would make one possible — a server that can reach into a
   client's storage — is the mechanism this architecture exists to avoid.
 
+## The sweep that makes retention true
+
+A retention window is a promise about *when bytes stop existing*, and until 2026-09 this one
+depended on traffic: expired deliveries and attachments were deleted by the request handlers
+that touched them, so an instance nobody uploaded to kept expired ciphertext indefinitely. The
+sweep now also runs from the hourly housekeeping (`lib/storage.ts`, point 77), and the handlers
+still run it so that a fetch cannot serve a blob that should have gone. `test/jobs.test.ts`
+deletes an expired blob with no request at all, and asserts that a second pass changes nothing —
+every sweep here is idempotent, because the next tick runs them all again.
+
+What the sweep does *not* claim, on the server side of the four layers above: a `DELETE`
+returns pages to the database's free list, and the bytes may sit in that file, in the
+write-ahead log, and in the flash translation layer of an SSD or NVMe drive until they are
+overwritten. Full-disk encryption is the control that makes that acceptable
+(`docs/DEPLOYMENT.md`); "the row is gone" is a statement about the database, not about the
+platters, and this project does not promise forensic erasure of storage it does not own.
+
 ## Retention, in one table
 
 Live values are in `docs/ENVIRONMENT.md`; these are the defaults.
