@@ -51,8 +51,46 @@ jobs:
       - name: Build client
         run: npm run build:client
 
-      # One step, seven audits: dependency CVEs, dependency policy and licences, client
+      # One step, eleven audits: dependency CVEs, dependency policy and licences, client
       # bundle and build reproducibility, secrets in the working tree, secrets anywhere in
-      # git history, migration order and checksums, supply-chain policy.
+      # git history, migration order and checksums, supply-chain policy, server-side egress
+      # (every outbound call named, no host in the source, no telemetry package), the
+      # dependency inventory freeze, and the security baseline. All of them are npm scripts
+      # inside `npm run audit`, so adding one needs no change to this file.
       - name: Security audits
         run: npm run audit
+
+  # The same suite, against a real PostgreSQL (OPS-2). Both drivers ship, so both are
+  # tested: the first time this job existed it found that the PostgreSQL path could not
+  # finish its own migrations, and that concurrent callers could be handed the same
+  # one-time prekey (docs/SELF_CRITIQUE.md, findings 8 and 9). A driver exercised only by
+  # hand is a driver that works until somebody deploys it.
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+        env:
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_DB: symvolon_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tests (PostgreSQL driver)
+        run: npm run test:postgres
+        env:
+          # A throwaway database in a container that lives for the length of this job.
+          TEST_DATABASE_URL: postgres://postgres:ci-only-not-a-secret@127.0.0.1:5432/symvolon_test
