@@ -22,7 +22,8 @@ import {
 } from "./helpers.ts";
 import { PICO_PER_XMR, parseXmr, xmrString } from "../src/shared/money.ts";
 import { DEFAULT_LIMITS } from "../src/server/lib/rate_limit.ts";
-import { feeFor, markWithdrawalSent } from "../src/server/lib/ledger.ts";
+import { feeFor, markWithdrawalSent, requestWithdrawal } from "../src/server/lib/ledger.ts";
+import { isConstraintViolation } from "../src/server/lib/errors.ts";
 
 /** A valid-looking mainnet subaddress: 95 characters of Monero base58, starting with 8. */
 const ADDRESS = `8${"A".repeat(94)}`;
@@ -477,6 +478,34 @@ describe("payouts leave once, and not without a limit or a person", () => {
     expect(second.status).toBe(400);
     expect(second.body.error).toBe("payout_pending");
   }
+
+  // SEC-2026-010: "one payout at a time" was a SELECT before the transaction; requests racing
+  // past it each queued a payout under the automatic ceiling, so a balance above the ceiling
+  // could leave in pieces without an administrator's signature. The rule is now a partial
+  // unique index (migration 028), and the second request meets it whichever way it arrived.
+  it("queues exactly one payout however many requests arrive at once", async () => {
+    const buyer = await register(server, "splitter");
+    await fund(server, buyer, "3");
+    const results = await Promise.all(
+      [1, 2, 3, 4].map(() =>
+        buyer.post<{ error?: string }>("/api/wallet/withdrawals", { amountXmr: "0.5", address: ADDRESS }),
+      ),
+    );
+    const accepted = results.filter((result) => result.status === 200);
+    const refused = results.filter((result) => result.status === 400);
+    expect(accepted).toHaveLength(1);
+    expect(refused).toHaveLength(3);
+    for (const result of refused) expect(result.body.error).toBe("payout_pending");
+    const rows = await server.db.all("SELECT id FROM withdrawals WHERE status IN ('queued', 'approval_required')");
+    expect(rows).toHaveLength(1);
+    expect((await balance(buyer)).heldXmr).toBe("0.5");
+
+    // The ledger layer itself, with no route in front of it, gets the same answer.
+    const { id } = (await server.db.get<{ id: string }>("SELECT id FROM users WHERE username = 'splitter'"))!;
+    await expect(
+      requestWithdrawal(server.db, { userId: id, amountPico: 500_000_000_000, address: ADDRESS, limitPico: 10 ** 13 }),
+    ).rejects.toSatisfy((error: unknown) => isConstraintViolation(error));
+  });
 
   it("cannot be spent twice by two requests racing for the same balance", async () => {
     const buyer = await register(server, "racer");

@@ -14,7 +14,7 @@
  * product, and it is the first thing an abuser of a marketplace looks for.
  */
 import type { FastifyInstance } from "fastify";
-import { badRequest, notFound } from "../lib/errors.ts";
+import { badRequest, notFound, orConflict } from "../lib/errors.ts";
 import { dayToIsoDate } from "../lib/time.ts";
 import { asId, asMoneroAddress, asXmrAmount, onlyKeys } from "../lib/validate.ts";
 import {
@@ -156,12 +156,18 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
     // requests share a balance check.
     if (pending) throw badRequest("finish or cancel your pending payout first", "payout_pending");
 
-    const created = await requestWithdrawal(db, {
-      userId: user.id,
-      amountPico,
-      address,
-      limitPico: await payoutLimitFor(db, user.id, config.autoPayoutMaxPico),
-    });
+    // The check above is the friendly answer; the partial unique index
+    // `withdrawals_one_open_per_user` (migration 028) is the rule. Requests racing past the
+    // SELECT meet the index instead, and get the same answer (SEC-2026-010).
+    const created = await orConflict(
+      requestWithdrawal(db, {
+        userId: user.id,
+        amountPico,
+        address,
+        limitPico: await payoutLimitFor(db, user.id, config.autoPayoutMaxPico),
+      }),
+      badRequest("finish or cancel your pending payout first", "payout_pending"),
+    );
     return {
       id: created.id,
       status: created.status,
@@ -193,12 +199,15 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
     );
     if (pending) throw badRequest("finish or cancel your pending payout first", "payout_pending");
 
-    const refund = await refundBelowMinimum(db, {
-      userId: user.id,
-      address,
-      minRefundPico: config.minRefundPico,
-      limitPico: await payoutLimitFor(db, user.id, config.autoPayoutMaxPico),
-    });
+    const refund = await orConflict(
+      refundBelowMinimum(db, {
+        userId: user.id,
+        address,
+        minRefundPico: config.minRefundPico,
+        limitPico: await payoutLimitFor(db, user.id, config.autoPayoutMaxPico),
+      }),
+      badRequest("finish or cancel your pending payout first", "payout_pending"),
+    );
     return {
       id: refund.withdrawalId,
       status: refund.status,

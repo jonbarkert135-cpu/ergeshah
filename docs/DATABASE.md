@@ -139,6 +139,7 @@ with `409` rather than logged as an incident (`isConstraintViolation` in `lib/er
 | One review per order | `reviews.order_id UNIQUE` |
 | One application under review per account | partial unique index `seller_applications_one_pending` |
 | One *open* order per buyer per listing (a double-click is one order) | partial unique index `orders_one_open_per_listing` |
+| One payout in flight per account (`queued`, `approval_required` or `sending`), so the automatic ceiling cannot be split across concurrent requests | partial unique index `withdrawals_one_open_per_user` (migration 028) |
 | One seller per display name, one device per identity key, one session per token | `UNIQUE` columns |
 | An order moves only from the state its caller saw | every transition is `UPDATE … WHERE id = ? AND status = ? RETURNING id`; no row returned → `409 stale_status` |
 | A delivery exists only for an order that is `delivered`, and vice versa | the blob insert and the status change share one transaction, and the status change is conditional |
