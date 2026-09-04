@@ -2859,3 +2859,168 @@ reasoning and the four ledger movements; `routes/bonds.ts` is a new module becau
 `market.ts` and `moderation.ts` are at the size ceiling. A buyer can now read a number that
 says how much a seller stands to lose, and a moderator has something to pay compensation
 *from* instead of an apology.
+
+## ADR-0087 — A challenge says who asked, what for, and until when
+
+**Status:** accepted (2026-09-04)
+
+**Context.** Every signature-based path here — recovery, PGP enrolment, PGP login — handed
+the user 32 random bytes and asked them to sign it. A nonce proves *freshness* and nothing
+else. It does not say which service asked for the signature, what the signature authorises,
+which challenge row it belongs to, or when it stops counting. Cryptographically, a signature
+over an opaque nonce is a signature over anything that will accept a signature over an opaque
+nonce: the only thing stopping a signature collected in one flow from being spent in another
+was the server's bookkeeping, and bookkeeping is exactly what an attacker attacks.
+
+The row already carried the purpose (`auth_challenges.kind`) and the expiry
+(`expires_at`) — but *outside* the signed bytes, where they protect nobody and cannot be
+checked by the person doing the signing. A user pasting a nonce into `gpg` has no way to
+know what they are agreeing to.
+
+**Decision.** The bytes a user signs are a statement, in one line:
+
+```
+symvolon-auth-v1 service=<SERVICE_ID> purpose=<recovery|pgp-enroll|pgp-rotate|pgp-remove|pgp-login> id=<challenge id> expires=<ISO 8601> nonce=<32 random bytes, base64url>
+```
+
+Built by `challengeStatement()` in `lib/auth_flow.ts`, stored whole in
+`auth_challenges.challenge`, and verified as stored — the server never reassembles it from
+parts that could disagree with the row. `issueChallenge()` is now the only way a challenge
+is created, and it deletes the account's previous challenge of the same purpose, so there is
+never a stack of live challenges waiting for one leaked signature.
+
+`SERVICE_ID` is new configuration with a default (`symvolon`) and no secret in it. It is the
+domain-binding half: a signature made here does not verify against a statement naming another
+deployment, so an operator who runs two instances cannot replay their users' signatures
+between them, and neither can anybody who copies this design.
+
+**Rejected.** Signing a JSON object (whitespace and key order make two canonicalisations of
+the same object, which is a class of bug this project does not need); binding to the `Host`
+header (attacker-influenced, and an onion service and a clearnet name are the same
+deployment); adding a separate signed field for each attribute (the same information, spread
+across a request body where a client can quietly drop one); keeping the bare nonce and
+relying on `kind` alone (the status quo, and the thing this replaces).
+
+**Consequences.** The statement is 150-odd characters instead of 43, which is what a user
+sees in their terminal — and being able to *read* what you are about to sign is a feature,
+not a cost. Old clients break: the field is the same, its contents are not, and this is a
+pre-launch system with no deployed instance. `test/pgp.test.ts` pins the shape, and the
+enumeration property still holds, because every statement is the same length for every
+username.
+
+## ADR-0088 — Replacing a security key takes the key it replaces
+
+**Status:** accepted (2026-09-04)
+
+**Context.** The second factor existed to protect an account whose password had leaked. It
+did — at the front door. Behind it, `POST /api/auth/pgp/key` replaced the enrolled key on a
+session plus the password plus a signature *from the key arriving*, and
+`POST /api/auth/pgp/remove` took the factor off on a session plus the password alone.
+
+So the factor was worth exactly as much as a session and a password: an attacker holding
+both — the precise attacker PGP is there to stop — could enrol their own key, or simply
+remove the requirement, and the honest owner would find out at their next sign-in. A control
+that can be switched off by the thing it defends against is decoration.
+
+**Decision.** A key operation is authorised by the key it affects.
+
+* **Enrol** (no key yet): session + password + a signature from the key arriving. Unchanged —
+  proof of possession, so nobody locks themselves out with a key they cannot use.
+* **Replace**: session + password + a signature from the **new** key *and* a
+  `currentSignature` from the key being replaced, both over the same `pgp-rotate` statement.
+* **Remove**: session + password + a signature from the key being removed, over a
+  `pgp-remove` statement.
+
+The purpose is decided by the server from the account's state and the caller's `intent`, and
+it is inside the signed bytes (ADR-0087), so a signature obtained for one operation cannot be
+spent on another.
+
+The way out for someone who has genuinely lost their key is unchanged and deliberate: the
+recovery phrase clears the factor, revokes every session and rotates the password. That
+ordering is stated in `docs/CRYPTO.md` and has not moved — the phrase is the strongest secret
+in the system, and PGP protects against a stolen password, not against a stolen phrase.
+
+**Rejected.** *A grace period* — remove the factor after a week's notice — which is an
+attacker-triggered timer against a user who may not be reading their notifications, and which
+would need a notification channel this project does not have. *Letting an administrator clear
+the factor*: that is a master key with a human interface, and ADR-0032's rule holds — staff
+can act on public records, never on someone's credentials. *A second enrolled key as the
+backup path* (point 21's "secondary key"): two keys means the weaker one is the account's real
+security level, and the recovery phrase already is the backup path, generated with more
+entropy than most PGP setups and with a flow that revokes everything on use. *PGP-only login,
+without a password* (point 19): the password is not only an authentication factor here — it
+derives the vault key that decrypts the account's private keys (ADR-0006), so an account
+without one has no way to open its own vault. Supporting it would mean wrapping the master key
+to the PGP key, i.e. asking the browser to hold a PGP private key, which contradicts §15 of
+the brief and this project's own rule. Refused, and written down rather than left as a gap.
+
+**Consequences.** Rotating a key now takes two `gpg` invocations instead of one, and the
+security centre says why on the screen where it asks. A user who loses their key and has no
+recovery phrase cannot remove the factor — they have lost the account, which is the honest
+consequence of a system with no administrator override, and the registration flow says so
+before it is true. `test/pgp.test.ts` covers both refusals and both successes.
+
+## ADR-0089 — A credential rotation revokes credentials, not only sessions
+
+**Status:** accepted (2026-09-04)
+
+**Context.** A recovery and a password change both ended every session — and left two other
+things standing that mint sessions: an authentication challenge already issued and waiting for
+a signature, and a device-link code parked for the next browser to redeem
+(`device_links`, five-minute life, one-time use). After a recovery, those are exactly the
+leftovers an attacker who *caused* the recovery would be holding.
+
+**Decision.** `revokeAllCredentials()` in `lib/sessions.ts` deletes, in one transaction, the
+account's sessions, its pending `auth_challenges` rows and its `device_links` rows. It is
+called on `POST /api/auth/recovery/complete` and on `POST /api/auth/password`.
+
+**Rejected.** Doing it on PGP key rotation as well: rotation already requires the current key,
+so a rotation is not evidence that the account was compromised, and signing everybody out on a
+routine key change trains people to ignore the event that matters.
+
+**What it costs, stated rather than hidden.** One thing this cannot revoke: unspent **send
+tokens** (ADR-0084). The table has no owner column by design — that is what makes the sender
+absent from the data at rest — so there is no way to select this account's tokens. A stolen
+token can post an envelope until it expires (`SEND_TOKEN_TTL_MS`); it cannot read anything and
+it cannot become a session. That is the price of sealed sender, and it is a price this project
+is willing to pay in exactly one direction.
+
+## ADR-0090 — An account's security history is a count per day, and only its owner reads it
+
+**Status:** accepted (2026-09-04)
+
+**Context.** A user cannot notice a sign-in they did not make unless something records that
+sign-ins happen. The standard shape of that feature — one row per event, with a timestamp, an
+IP address, a user agent and a location — is a surveillance log with a helpful name, and this
+project has spent twenty-four migrations not building one. `audit_log` is not it either: that
+records what *staff* did, is read by staff, and deliberately holds no ordinary user activity.
+
+**Decision.** `security_events(user_id, kind, day, count)`, upserted, with the count as the
+primary key's payload. A fixed list of kinds (`lib/security_events.ts`): password sign-in, PGP
+sign-in, refused sign-in, device-link sign-in, password change, key enrolled, key replaced,
+key removed, recovery phrase set, recovery completed, one session revoked, all sessions
+revoked, device revoked. Exposed at `GET /api/auth/security-events` to the owner and nobody
+else — there is no staff route over this table, and `test/security_center.test.ts` asserts
+that `routes/moderation.ts` does not mention it. Pruned after
+`SECURITY_EVENT_RETENTION_DAYS` (90) by the same housekeeping sweep as the audit log.
+
+Deliberately absent: address, user agent, session id, device id, counterparty, free text, and
+the time of day. Two sign-ins on the same day are one row with a count of two; which came
+first is not recorded, because that is a timeline.
+
+The client half is the security centre (`views/security.ts`), a screen that also carries the
+account's security status, the full PGP fingerprint, the recovery state, the sessions and the
+password controls — moved off the account screen, which was one scroll of unrelated settings
+and one file over 600 lines.
+
+**Rejected.** Per-event rows with millisecond timestamps (a timeline, and a table an attacker
+can inflate one failed login at a time); recording the address of a refused sign-in, which is
+the single most requested feature of a log like this and the one that would make it worth
+subpoenaing; recording failed sign-ins against usernames that do not exist, which would slowly
+build a list of names strangers have guessed; showing the history to moderators.
+
+**Consequences.** The log is coarse: it says "three refused sign-ins on Tuesday", not which
+device or from where, and a user who wants more than that is going to be disappointed on
+purpose. The counter also means the table cannot be used to prove *when* something happened,
+only that it did, on a day — which is the same trade every other long-lived row in this schema
+already makes.

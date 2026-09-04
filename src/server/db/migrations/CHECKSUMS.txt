@@ -22,3 +22,4 @@ sha256-OzkhENf9HA+3y6NhmQ5524+gZSYlXluNlSmn3jRmOxc=  021_category_folding.sql
 sha256-7v699NI8ggrgTsyOJg4savX6LtSyZGe17CR7EVu31Jo=  022_send_tokens.sql
 sha256-fOmsQM0bGB7kK49rcsFUgFyueWDJ85/jhL7nelLiqqo=  023_envelope_available_at.sql
 sha256-sHFWhZgOk98LOnXb//UxPQhoJuIeLZYGqDGOU8IM9O4=  024_seller_bond.sql
+sha256-XlOQi7xUbyXXan9UH6zT3SLLKC90eKhXLCratfQeLrs=  025_security_events.sql

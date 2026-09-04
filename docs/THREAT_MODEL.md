@@ -186,8 +186,9 @@ Scenarios rather than assurances, so each line can be checked against the code.
 | A stolen session cookie | Act as the user until the session expires or is revoked, including reading envelopes the server still holds | Open the vault (the master key is not on the server), change the password (needs the current one), or complete a recovery |
 | A PGP public key | Nothing; it is public | Impersonate the user — only the private half signs |
 | Username + password, on an account with PGP | Ask for a challenge, and stop there | Sign it, so no session is ever created |
+| A stolen session **and** the password, on an account with PGP | Everything that session could already do | Replace the PGP key or turn the factor off: both need a signature from the key on the account (ADR-0088) |
 | A PGP private key alone | Sign challenges | Get in without the password as well |
-| A recovery phrase | Take the account (and clear the PGP factor): rotate the password, sign in, open the backup, read history | Nothing more. This is the strongest secret in the system, which is why the interface says so and why the recovery copy of the master key is a choice |
+| A recovery phrase | Take the account (and clear the PGP factor), which also ends every session, challenge and device code: rotate the password, sign in, open the backup, read history | Nothing more. This is the strongest secret in the system, which is why the interface says so and why the recovery copy of the master key is a choice |
 | A compromised VPS | Everything the server can do: serve modified client code, watch traffic timing and sizes, read the database | Read past messages (forward secrecy, no plaintext at rest), derive keys, or recover a phrase |
 | A compromised browser | Everything that device can do while it is unlocked | Read another device's history, or produce a recovery signature without the phrase |
 

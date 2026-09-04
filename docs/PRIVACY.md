@@ -114,6 +114,17 @@ Entries are deleted after `AUDIT_RETENTION_MS`, one year by default: oversight n
 history, and keeping the rest forever would build exactly the pile of personal data this
 project exists to avoid.
 
+**Your own security history is a counter, not a timeline.** `security_events` lets an account
+see what has happened to it — sign-ins, refused sign-ins, password and key changes,
+recoveries, revocations (ADR-0090). It holds an account id, an event kind, a **day** and a
+count, and nothing else: no address, no user agent, no session or device id, no time of day,
+no free text. Repeats within a day increment the count, so the shape of the table is one row
+per kind per day however busy or however attacked the account is. It is readable by its owner
+alone — no staff route selects from it, and a test asserts that — and it is deleted after
+`SECURITY_EVENT_RETENTION_DAYS`, ninety by default. A refused sign-in against a username
+nobody registered records nothing at all, so the table never becomes a list of names strangers
+have tried.
+
 **Physical orders carry no address.** A delivery address, a phone number, a door code — none
 of them is a column here, and no route accepts one. The buyer's browser encrypts them to
 the seller through the order's channel, the seller's browser keeps the plaintext in its

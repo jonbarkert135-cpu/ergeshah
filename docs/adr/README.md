@@ -52,6 +52,10 @@ or if a record is missing a section.
 | [ADR-0012](../DECISIONS.md#adr-0012--hash-the-auth-secret-with-standard-library-scrypt-not-a-native-argon2-dependency) | Hash the auth secret with standard-library scrypt, not a native Argon2 dependency |
 | [ADR-0015](../DECISIONS.md#adr-0015--openpgp-for-verifying-signatures-server-side-only) | `openpgp` for verifying signatures, server-side only |
 | [ADR-0038](../DECISIONS.md#adr-0038--a-session-that-ends-of-neglect-and-a-token-that-does-not-last-a-month) | A session that ends of neglect, and a token that does not last a month |
+| [ADR-0087](../DECISIONS.md#adr-0087--a-challenge-says-who-asked-what-for-and-until-when) | A challenge says who asked, what for, and until when |
+| [ADR-0088](../DECISIONS.md#adr-0088--replacing-a-security-key-takes-the-key-it-replaces) | Replacing a security key takes the key it replaces |
+| [ADR-0089](../DECISIONS.md#adr-0089--a-credential-rotation-revokes-credentials-not-only-sessions) | A credential rotation revokes credentials, not only sessions |
+| [ADR-0090](../DECISIONS.md#adr-0090--an-accounts-security-history-is-a-count-per-day-and-only-its-owner-reads-it) | An account's security history is a count per day, and only its owner reads it |
 
 ### Database
 

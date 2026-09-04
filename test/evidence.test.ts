@@ -85,7 +85,14 @@ describe("a party can commit to bytes the server never sees", () => {
     // commitment by a second so the sequence under test is the real one: committed, then
     // disputed, then the buyer's digest published after the argument started.
     await server.db.run(
-      "UPDATE order_evidence SET created_at = created_at - 1000 WHERE kind = 'delivery'",
+      "UPDATE order_evidence SET created_at = created_at - 2000 WHERE kind = 'delivery'",
+    );
+    // The dispute itself moves back too. Without this the buyer's commitment can land in the
+    // *same millisecond* as the dispute event, which the rule above counts as "before" — a
+    // real property, and a flaky assertion. Ageing both rows puts the three moments in the
+    // order the test is about, whatever the machine's timing.
+    await server.db.run(
+      "UPDATE order_events SET created_at = created_at - 1000 WHERE to_status = 'disputed'",
     );
     const buyerCommit = await buyer.post(`/api/market/orders/${orderId}/evidence`, {
       digest: digestFor(orderId, "the broken file the buyer received"),

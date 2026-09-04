@@ -136,6 +136,20 @@ export interface Config {
   /** v3 onion address of this service, advertised to Tor Browser. Empty = not published. */
   onionHostname: string;
   behindTls: boolean;
+  /**
+   * The name this deployment signs into every authentication challenge (ADR-0087). It is
+   * the domain-binding half of a challenge: a signature made here says which service it was
+   * made for, so the same signature presented to another deployment — or to another purpose
+   * on this one — is over the wrong bytes and fails. Any stable string identifies a
+   * deployment; the host name is the obvious choice.
+   */
+  serviceId: string;
+  /**
+   * How long an account's own security history is kept, in days. It is a short window on
+   * purpose: the log exists so a user can notice a sign-in they did not make, not so this
+   * server can hold a year of anybody's activity (ADR-0090).
+   */
+  securityEventRetentionDays: number;
 }
 
 /**
@@ -316,6 +330,20 @@ function onionHostname(value: string | undefined): string {
   return host;
 }
 
+/**
+ * The service identifier that goes into signed challenges. Restricted to the characters a
+ * host name uses, because it is displayed to a user who is about to sign it and read back
+ * by a client that compares it: a value with spaces or newlines in it could make one
+ * statement look like another.
+ */
+function serviceId(value: string | undefined): string {
+  const id = (value ?? "symvolon").trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9._:-]{0,63}$/.test(id)) {
+    throw new Error("SERVICE_ID must be 1–64 characters of a–z, 0–9, dot, dash, underscore or colon");
+  }
+  return id;
+}
+
 export function loadConfig(overrides: Partial<Config> = {}): Config {
   const env = parseEnvironment(process.env.NODE_ENV);
   return {
@@ -380,6 +408,12 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     payoutWorkerToken: workerToken(secretFromEnv("PAYOUT_WORKER_TOKEN"), env),
     onionHostname: onionHostname(process.env.ONION_HOSTNAME),
     behindTls: process.env.BEHIND_TLS !== "false",
+    serviceId: serviceId(process.env.SERVICE_ID),
+    securityEventRetentionDays: positiveInteger(
+      "SECURITY_EVENT_RETENTION_DAYS",
+      process.env.SECURITY_EVENT_RETENTION_DAYS,
+      90,
+    ),
     ...overrides,
   };
 }

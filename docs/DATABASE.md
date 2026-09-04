@@ -121,6 +121,7 @@ transaction, and `test/wallet.test.ts` re-adds the entries to check.
 | Table | What it holds | Notes |
 | --- | --- | --- |
 | `audit_log` | actor, action, target, `result` (`ok`/`denied`/`failed`), short note, `created_at` | Security-relevant administrative actions, refusals included. Never plaintext, secrets or keys; the note is capped at 64 characters; pruned after `AUDIT_RETENTION_MS` (default one year) |
+| `security_events` | account, event kind, day, count | The account's *own* history — sign-ins, refused sign-ins, password and key changes, recoveries, revocations. One row per kind per day, upserted, so a flood of failed attempts is a counter and not a timeline. No address, no user agent, no session or device id, no free text; readable only by the owner (`GET /api/auth/security-events`), with no staff route over it; pruned after `SECURITY_EVENT_RETENTION_DAYS` (ADR-0090) |
 | `rate_limits` | bucket key, tokens, updated | The key is an HMAC of the subject with a daily-rotating pepper — **no address is stored**, and yesterday's buckets cannot be linked to today's |
 | `schema_migrations` | migration name, applied at | |
 

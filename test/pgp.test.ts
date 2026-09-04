@@ -295,13 +295,50 @@ describe("logging in with password and PGP", () => {
     })).status).toBe(401);
   });
 
-  it("lets the owner turn the factor off with their password, and nobody else", async () => {
+  /**
+   * The check that gives the factor its value (ADR-0088): a session and a password are not
+   * enough to take it off. An attacker who has both — the exact attacker PGP is there to
+   * stop — must also sign with the key they do not have.
+   */
+  it("takes the factor off only for someone who can sign with the key being removed", async () => {
     const client = await accountWithPgp("alice");
+
+    const removal = await client.post<{
+      challengeId: string;
+      challenge: string;
+      purpose: string;
+      currentKeySignatureRequired: boolean;
+    }>("/api/auth/pgp/challenge", { intent: "remove" });
+    expect(removal.body.purpose).toBe("pgp-remove");
+    expect(removal.body.currentKeySignatureRequired).toBe(true);
+
     expect((await client.post("/api/auth/pgp/remove", {
       authSecret: authSecretFor("alice", "not the password"),
+      challengeId: removal.body.challengeId,
+      signature: await detachedSignature(alice, removal.body.challenge),
     })).status).toBe(401);
+
+    // Right password, a signature from a key that is not the account's: refused, and the
+    // challenge is burnt with it.
     expect((await client.post("/api/auth/pgp/remove", {
       authSecret: authSecretFor("alice", PASSWORD),
+      challengeId: removal.body.challengeId,
+      signature: await detachedSignature(mallory, removal.body.challenge),
+    })).status).toBe(401);
+    expect(
+      (await server.db.get<{ pgp_fingerprint: string | null }>(
+        "SELECT pgp_fingerprint FROM users WHERE username = 'alice'",
+      ))?.pgp_fingerprint,
+    ).not.toBeNull();
+
+    const second = await client.post<{ challengeId: string; challenge: string }>(
+      "/api/auth/pgp/challenge",
+      { intent: "remove" },
+    );
+    expect((await client.post("/api/auth/pgp/remove", {
+      authSecret: authSecretFor("alice", PASSWORD),
+      challengeId: second.body.challengeId,
+      signature: await detachedSignature(alice, second.body.challenge),
     })).status).toBe(200);
 
     const fresh = new TestClient(server);
@@ -312,6 +349,132 @@ describe("logging in with password and PGP", () => {
     });
     expect(login.body.pgpRequired).toBeUndefined();
     expect((await fresh.get("/api/auth/me")).status).toBe(200);
+  });
+});
+
+describe("replacing a key", () => {
+  const PASSWORD = "correct horse battery staple";
+
+  async function accountWithPgp(username: string) {
+    const client = await register(server, username);
+    const challenge = await client.post<{ challengeId: string; challenge: string }>(
+      "/api/auth/pgp/challenge",
+      {},
+    );
+    const response = await client.post("/api/auth/pgp/key", {
+      authSecret: authSecretFor(username, PASSWORD),
+      publicKey: alice.publicKey,
+      challengeId: challenge.body.challengeId,
+      signature: await detachedSignature(alice, challenge.body.challenge),
+    });
+    if (response.status !== 200) throw new Error(JSON.stringify(response.body));
+    return client;
+  }
+
+  /**
+   * Key rotation is the operation that decides what the second factor is worth: if a
+   * session plus a password could swap the key, then a session plus a password *is* the
+   * account, and the key was decoration (ADR-0088).
+   */
+  it("needs a signature from the key being replaced, not just the one arriving", async () => {
+    const client = await accountWithPgp("alice");
+    const rotate = await client.post<{
+      challengeId: string;
+      challenge: string;
+      purpose: string;
+      currentKeySignatureRequired: boolean;
+    }>("/api/auth/pgp/challenge", {});
+    expect(rotate.body.purpose).toBe("pgp-rotate");
+    expect(rotate.body.currentKeySignatureRequired).toBe(true);
+
+    // Everything an attacker with a stolen session and password would have: the new key,
+    // its signature, and no way to sign with the key on the account.
+    const attempt = await client.post<{ code?: string }>("/api/auth/pgp/key", {
+      authSecret: authSecretFor("alice", PASSWORD),
+      publicKey: mallory.publicKey,
+      challengeId: rotate.body.challengeId,
+      signature: await detachedSignature(mallory, rotate.body.challenge),
+    });
+    expect(attempt.status).toBe(400);
+    expect(JSON.stringify(attempt.body)).toContain("current_key_signature_required");
+
+    // A forged "current" signature does not help either.
+    const second = await client.post<{ challengeId: string; challenge: string }>(
+      "/api/auth/pgp/challenge",
+      {},
+    );
+    expect((await client.post("/api/auth/pgp/key", {
+      authSecret: authSecretFor("alice", PASSWORD),
+      publicKey: mallory.publicKey,
+      challengeId: second.body.challengeId,
+      signature: await detachedSignature(mallory, second.body.challenge),
+      currentSignature: await detachedSignature(mallory, second.body.challenge),
+    })).status).toBe(401);
+    expect(
+      (await client.get<{ pgpFingerprint: string }>("/api/auth/me")).body.pgpFingerprint,
+    ).toBe((await inspectPublicKey(alice.publicKey)).readable);
+
+    // Both signatures over the same statement: the rotation goes through.
+    const third = await client.post<{ challengeId: string; challenge: string }>(
+      "/api/auth/pgp/challenge",
+      {},
+    );
+    const rotated = await client.post<{ fingerprint: string }>("/api/auth/pgp/key", {
+      authSecret: authSecretFor("alice", PASSWORD),
+      publicKey: mallory.publicKey,
+      challengeId: third.body.challengeId,
+      signature: await detachedSignature(mallory, third.body.challenge),
+      currentSignature: await detachedSignature(alice, third.body.challenge),
+    });
+    expect(rotated.status).toBe(200);
+    expect(rotated.body.fingerprint).toBe((await inspectPublicKey(mallory.publicKey)).readable);
+  });
+});
+
+/**
+ * Domain binding (ADR-0087). The bytes a user signs say which service asked, what the
+ * signature authorises, which challenge it belongs to and when it stops counting — so a
+ * signature collected for one operation is not a signature for another.
+ */
+describe("what a challenge actually says", () => {
+  const PASSWORD = "correct horse battery staple";
+
+  it("names the protocol, the service, the purpose, the challenge and its expiry", async () => {
+    const client = await register(server, "alice");
+    const challenge = await client.post<{ challengeId: string; challenge: string }>(
+      "/api/auth/pgp/challenge",
+      {},
+    );
+    const statement = challenge.body.challenge;
+    expect(statement.startsWith("symvolon-auth-v1 ")).toBe(true);
+    expect(statement).toContain(`service=${server.config.serviceId}`);
+    expect(statement).toContain("purpose=pgp-enroll");
+    expect(statement).toContain(`id=${challenge.body.challengeId}`);
+    expect(statement).toMatch(/expires=\d{4}-\d{2}-\d{2}T/);
+    // 32 bytes of nonce, base64url, from the OS CSPRNG.
+    expect(statement).toMatch(/nonce=[A-Za-z0-9_-]{43}$/);
+    expect(statement.includes("\n")).toBe(false);
+  });
+
+  it("cannot be answered under a purpose it was not issued for", async () => {
+    const client = await register(server, "alice");
+    const enrol = await client.post<{ challengeId: string; challenge: string }>(
+      "/api/auth/pgp/challenge",
+      {},
+    );
+    // The same challenge id, presented to the login step: the row is keyed by purpose as
+    // well as by id, so there is nothing to consume.
+    expect((await client.post("/api/auth/pgp/complete", {
+      challengeId: enrol.body.challengeId,
+      signature: await detachedSignature(alice, enrol.body.challenge),
+    })).status).toBe(401);
+    // And the enrolment challenge itself still works, so nothing was consumed by the attempt.
+    expect((await client.post("/api/auth/pgp/key", {
+      authSecret: authSecretFor("alice", PASSWORD),
+      publicKey: alice.publicKey,
+      challengeId: enrol.body.challengeId,
+      signature: await detachedSignature(alice, enrol.body.challenge),
+    })).status).toBe(200);
   });
 });
 

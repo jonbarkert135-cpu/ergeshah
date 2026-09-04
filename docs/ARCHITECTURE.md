@@ -58,7 +58,7 @@ src/client/
   state.ts           encrypted vault, device publication
   messaging.ts       sessions, send/receive/acknowledge
   verification.ts    safety numbers, per-device verified state
-  views/             auth, chat, market, orders, account, moderation
+  views/             auth, chat, market, orders, account, security, moderation
 test/                RFC vectors, protocol properties, API behaviour, authorization
 ```
 
@@ -74,7 +74,7 @@ in `src/` and fails if one crosses a line in the table below.
 
 | Domain | Where it lives | Owns |
 | --- | --- | --- |
-| AUTH | `routes/auth.ts`, `routes/recovery.ts`, `lib/sessions.ts`, `lib/password.ts`, `lib/pgp.ts`, `lib/auth_flow.ts` | accounts and sessions in the first module; the paths that bypass the password — a second device, a recovery phrase, a PGP key — in the second, because they share one rule set and one failure sentence |
+| AUTH | `routes/auth.ts`, `routes/recovery.ts`, `lib/sessions.ts`, `lib/password.ts`, `lib/pgp.ts`, `lib/auth_flow.ts`, `lib/security_events.ts`, `client/views/security.ts` | accounts and sessions in the first module; the paths that bypass the password — a second device, a recovery phrase, a PGP key — in the second, because they share one rule set and one failure sentence. `lib/auth_flow.ts` also mints the domain-bound challenge statement every one of them signs (ADR-0087), and `lib/security_events.ts` keeps the account's own day-granular history, which only its owner can read (ADR-0090) |
 | IDENTITY | `routes/keys.ts`, `shared/crypto/identity.ts`, `vault.ts` | devices, prekeys, the sealed vault, device linking |
 | MESSAGING | `routes/messages.ts`, `lib/send_tokens.ts`, `shared/jitter.ts`, `client/messaging.ts` | store-and-forward envelopes, delivery, acknowledgement, disappearing-message expiry, and the single-use tokens that let a client post an envelope without a session (ADR-0084). Typing indicators, read receipts and search live entirely on the client side of this line (`docs/METADATA.md`) |
 | CRYPTO | `shared/crypto/*` | the protocol: one implementation, imported by both sides, imports neither |

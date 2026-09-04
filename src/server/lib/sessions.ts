@@ -129,6 +129,28 @@ export async function destroyAllSessions(db: Db, userId: string): Promise<void> 
   await db.run("DELETE FROM sessions WHERE user_id = ?", [userId]);
 }
 
+/**
+ * Everything that could still let somebody in, gone in one transaction (ADR-0089).
+ *
+ * "Sign out everywhere" ends sessions. It does not end the two other credentials that mint
+ * one: an authentication challenge already issued and waiting for a signature, and a
+ * device-link code parked for the next browser to redeem. After a recovery or a password
+ * change those are exactly the leftovers an attacker would be holding, so a credential
+ * rotation revokes all three or it does not mean what it says.
+ *
+ * What this cannot revoke, stated rather than implied: unspent **send tokens**. They carry
+ * no owner by design (ADR-0084) — the table has no column that could be joined to an
+ * account — so the price of sealed sender is that a stolen token can still post an envelope
+ * until it expires. It cannot read anything, and it cannot become a session.
+ */
+export async function revokeAllCredentials(db: Db, userId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.run("DELETE FROM sessions WHERE user_id = ?", [userId]);
+    await tx.run("DELETE FROM auth_challenges WHERE user_id = ?", [userId]);
+    await tx.run("DELETE FROM device_links WHERE user_id = ?", [userId]);
+  });
+}
+
 /** Housekeeping: absolute expiry and idle expiry, without waiting for a cookie to arrive. */
 export async function pruneSessions(db: Db, idleDays: number, now = Date.now()): Promise<void> {
   await db.run("DELETE FROM sessions WHERE expires_at < ? OR last_seen_day < ?", [

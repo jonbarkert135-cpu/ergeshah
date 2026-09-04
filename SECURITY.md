@@ -49,7 +49,8 @@ result: one half is the `authSecret` sent to the server (hashed again with scryp
 storage), the other never leaves the device. Sessions are opaque random tokens stored only
 as SHA-256 hashes, in `HttpOnly; SameSite=Strict` cookies, with a CSRF double-submit token
 and an Origin/Host check on every unsafe request. Optional second factor: a PGP key,
-proved by signature. Optional recovery: a BIP-39 phrase that restores the vault's contents,
+proved by signature over a statement that names this service, the operation and an expiry —
+and replacing or removing that key needs a signature from the key being replaced. Optional recovery: a BIP-39 phrase that restores the vault's contents,
 not merely access. Roles are read from the database on every request, so a demotion or a
 suspension takes effect immediately. Details: `docs/API.md`, `docs/ARCHITECTURE.md`.
 

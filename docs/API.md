@@ -74,6 +74,7 @@ page says how long v1 answers and what replaced it.
 | `POST /api/auth/logout` | session | `sensitive` | End this session |
 | `POST /api/auth/logout-everywhere` | session | `sensitive` | End every session of this account |
 | `GET /api/auth/me` | session | `read` | Who am I: username, role, seller status, whether recovery and PGP are configured |
+| `GET /api/auth/security-events` | session (owner) | `read` | This account's own security history: a kind, a day and a count, for a fixed list of events (ADR-0090). No addresses, no times of day, no staff route over the same table |
 | `GET /api/auth/sessions` | session | `read` | This account's sessions, by day rather than timestamp. No token, no address, no user agent — there is nothing else stored to show |
 | `DELETE /api/auth/sessions/:id` | session (owner) | `sensitive` | Revoke one session. A session belonging to somebody else answers exactly like one that does not exist |
 | `POST /api/auth/password` | session | `sensitive` | Change the password: new `authSecret` and re-sealed vault, in one transaction |
@@ -88,10 +89,24 @@ page says how long v1 answers and what replaced it.
 | `POST /api/auth/recovery/complete` | — | `recovery` | Prove the signature, set a new `authSecret` and vault. Every way of failing — unknown challenge, expired, wrong signature, no recovery key, suspended account — returns one message |
 | `POST /api/auth/link` | session | `sensitive` | Start linking a second device; returns a one-time link secret |
 | `POST /api/auth/link/claim` | — | `sensitive` | Claim a link secret from the new device |
-| `POST /api/auth/pgp/key` | session | `sensitive` | Attach a PGP public key to the account |
-| `POST /api/auth/pgp/challenge` | session | `sensitive` | Challenge to sign with that key |
+| `POST /api/auth/pgp/key` | session | `sensitive` | Enrol a PGP public key, or replace the one that is there. Enrolling needs the password and a signature from the key arriving; **replacing needs a `currentSignature` from the key being replaced** (ADR-0088) |
+| `POST /api/auth/pgp/challenge` | session | `sensitive` | A challenge to sign. `intent: "key"` (default) yields `pgp-enroll` or `pgp-rotate` depending on whether a key is already set; `intent: "remove"` yields `pgp-remove`. The reply names the `purpose` and whether a current-key signature is required |
 | `POST /api/auth/pgp/complete` | — | `sensitive` | Log in with a PGP signature |
-| `POST /api/auth/pgp/remove` | session | `sensitive` | Detach the PGP key |
+| `POST /api/auth/pgp/remove` | session | `sensitive` | Detach the PGP key: password, a `pgp-remove` challenge, and a signature from the key being removed. Lost the key? Use the recovery phrase, which clears the factor |
+
+### What a challenge says (ADR-0087)
+
+Every signed challenge in this API is a single line of text, and the signature is over
+exactly those bytes:
+
+```
+symvolon-auth-v1 service=<SERVICE_ID> purpose=<recovery|pgp-enroll|pgp-rotate|pgp-remove|pgp-login> id=<challenge id> expires=<ISO 8601> nonce=<32 random bytes, base64url>
+```
+
+The nonce gives freshness; the rest gives *binding*. A signature made to add a key is not a
+signature that removes one, a signature made for this deployment does not verify against
+another `SERVICE_ID`, and a signature made five minutes ago is over a statement that says so.
+Challenges remain single-use: the row is deleted when it is answered, valid or not.
 
 ## Keys
 
@@ -273,6 +288,8 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `already_applied`, `already_seller`, `already_ordered`, `already_reviewed` | 409 | The action has already happened once, and once is the limit |
 | `device_revoked` | 409 | A revoked identity key cannot be re-published |
 | `stale_status` | 409 | The order moved on before this transition arrived |
+| `current_key_signature_required` | 400 | Replacing a PGP key without a signature from the key being replaced. A session and a password are not enough to swap the second factor (ADR-0088) |
+| `pgp_absent` | 400 | A removal challenge was asked for on an account with no PGP key |
 | `vault_required` | 409 | The account has no sealed vault yet, and the operation needs one |
 | `too_large` | 413 | The body exceeds the configured cap |
 | `pow_required` | 428 | Solve the enclosed challenge and repeat the request |

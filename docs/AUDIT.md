@@ -111,6 +111,36 @@ staged is invisible to it, and to CI it will not be. A line can opt out with an
 `audit:allow` comment plus a reason. That is deliberately
 ugly and shows up in review.
 
+## The zero-cost audit
+
+A requirement of this project is that the whole of it runs with no compulsory spending at
+all: a VPS the operator chooses, open-source software, a local database, local storage. The
+inventory below is what that claim means in practice, and most of it is enforced by a script
+rather than by intent.
+
+| Thing a system usually pays for | What is here instead | Enforced by |
+| --- | --- | --- |
+| Authentication provider | Username, client-stretched password, optional PGP key, recovery phrase. No Google/Apple/Discord/Telegram login anywhere | `test/authorization.test.ts`, no OAuth dependency in `package.json` |
+| Email or SMS delivery | Neither exists. No email column, no phone column, no password-reset mail, no SMS second factor — recovery is cryptographic (ADR-0006, ADR-0014) | `docs/DATABASE.md`, `test/recovery.test.ts` |
+| CAPTCHA | Proof of work in the browser, `POW_BITS`, no third party (ADR-0039) | `test/antiautomation.test.ts` |
+| Anti-DDoS / WAF | Token buckets keyed to an HMAC of the subject, plus the proxy's own limits. Absorbing a real flood is the operator's hosting decision, not a subscription this code needs | `test/limits.test.ts` |
+| Analytics | None. No pixel, no session replay, no advertising identifier, no third-party origin permitted by the CSP | `audit:bundle`, `test/hardening.test.ts` |
+| Monitoring / APM | In-process counters behind an admin-only health endpoint (`docs/OBSERVABILITY.md`) | `test/observability.test.ts` |
+| Managed database | SQLite by default, PostgreSQL optional — both self-hosted (ADR-0005) | `docs/DEPLOYMENT.md` |
+| Object storage | Blobs live in the database as ciphertext | `docs/DATABASE.md` |
+| Fonts, icons, CDN | System fonts, inline SVG, everything served from this origin | `audit:bundle` ("no external references") |
+| Cryptography as a service | libsodium and OpenPGP.js, both local, both open source | `docs/DEPENDENCIES.md` |
+| AI APIs | None, anywhere in the product | — |
+
+The one external service this system can talk to is a **Monero node and wallet RPC**, which
+is open-source software the operator runs themselves, on their own hardware, and which the
+deployment works without: with no wallet configured the marketplace still runs and the screen
+says top-ups are not open (ADR-0070). `audit:bundle` fails the build if the client ever
+references a host the operator does not run, which is the mechanical half of this promise;
+the rest is this table, and it is reviewed when a dependency changes.
+
+Cost of the core project: **the VPS, and nothing else.**
+
 ## What the operator can verify, for free
 
 1. **Read the dependency list.** `package.json` — four production dependencies

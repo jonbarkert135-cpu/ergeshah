@@ -47,6 +47,8 @@ out of a crash dump.
 | `PORT` | `8080` | |
 | `TRUST_PROXY` | `false` | Whether to believe `X-Forwarded-For`. Prefer naming the proxy — `TRUST_PROXY=10.0.0.2` or `127.0.0.1/8, ::1` — over a bare `true`, which believes the header from anything that can reach the port (`docs/SELF_CRITIQUE.md`, finding 3) |
 | `BEHIND_TLS` | `true` | Whether cookies are marked `Secure`. Left alone unless you are running plain HTTP on localhost for development |
+| `SERVICE_ID` | `symvolon` | The name this deployment writes into every signed authentication challenge (ADR-0087). Any stable string; the host name is the obvious choice. Changing it invalidates signatures made for the old one, which is the point |
+| `SECURITY_EVENT_RETENTION_DAYS` | `90` | How long an account's own security history is kept before housekeeping deletes it (ADR-0090) |
 | `ONION_HOSTNAME` | *unset* | v3 onion address of this deployment. Validated at boot; enables the `Onion-Location` header and relaxes `Secure` cookies on that origin only |
 | `MAX_CONNECTIONS` | `512` | Sockets this process will hold at once. Beyond it the kernel queues rather than the process running out of memory. Lower it on a small VPS; a value that is not a whole number of at least 1 stops the server at boot |
 | `POW_BITS` | `16` | Difficulty of the proof of work an unauthenticated account request must solve (register, login, recovery). Each bit doubles the expected work; 16 is roughly 65,000 hashes, a fraction of a second in a browser. `0` turns the gate off — supported for a closed instance, and a real decision, not a tuning knob (ADR-0039). Above 24 the server refuses to start |

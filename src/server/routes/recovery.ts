@@ -8,9 +8,10 @@
  */
 import type { FastifyInstance } from "fastify";
 import { badRequest, unauthorized } from "../lib/errors.ts";
-import { newId, randomToken, sha256 } from "../lib/ids.ts";
+import { sha256 } from "../lib/ids.ts";
 import { hashAuthSecret, verifyAuthSecret } from "../lib/password.ts";
-import { createSession, destroyAllSessions, pruneSessions } from "../lib/sessions.ts";
+import { createSession, pruneSessions, revokeAllCredentials } from "../lib/sessions.ts";
+import { recordSecurityEvent } from "../lib/security_events.ts";
 import { today } from "../lib/time.ts";
 import {
   asBase64Url,
@@ -23,10 +24,10 @@ import {
 import { verifyEd25519 } from "../lib/signatures.ts";
 import { inspectPublicKey, PgpError, verifyDetachedSignature } from "../lib/pgp.ts";
 import {
-  CHALLENGE_TTL_MS,
   DECOY_KEY,
   LINK_TTL_MS,
   consumeChallenge,
+  issueChallenge,
   limitByAccountName,
   replyWithSession,
 } from "../lib/auth_flow.ts";
@@ -78,6 +79,7 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
     if (!user || user.status !== "active") throw unauthorized("account is not active");
 
     const session = await createSession(db, user.id, config.sessionTtlMs, claimed.label);
+    await recordSecurityEvent(db, user.id, "login.device");
     return replyWithSession(reply, request, config, {
       id: user.id,
       username: user.username,
@@ -112,25 +114,9 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
       "SELECT id, recovery_public_key FROM users WHERE username = ? AND status = 'active'",
       [username],
     );
-    const challenge = randomToken(32);
-    const id = newId();
-    const answerable = user?.recovery_public_key ? user.id : null;
-    await db.transaction(async (tx) => {
-      // Issuing a challenge invalidates the ones before it. Otherwise every request left a
-      // live token behind, and an attacker who ever saw one signature could hold a stack of
-      // valid challenges waiting for it (point 69). One account, one outstanding challenge.
-      if (answerable) {
-        await tx.run("DELETE FROM auth_challenges WHERE user_id = ? AND kind = 'recovery'", [
-          answerable,
-        ]);
-      }
-      await tx.run(
-        `INSERT INTO auth_challenges (id, user_id, kind, challenge, expires_at)
-         VALUES (?, ?, 'recovery', ?, ?)`,
-        [id, answerable, challenge, Date.now() + CHALLENGE_TTL_MS],
-      );
-    });
-    return { challengeId: id, challenge, expiresInSeconds: CHALLENGE_TTL_MS / 1000 };
+    // A decoy row for a name nobody registered, so the work is the same either way, and a
+    // statement that names the service, the purpose and the expiry (ADR-0087).
+    return issueChallenge(db, config, "recovery", user?.recovery_public_key ? user.id : null);
   });
 
   /**
@@ -192,7 +178,10 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
       "UPDATE users SET password_hash = ?, pgp_public_key = NULL, pgp_fingerprint = NULL WHERE id = ?",
       [passwordHash, user.id],
     );
-    await destroyAllSessions(db, user.id);
+    // Sessions, pending challenges and parked device-link codes all go: a recovery is
+    // exactly the moment to assume every credential minted before it is hostile (ADR-0089).
+    await revokeAllCredentials(db, user.id);
+    await recordSecurityEvent(db, user.id, "recovery.completed");
     const vault = await db.get<{ sealed: string }>("SELECT sealed FROM vaults WHERE user_id = ?", [
       user.id,
     ]);
@@ -209,29 +198,46 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
   });
 
   /**
-   * PGP, step one of enrolment: a challenge to sign with the key being added.
+   * PGP, step one: a challenge to sign, for one of the three things that can happen to a
+   * key. The purpose is decided here, from the account's state and the caller's intent,
+   * and it goes into the signed statement — so a signature made to *add* a key is not a
+   * signature that replaces or removes one (ADR-0087, ADR-0088).
    *
-   * Requires a session, because this is an account setting rather than a way in. The
-   * point is proof of possession: a key whose private half the user cannot actually use
-   * would turn the second factor into a locked door with no key behind it.
+   *   * no key yet, `intent: "key"`   → `pgp-enroll`, signed by the key being added;
+   *   * key present, `intent: "key"`  → `pgp-rotate`, signed by **both** keys;
+   *   * key present, `intent: "remove"` → `pgp-remove`, signed by the key being removed.
+   *
+   * Requires a session, because this is an account setting rather than a way in.
    */
   app.post("/api/auth/pgp/challenge", async (request) => {
     const user = await app.authenticate(request);
     await app.limit(request, "sensitive");
-    const challenge = randomToken(32);
-    const id = newId();
-    await db.run(
-      `INSERT INTO auth_challenges (id, user_id, kind, challenge, expires_at)
-       VALUES (?, ?, 'pgp-enroll', ?, ?)`,
-      [id, user.id, challenge, Date.now() + CHALLENGE_TTL_MS],
-    );
-    return { challengeId: id, challenge, expiresInSeconds: CHALLENGE_TTL_MS / 1000 };
+    const body = (request.body ?? {}) as { intent?: unknown };
+    const intent = body.intent === undefined ? "key" : asOptionalString(body.intent, "intent", 16);
+    if (intent !== "key" && intent !== "remove") {
+      throw badRequest("intent must be \"key\" or \"remove\"");
+    }
+    const current = await currentPgpKey(user.id);
+    if (intent === "remove" && !current) {
+      throw badRequest("this account has no PGP key", "pgp_absent");
+    }
+    const purpose = intent === "remove" ? "pgp-remove" : current ? "pgp-rotate" : "pgp-enroll";
+    const issued = await issueChallenge(db, config, purpose, user.id);
+    return { ...issued, purpose, currentKeySignatureRequired: purpose !== "pgp-enroll" };
   });
 
   /**
-   * PGP, step two of enrolment: the public key, the current password, and a signature
-   * over the challenge from step one. All three, because adding a second factor is worth
-   * as much as the weakest check that lets you add it.
+   * PGP, step two: enrol a key, or replace the one that is there.
+   *
+   * Enrolling needs a session, the current password, and a signature from the key being
+   * added — proof of possession, because enabling a key whose private half the user cannot
+   * use would only lock the account out of itself.
+   *
+   * **Replacing needs one thing more: a signature from the key being replaced** (ADR-0088).
+   * Without it, the second factor was only ever worth the session and password that could
+   * swap it out — which is exactly what an attacker holding both would do first. Someone who
+   * has genuinely lost their key does not use this route; they use the recovery phrase,
+   * which clears the factor and is the documented way back.
    */
   app.post("/api/auth/pgp/key", async (request) => {
     const user = await app.authenticate(request);
@@ -240,18 +246,13 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
     const publicKey = asOptionalText(body.publicKey, "publicKey", 64 * 1024);
     const challengeId = asId(body.challengeId, "challengeId");
     const signature = asOptionalText(body.signature, "signature", 64 * 1024);
+    const currentSignature = asOptionalText(body.currentSignature, "currentSignature", 64 * 1024);
     if (!publicKey || !signature) throw badRequest("publicKey and signature are required");
     await app.limit(request, "sensitive");
+    await requirePassword(user.id, authSecret);
 
-    const row = await db.get<{ password_hash: string }>(
-      "SELECT password_hash FROM users WHERE id = ?",
-      [user.id],
-    );
-    if (!(await verifyAuthSecret(row?.password_hash ?? null, authSecret))) {
-      throw unauthorized("password is wrong");
-    }
-
-    const claimed = await consumeChallenge(db, challengeId, "pgp-enroll");
+    const current = await currentPgpKey(user.id);
+    const claimed = await consumeChallenge(db, challengeId, current ? "pgp-rotate" : "pgp-enroll");
     if (!claimed || claimed.user_id !== user.id) {
       throw unauthorized("that challenge is unknown or expired");
     }
@@ -266,12 +267,24 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
     if (!(await verifyDetachedSignature(publicKey, claimed.challenge, signature))) {
       throw badRequest("that signature does not match the challenge and this key");
     }
+    if (current) {
+      if (!currentSignature) {
+        throw badRequest(
+          "replacing a key needs a signature from the key being replaced",
+          "current_key_signature_required",
+        );
+      }
+      if (!(await verifyDetachedSignature(current, claimed.challenge, currentSignature))) {
+        throw unauthorized("that signature does not match the key on this account");
+      }
+    }
 
     await db.run("UPDATE users SET pgp_public_key = ?, pgp_fingerprint = ? WHERE id = ?", [
       publicKey.trim(),
       facts.fingerprint,
       user.id,
     ]);
+    await recordSecurityEvent(db, user.id, current ? "pgp.rotated" : "pgp.enrolled");
     return { fingerprint: facts.readable, algorithm: facts.algorithm, identities: facts.identities };
   });
 
@@ -310,6 +323,7 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
     }
 
     const session = await createSession(db, user.id, config.sessionTtlMs, label);
+    await recordSecurityEvent(db, user.id, "login.pgp");
     await pruneSessions(db, config.sessionIdleDays);
     const vault = await db.get<{ sealed: string }>("SELECT sealed FROM vaults WHERE user_id = ?", [
       user.id,
@@ -325,25 +339,38 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
   });
 
   /**
-   * Turn the second factor off. The current password is required, and every other session
-   * is left alone: this removes a factor from future logins, it does not touch the vault.
+   * Turn the second factor off — with the key that is being turned off (ADR-0088).
+   *
+   * The password alone used to be enough, which made the factor removable by exactly the
+   * attacker it exists to stop: someone holding a session and a password, and no key. Now
+   * it takes all three, and the way out for a user who has lost the key is the recovery
+   * phrase. Sessions are left alone: this removes a factor from future logins, it does not
+   * touch the vault.
    */
   app.post("/api/auth/pgp/remove", async (request) => {
     const user = await app.authenticate(request);
     const body = (request.body ?? {}) as Record<string, unknown>;
     const authSecret = asBase64Url(body.authSecret, "authSecret", 64);
+    const challengeId = asId(body.challengeId, "challengeId");
+    const signature = asOptionalText(body.signature, "signature", 64 * 1024);
+    if (!signature) throw badRequest("signature is required");
     await app.limit(request, "sensitive");
-    const row = await db.get<{ password_hash: string }>(
-      "SELECT password_hash FROM users WHERE id = ?",
-      [user.id],
-    );
-    if (!(await verifyAuthSecret(row?.password_hash ?? null, authSecret))) {
-      throw unauthorized("password is wrong");
+    await requirePassword(user.id, authSecret);
+
+    const current = await currentPgpKey(user.id);
+    const claimed = await consumeChallenge(db, challengeId, "pgp-remove");
+    if (!current || !claimed || claimed.user_id !== user.id) {
+      throw unauthorized("that challenge is unknown or expired");
     }
+    if (!(await verifyDetachedSignature(current, claimed.challenge, signature))) {
+      throw unauthorized("that signature does not match the key on this account");
+    }
+
     await db.run(
       "UPDATE users SET pgp_public_key = NULL, pgp_fingerprint = NULL WHERE id = ?",
       [user.id],
     );
+    await recordSecurityEvent(db, user.id, "pgp.removed");
     return { ok: true };
   });
 
@@ -379,6 +406,27 @@ export async function registerRecoveryRoutes(app: FastifyInstance): Promise<void
         );
       }
     });
+    await recordSecurityEvent(db, user.id, "recovery.key_set");
     return { ok: true };
   });
+
+  /** The armoured public key on this account, or null. One query, one meaning. */
+  async function currentPgpKey(userId: string): Promise<string | null> {
+    const row = await db.get<{ pgp_public_key: string | null }>(
+      "SELECT pgp_public_key FROM users WHERE id = ?",
+      [userId],
+    );
+    return row?.pgp_public_key ?? null;
+  }
+
+  /** Every key operation costs the current password as well as a session. */
+  async function requirePassword(userId: string, authSecret: string): Promise<void> {
+    const row = await db.get<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE id = ?",
+      [userId],
+    );
+    if (!(await verifyAuthSecret(row?.password_hash ?? null, authSecret))) {
+      throw unauthorized("password is wrong");
+    }
+  }
 }

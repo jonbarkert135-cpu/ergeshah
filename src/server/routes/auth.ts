@@ -9,14 +9,19 @@
 import type { FastifyInstance } from "fastify";
 import { csrfCookie, sessionCookie } from "../app.ts";
 import { badRequest, conflict, unauthorized } from "../lib/errors.ts";
-import { newId, randomToken } from "../lib/ids.ts";
+import { newId } from "../lib/ids.ts";
 import { hashAuthSecret, verifyAuthSecret } from "../lib/password.ts";
 import {
   createSession,
   destroyAllSessions,
   destroySession,
   pruneSessions,
+  revokeAllCredentials,
 } from "../lib/sessions.ts";
+import {
+  listSecurityEvents,
+  recordSecurityEvent,
+} from "../lib/security_events.ts";
 import { today, dayToIsoDate } from "../lib/time.ts";
 import {
   asBase64Url,
@@ -25,11 +30,7 @@ import {
   asUsername,
 } from "../lib/validate.ts";
 import { readableFingerprint } from "../lib/pgp.ts";
-import {
-  CHALLENGE_TTL_MS,
-  limitByAccountName,
-  replyWithSession,
-} from "../lib/auth_flow.ts";
+import { issueChallenge, limitByAccountName, replyWithSession } from "../lib/auth_flow.ts";
 
 interface Credentials {
   username: unknown;
@@ -128,7 +129,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     // Constant work whether or not the account exists: no enumeration through timing.
     const ok = await verifyAuthSecret(user?.password_hash ?? null, authSecret);
-    if (!user || !ok) throw unauthorized("invalid username or password");
+    if (!user || !ok) {
+      // Recorded against the account that was targeted, never against the name that was
+      // guessed: an account that does not exist gets no row, so this cannot become a list
+      // of usernames strangers tried.
+      if (user) await recordSecurityEvent(db, user.id, "login.failed");
+      throw unauthorized("invalid username or password");
+    }
     if (user.status !== "active") {
       throw unauthorized(`account suspended: ${user.status_reason ?? "contact moderation"}`);
     }
@@ -137,23 +144,16 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     // too, so no session is created yet. The challenge row records that the password step
     // already passed — it is the only thing that lets the next request mint a session.
     if (user.pgp_fingerprint) {
-      const challenge = randomToken(32);
-      const id = newId();
-      await db.run(
-        `INSERT INTO auth_challenges (id, user_id, kind, challenge, expires_at)
-         VALUES (?, ?, 'pgp-login', ?, ?)`,
-        [id, user.id, challenge, Date.now() + CHALLENGE_TTL_MS],
-      );
+      const issued = await issueChallenge(db, config, "pgp-login", user.id);
       return {
         pgpRequired: true,
-        challengeId: id,
-        challenge,
+        ...issued,
         fingerprint: readableFingerprint(user.pgp_fingerprint),
-        expiresInSeconds: CHALLENGE_TTL_MS / 1000,
       };
     }
 
     const session = await createSession(db, user.id, config.sessionTtlMs, label);
+    await recordSecurityEvent(db, user.id, "login.password");
     await pruneSessions(db, config.sessionIdleDays);
     const vault = await db.get<{ sealed: string }>(
       "SELECT sealed FROM vaults WHERE user_id = ?",
@@ -182,6 +182,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/auth/logout-everywhere", async (request, reply) => {
     const user = await app.authenticate(request);
     await destroyAllSessions(db, user.id);
+    await recordSecurityEvent(db, user.id, "sessions.revoked_all");
     reply.header("set-cookie", [sessionCookie(config, request, "", 0), csrfCookie(config, request, "", 0)]);
     return { ok: true };
   });
@@ -236,7 +237,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       }
     });
 
-    await destroyAllSessions(db, user.id);
+    // Not just the sessions: a challenge already issued and a parked device-link code are
+    // both credentials minted under the old password (ADR-0089).
+    await revokeAllCredentials(db, user.id);
+    await recordSecurityEvent(db, user.id, "password.changed");
     const session = await createSession(db, user.id, config.sessionTtlMs, null);
     return replyWithSession(reply, request, config, {
       id: user.id,
@@ -339,6 +343,25 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  /**
+   * The account's own security history (ADR-0090). Day-granular counts of a fixed list of
+   * events, for the owner and nobody else: there is no staff route that reads this table,
+   * because "let a moderator see when you signed in" is the surveillance feature this log
+   * was designed not to be.
+   */
+  app.get("/api/auth/security-events", async (request) => {
+    const user = await app.authenticate(request);
+    const rows = await listSecurityEvents(db, user.id);
+    return {
+      retentionDays: config.securityEventRetentionDays,
+      events: rows.map((row) => ({
+        kind: row.kind,
+        on: dayToIsoDate(row.day),
+        count: row.count,
+      })),
+    };
+  });
+
   app.get("/api/auth/sessions", async (request) => {
     const user = await app.authenticate(request);
     const rows = await db.all<{
@@ -372,6 +395,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!row) throw badRequest("no such session", "not_found");
     await destroySession(db, id);
+    await recordSecurityEvent(db, user.id, "session.revoked");
     return { ok: true };
   });
 }

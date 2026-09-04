@@ -108,28 +108,61 @@ Consequence, stated plainly because it cannot be engineered away: whoever holds 
 can take the account and read its history. There is no email reset and no administrator
 override — see `docs/THREAT_MODEL.md`.
 
+Completing a recovery revokes everything the old credentials had minted: every session,
+every pending challenge and every parked device-link code (ADR-0089). The one exception is
+named there rather than hidden — unspent send tokens carry no owner by construction, so they
+cannot be selected, and they expire on their own.
+
+## What a challenge is
+
+Every signature in this system — recovery, PGP enrolment, PGP rotation, PGP removal, PGP
+login — is made over a statement, not over a bare nonce (ADR-0087):
+
+```
+symvolon-auth-v1 service=<SERVICE_ID> purpose=<purpose> id=<challenge id> expires=<ISO 8601> nonce=<32 random bytes>
+```
+
+The nonce is freshness. The rest is binding: the service the signature was made for, what it
+authorises, which row it belongs to, and when it stops counting — all inside the signed
+bytes, where a user can read them before signing and where nothing can quietly reinterpret
+them afterwards. A signature made to add a key is not a signature that removes one, and a
+signature made for this deployment does not verify against another `SERVICE_ID`.
+
+Challenges are single-use and deleted the moment they are answered, valid or not, so a
+signature cannot be replayed and a challenge cannot be ground against guesses. Issuing one
+invalidates the account's previous challenge of the same purpose, so there is never a stack
+of live challenges waiting for one leaked signature.
+
 ## PGP as a second factor
 
 An OpenPGP key is an *authentication* factor here, never a password and never a way to
-encrypt anything in this system. The flow is challenge–response:
+encrypt anything in this system. What a valid signature proves is possession of the private
+key at that moment — nothing about the site the user is on, the machine they are using, or
+the software that made the signature. It is a possession factor, and the interface says so
+rather than calling it protection from phishing.
+
+The flow is challenge–response:
 
 1. The password is verified first. If the account carries a PGP key, no session is created;
-   the response is a 32-byte random challenge with an id and a five-minute life.
+   the response is a `pgp-login` statement with an id and a five-minute life.
 2. The user signs those exact bytes on their own machine — `printf %s '<challenge>' | gpg
    --detach-sign --armor` — and pastes the armoured detached signature back.
 3. The server verifies it against the stored public key, then mints the session.
 
 Enrolment needs three things at once: a session, the current password, and a signature over
-a challenge made by the key being added. The last one is proof of possession — enabling a
-key whose private half the user cannot actually use would only lock the account out of
-itself. A private key block is refused with an explanation rather than parsed, and nothing
-about the private half is ever requested, transmitted or stored.
+a `pgp-enroll` statement made by the key being added. The last one is proof of possession —
+enabling a key whose private half the user cannot actually use would only lock the account
+out of itself. A private key block is refused with an explanation rather than parsed, and
+nothing about the private half is ever requested, transmitted or stored.
 
-Challenges are single-use and deleted the moment they are answered, valid or not, so a
-signature cannot be replayed and a challenge cannot be ground against guesses. Enrolment
-challenges are bound to the account that asked for them.
+**Replacing or removing a key takes that key** (ADR-0088). A rotation carries two signatures
+over the same `pgp-rotate` statement — one from the arriving key, one from the key being
+replaced — and a removal carries one from the key being removed, over `pgp-remove`. Without
+that rule the factor was worth exactly a session plus a password, which is what it exists to
+survive.
 
-**Ordering, stated deliberately:** a recovery phrase clears the PGP factor. Someone
+**Ordering, stated deliberately:** a recovery phrase clears the PGP factor — and it is the
+only thing that does, for a user who has lost the key itself. Someone
 recovering an account has lost their password, and there is no reason to assume they still
 hold the signing key; leaving the factor in place would turn a recoverable account into an
 unreachable one. The phrase is already the strongest secret in the system, so this grants

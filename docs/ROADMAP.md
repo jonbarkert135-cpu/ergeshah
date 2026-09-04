@@ -47,6 +47,13 @@ wrapped master key (PR #7), and AUTH-7 PGP challenge–response as a second fact
   again by someone else. The defence is a client that notices a peer's identity key
   changed and says so, rather than a tombstone in the database.
 
+- **AUTH-8 — A round trip through real `gpg`.** Every PGP test here signs with OpenPGP.js and
+  verifies with OpenPGP.js, which proves the flow and not the interoperability. Before the
+  first deployment, sign a challenge statement with `gpg --detach-sign --armor` from a
+  hardware-backed key and check enrolment, login and rotation accept it — and that the
+  statement is legible in the terminal, since a user who cannot read what they are signing is
+  not exercising a factor, only clicking one.
+
 - **AUTH-1 — PAKE login (OPAQUE).** Removes the last theoretical benefit a hostile server
   gets from observing login.
 

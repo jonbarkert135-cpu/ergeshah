@@ -16,6 +16,7 @@ import { renderOrders } from "./views/orders.ts";
 import { renderWallet } from "./views/wallet.ts";
 import { renderModeration } from "./views/admin.ts";
 import { renderAccount } from "./views/account.ts";
+import { renderSecurity } from "./views/security.ts";
 import { renderNotifications, unreadCount } from "./views/notifications.ts";
 import { randomUnit, receiveMessages } from "./messaging.ts";
 import { jitteredInterval } from "../shared/jitter.ts";
@@ -30,6 +31,7 @@ const ROUTES = [
   { hash: "#/notifications", label: "Notifications" },
   { hash: "#/sell", label: "Sell" },
   { hash: "#/account", label: "Account" },
+  { hash: "#/security", label: "Security" },
   { hash: "#/moderation", label: "Moderation", staffOnly: true },
 ];
 
@@ -111,13 +113,13 @@ function renderRoute(container: HTMLElement): void {
   if (hash.startsWith("#/orders")) return renderOrders(container);
   if (hash.startsWith("#/wallet")) return renderWallet(container);
   if (hash.startsWith("#/sell")) return renderSell(container);
-  if (hash.startsWith("#/account")) {
-    return renderAccount(container, () => {
-      lock();
-      location.hash = "#/";
-      render();
-    });
-  }
+  const signedOut = () => {
+    lock();
+    location.hash = "#/";
+    render();
+  };
+  if (hash.startsWith("#/account")) return renderAccount(container, signedOut);
+  if (hash.startsWith("#/security")) return renderSecurity(container, signedOut);
   if (hash.startsWith("#/notifications")) return renderNotifications(container);
   if (hash.startsWith("#/moderation")) return renderModeration(container);
   return renderMarket(container, navigate);
