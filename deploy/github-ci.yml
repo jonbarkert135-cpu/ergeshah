@@ -51,9 +51,10 @@ jobs:
       - name: Build client
         run: npm run build:client
 
-      # One step, seven audits: dependency CVEs, dependency policy and licences, client
+      # One step, eight audits: dependency CVEs, dependency policy and licences, client
       # bundle and build reproducibility, secrets in the working tree, secrets anywhere in
-      # git history, migration order and checksums, supply-chain policy.
+      # git history, migration order and checksums, supply-chain policy, and server-side
+      # egress (every outbound call named, no host in the source, no telemetry package).
       - name: Security audits
         run: npm run audit
 

@@ -137,6 +137,29 @@ and its timing, and the *buyer* still receives bytes chosen by the seller. Nothi
 tell them the file is safe to open; end-to-end encryption and malware scanning are mutually
 exclusive, and this project chose the encryption. `test/uploads.test.ts` covers the table.
 
+### Malware scanning, and why there is none (point 25)
+
+The brief asks for *optional local* scanning where the deployment allows it, and forbids making
+a scanning SaaS mandatory. Here the answer is stronger than "optional": server-side scanning is
+impossible by construction, and no version of it is planned.
+
+- **The server holds ciphertext.** A scanner — self-hosted ClamAV included — needs the
+  plaintext. Giving it the plaintext means the server can read the file, which is the one thing
+  this architecture exists to prevent. An operator who wants scanning has to break end-to-end
+  encryption first, and this project will not ship the switch that does it.
+- **No external scanning service is used, mandatory or otherwise.** No file, no hash and no
+  fragment of a file leaves this deployment (`docs/NETWORK.md` §Every external request). A hash
+  lookup would be a privacy leak with a scanner's reputation: it tells a third party which files
+  pass through this platform.
+- **So no protection is claimed.** Nothing in the product, the documentation or the interface
+  says an attachment or a delivery has been checked, because none of them has been. What the
+  product does instead is refuse to make the file *easier* to run: the bytes are never served as
+  a document, never opened in the page, and always saved as `application/octet-stream`, and the
+  screen says the buyer is receiving bytes chosen by the seller.
+- **The scan that is actually available is the recipient's own.** A file saved to disk is
+  scanned by whatever the recipient's operating system runs, in the place where the plaintext
+  legitimately exists. That is local scanning, by the only party entitled to do it.
+
 ## Residual risks, stated plainly
 
 1. **Server-served client code, and a closed source.** The operator can ship a malicious
@@ -195,3 +218,40 @@ Scenarios rather than assurances, so each line can be checked against the code.
 The last two rows are the ones to reread. A hostile server serving modified JavaScript is
 the residual risk this architecture cannot close on its own; the answer is reproducible
 builds with published hashes (roadmap CRY-2), not a promise.
+
+## If it leaks: seven scenarios, four questions (points 56, 57)
+
+The table above is per credential. This one is per *component*, and it asks the four questions
+the brief asks: what is exposed, what remains protected, what can be revoked, what can be
+recovered. Read the "remains protected" column as *by design*, not *guaranteed* — every row
+depends on the code doing what this repository says it does.
+
+| Leak | Exposed | Remains protected | Revocable | Recoverable |
+| --- | --- | --- | --- | --- |
+| **Database** | Usernames, coarse days, public keys, wrapped vaults, hashed session tokens, the marketplace record, balances and the ledger, all blob ciphertext | Message and file plaintext (no key on the server), passwords (scrypt over a client-side Argon2id output), recovery phrases, vault contents | Every session and pending challenge (`scripts/incident.mjs`); the rate-limit pepper; the payout worker's token | The data itself, from the last encrypted backup — up to 35 days of history (`docs/BACKUPS.md`) |
+| **Storage** | The same blob ciphertext, because blobs *are* database rows here — there is no object store, so a storage leak is a database leak and this project does not pretend the two tiers are separate | Same as above: every blob is client-encrypted under a one-time key that never reached the server | Nothing to revoke: the bytes are unopenable without keys held by the two parties | Blobs expire in 30 days anyway; what is lost is what was in flight |
+| **Backup** | One encrypted snapshot per run. Opened only with the backup key, which the running service cannot read | Everything, while the key is elsewhere. With the key: the same exposure as a database leak, offline and at leisure | The backup key (rotate, re-encrypt the current set, destroy the old copies — see `docs/BACKUPS.md` §Key lifecycle) | The service, in full: `npm run backup:restore` and `npm run backup:drill` |
+| **Cache** | Nothing. There is no cache tier — no Redis, no memcached, no shared session store. The only cached values are two numbers in this process's memory (free space, blob count) | Everything, trivially | — | — |
+| **Session** | That account's history on the server, and the ability to act as them until it expires | The vault (the master key is not on the server), the password (a change needs the current one), recovery, and the PGP factor (ADR-0088) | The session, from any other session, or all of them at once; a password change or recovery ends every session, challenge and device code (ADR-0089) | Nothing is lost |
+| **VPS** | Everything the server can do: serve modified client code, watch timing and volume, read the database, read this deployment's secrets | Past message plaintext (forward secrecy, nothing at rest), vaults, phrases, the *payout* spend key (another host), the backup key (off the machine) | All sessions, the pepper, the worker token, TLS keys, the onion key — the order is in `docs/INCIDENT_RESPONSE.md` §Emergency rotation | The service from backup, on a rebuilt host. Not the users' trust in the client bundle: that is CRY-2 |
+| **One account** | That account's conversations *from its own device*, its orders, its balance | Every other account; a seller role does not become a moderator role, and a moderator role does not become an administrator (`test/authorization.test.ts`) | The account (suspension), its sessions, its role | The counterparties' own copies; nothing else is affected |
+
+### Blast radius, and where it is honestly wide (point 57)
+
+Two of the three separations the brief asks for hold, and the third does not:
+
+- **Compromised storage does not give database admin** — false here, and stated rather than
+  implied: blobs live in the database, so the storage and database blast radius are the same
+  one. What limits it is that every blob is ciphertext the server cannot open. Splitting them
+  would mean an object store, a second set of credentials and a second thing to back up, for a
+  gain of nothing while the bytes are already unopenable.
+- **Compromised cache does not give private file access** — trivially true: there is no cache.
+- **A compromised marketplace role does not give an admin role** — true, and tested: roles are
+  read from the database on every request, a refusal is audited, and no route promotes anyone
+  without an administrator (`src/server/app.ts`, `test/authorization.test.ts`).
+
+Credentials are separate per purpose, so one leak is not all of them: the database URL, the
+rate-limit pepper, the payout worker's bearer token, the wallet password and the backup key are
+five different secrets, from five different places, rotated independently
+(`docs/ENVIRONMENT.md`, `docs/INCIDENT_RESPONSE.md`). There is no universal application secret,
+and no key that opens more than its own domain (point 71, `docs/CRYPTO.md` §Key separation).

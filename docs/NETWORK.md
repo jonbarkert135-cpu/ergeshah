@@ -126,6 +126,34 @@ the transport, it is a new trust boundary, and it arrives with all of this or no
 Until all nine exist, the answer to "should we add a socket" is no, and the polling client
 is the feature that keeps that answer cheap.
 
+## Internal callers authenticate too — with one exception, named (point 59)
+
+"It is inside the Docker network, therefore trusted" is the assumption that turns one
+compromised container into all of them. Where a boundary is crossed here, there is a credential:
+
+| Caller | Boundary | Credential |
+| --- | --- | --- |
+| The payout worker → this platform | Another host, over the public entrypoint | A bearer token, compared in constant time, and the route does not exist when the token is unset (`routes/payouts.ts`) |
+| A browser → this platform | The internet | A session cookie, `SameSite=Strict`, plus a double-submit CSRF token and an `Origin` check |
+| `app` → PostgreSQL | The internal network | Its own database credentials, from `DATABASE_URL` |
+| `app` → wallet RPC | The internal network | **None.** The commented wallet service runs with `--disable-rpc-login` |
+
+That last row is the exception, and it is an accepted risk rather than an oversight:
+
+- **What it costs.** Anything that can open a TCP connection to `wallet:18082` can call the
+  wallet. That is `app` and nothing else — the network is `internal: true`, the wallet publishes
+  no port, and `test/deployment.test.ts` fails if either changes.
+- **What it cannot cost.** The wallet is opened with a **view key**. It cannot spend, and the
+  three methods the application uses (`create_address`, `get_transfers`, `get_balance`) are all
+  it can usefully be asked for (ADR-0070). The spend key lives on the payout worker's host,
+  which has no inbound surface at all.
+- **Why it is not simply fixed.** `--rpc-login` means HTTP digest authentication, which the
+  application would have to implement by hand against a wallet nobody here can integration-test
+  without a real `monero-wallet-rpc`. Hand-written authentication code in front of a view-only
+  wallet is a worse trade than the network boundary plus the view key — and the honest version
+  of "we rely on the network here" is this paragraph, not silence. It is on `docs/ROADMAP.md` as
+  OPS-8, to be done together with the stagenet pass (PAY-6) where it can actually be verified.
+
 ## What this does not do
 
 Docker networks are a routing boundary, not a security boundary in the way a separate host

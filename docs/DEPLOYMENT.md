@@ -330,3 +330,29 @@ message-encryption key, no vault key and no signing key on the server to rotate,
 none exists there — that is the whole architecture (`docs/ARCHITECTURE.md`). The worst a
 leaked server secret does is let someone forge rate-limit buckets or reach the database;
 neither yields a plaintext message.
+
+## Optional scale mode: one VPS first, more hosts only if the load asks (points 62, 63)
+
+One VPS is the supported deployment and the one this documentation walks through: two
+containers, SQLite by default, no Kubernetes, no managed service, no paid infrastructure
+(`docs/AUDIT.md` §The zero-cost audit). Nothing in the product requires more, and the
+single-host path is tested — `test/deployment.test.ts` reads the compose file this page
+describes.
+
+When one host stops being enough, these are the pieces that can move, in the order that buys
+the most for the least new surface. Each is a *scale* decision, and each keeps the security
+properties above or it does not happen:
+
+| Component | Move it when | What must stay true |
+| --- | --- | --- |
+| PostgreSQL | The database is the bottleneck, or you want it to survive the app host | No published port: a private network or an SSH tunnel, TLS on the connection, its own credentials. `docs/NETWORK.md` says why 5432 is never on the internet |
+| The payout worker | Always, if Monero payouts are enabled — this one is a security move, not a scale one (ADR-0070) | It pulls; nothing calls it. Its own bearer token, its own host, the only spend key |
+| `monerod` / wallet RPC | The node's sync or disk is competing with the application | Only `app` can reach the wallet; only the node has egress; the wallet stays view-only |
+| The reverse proxy | You need more than one application instance behind it | Sessions are database rows, not process memory, so a second app instance needs no sticky routing and no shared cache |
+| A second application instance | CPU on the app tier is the limit | The hourly housekeeping must run on **one** of them (they are idempotent, so a double run is harmless, but a doubled sweep is wasted work); both need the same secrets and the same database |
+
+What multi-node is **for**: performance, fault isolation, and being able to lose one machine
+without losing the service. What it is explicitly **not** for: spreading a deployment across
+jurisdictions to make an unlawful service harder to reach. This project is a privacy product,
+not a way to hide illegal activity (`README.md`, `docs/MODERATION.md`), and a scale topology
+chosen for that purpose is outside what this documentation supports.

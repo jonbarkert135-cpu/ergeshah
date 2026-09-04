@@ -172,6 +172,20 @@ integrity and `npm run audit:deployment`.*
   posts, a public endpoint, a line in the footer, and no cleverness at all — the value is in
   the operator's signature and in users noticing it went stale.
 - **OPS-3 — Container image signing and an SBOM.**
+- **OPS-8 — Authenticate the wallet RPC, not just its network position.** `app` reaches the
+  view-only wallet over the internal network with `--disable-rpc-login`, which is the one
+  "inside Docker, therefore trusted" assumption left in the deployment
+  (`docs/NETWORK.md` §Internal callers). Enabling `--rpc-login` means HTTP digest
+  authentication written here and verified against nothing, so it waits for the stagenet pass
+  (PAY-6) where it can be tested against a real `monero-wallet-rpc` rather than a fake.
+- **OPS-9 — A PostgreSQL backup script and drill.** `docs/BACKUPS.md` describes `pg_dump` with
+  the same encryption, retention and off-host key rules, but only the SQLite path has a script
+  (`scripts/backup.mjs`) and a boot drill in CI. A deployment on PostgreSQL is following prose
+  today, which is exactly the gap `backup:drill` exists to close for the other driver.
+- **OPS-10 — An advisory lock around boot-time migrations.** `migrate()` runs on every start.
+  With one process that is correct; with two application instances behind the proxy (the scale
+  mode in `docs/DEPLOYMENT.md`) both would run it at once. A `pg_advisory_lock` around the
+  runner, or an explicit `MIGRATE_ON_BOOT=false` for the second instance.
 - **OPS-6 — The first real deployment.** Every step in `docs/DEPLOYMENT.md` has been
   rehearsed locally, including a restore drill on a production-mode instance
   (`npm run backup:drill`), but this service has never run on a VPS with a domain, a
@@ -190,5 +204,12 @@ integrity and `npm run audit:deployment`.*
 *Shipped: UI-1, the safety-number verification flow — a scannable code, a per-device
 verified state, and a warning when an unverified device appears.*
 
+- **UI-4 — Metadata stripping for the formats the walker does not know.** JPEG, PNG and WebP
+  are rewritten before encryption (ADR-0092). HEIC and HEIF — what an iPhone camera produces by
+  default — plus AVIF, TIFF, raw files, video, PDF and SVG are passed through with their
+  metadata, and the screen says so. Closing it means either an ISO base media box walker (HEIC,
+  AVIF, MP4 share the container, so one walker covers four formats) or a decode-and-re-encode
+  path, which costs image quality and a DOM in shared code. The disclosure is honest today; the
+  gap is real.
 - **UI-2 — Offline queue** for messages composed without connectivity.
 - **UI-3 — Accessibility pass** (keyboard traps, focus management, screen-reader labels).
