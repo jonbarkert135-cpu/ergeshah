@@ -258,6 +258,12 @@ and review dates, fuzzed parsers, an authorisation matrix generated from the rou
   are regular expressions and say so; a handful of them (mass assignment, URL sinks) would be
   more precise as Semgrep rules with real dataflow. The rules would live in the repository and
   run only where the binary exists, so the tree keeps its own answer either way.
+  *Run once so far (2026-09-04, Semgrep 1.176.1, rulesets `p/security-audit`, `p/typescript`,
+  `p/nodejs`, `p/owasp-top-ten`, `p/secrets` over `src`, `scripts`, `deploy`): one finding,
+  `gcm-no-tag-length` in `scripts/backup.mjs` — not exploitable, since the tag handed to the
+  decipher is always the file's last 16 bytes, but `authTagLength` is now pinned on both sides.
+  Nothing else; the twelve regex patterns and the test suite had already covered what the public
+  rulesets look for. A rerun is one command and belongs at the end of every audit block.*
 
 ## Client
 

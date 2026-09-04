@@ -79,7 +79,7 @@ function readKey(flags) {
 
 function encrypt(plaintext, key) {
   const nonce = randomBytes(NONCE_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", key, nonce);
+  const cipher = createCipheriv("aes-256-gcm", key, nonce, { authTagLength: TAG_BYTES });
   // The header is authenticated: a backup from a future format cannot be silently misread.
   cipher.setAAD(MAGIC);
   const body = Buffer.concat([cipher.update(plaintext), cipher.final()]);
@@ -91,7 +91,10 @@ function decrypt(file, key) {
   if (!file.subarray(0, MAGIC.length).equals(MAGIC)) fail("not a Symvolon backup: bad header");
   const nonce = file.subarray(MAGIC.length, MAGIC.length + NONCE_BYTES);
   const body = file.subarray(MAGIC.length + NONCE_BYTES, file.length - TAG_BYTES);
-  const decipher = createDecipheriv("aes-256-gcm", key, nonce);
+  // The tag length is pinned rather than left to Node's default set (which also accepts
+  // 32-bit tags). The slice above already hands over exactly TAG_BYTES, so this is belt and
+  // braces — the cheap kind, flagged by Semgrep's gcm-no-tag-length on 2026-09-04.
+  const decipher = createDecipheriv("aes-256-gcm", key, nonce, { authTagLength: TAG_BYTES });
   decipher.setAAD(MAGIC);
   decipher.setAuthTag(file.subarray(file.length - TAG_BYTES));
   // Throws if the key is wrong or a byte was changed. That is the feature.
