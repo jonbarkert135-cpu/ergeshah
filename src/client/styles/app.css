@@ -388,6 +388,28 @@ footer.legal {
   margin: 0 auto;
 }
 
+/* The operator's canary, in the footer of every screen (ADR-0099). Closed it is one line;
+   open it is the signed text, the signature and the key, ready to paste into gpg. */
+.canary {
+  margin-top: var(--space-3);
+}
+
+.canary.overdue {
+  color: var(--danger);
+}
+
+.canary summary {
+  cursor: pointer;
+}
+
+.canary pre {
+  overflow-x: auto;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: var(--space-2) 0 0;
+}
+
 .row {
   display: flex;
   gap: var(--space-3);

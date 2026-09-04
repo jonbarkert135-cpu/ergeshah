@@ -165,12 +165,14 @@ this project does not have (ADR-0051).*
 `docs/AUDIT.md`. Reproducible client builds (OPS-1) with published digests, subresource
 integrity and `npm run audit:deployment`.*
 
-- **OPS-7 — A canary (ADR-0083).** A short statement the operator signs and refreshes on a
-  schedule — no warrant received, no key handed over — published with the date it was signed
-  and the date the next one is due. The client shows its age, so a canary nobody has refreshed
-  in six weeks is visible to every user rather than to nobody. Needs: a signed text an admin
-  posts, a public endpoint, a line in the footer, and no cleverness at all — the value is in
-  the operator's signature and in users noticing it went stale.
+*Shipped (OPS-7, 2026-09-04, ADR-0099): the canary. The operator signs a short statement on
+their own machine with the key named by `CANARY_FINGERPRINT`, posts it to
+`POST /api/admin/canary`, and it appears in the footer of every screen with its age —
+`GET /api/canary` is public, so a reader needs no account. Both dates live inside the signed
+text, an older statement cannot be replayed over a newer one, and an admin session alone
+cannot publish anything, because the private key is not on this machine. What it still cannot
+do is prove anything when it *is* refreshed; that limit is written into the client's own
+wording.*
 - **OPS-3 — Container image signing and an SBOM.**
 - **OPS-8 — Authenticate the wallet RPC, not just its network position.** `app` reaches the
   view-only wallet over the internal network with `--disable-rpc-login`, which is the one

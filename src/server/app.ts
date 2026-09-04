@@ -25,6 +25,7 @@ import { registerModerationRoutes } from "./routes/moderation.ts";
 import { registerNotificationRoutes } from "./routes/notifications.ts";
 import { registerStaticRoutes } from "./routes/static.ts";
 import { registerHealthRoutes } from "./routes/health.ts";
+import { registerCanaryRoutes } from "./routes/canary.ts";
 import { recordRequest } from "./lib/metrics.ts";
 import { walletRpc, type WalletRpc } from "./lib/monero.ts";
 
@@ -282,6 +283,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   await registerModerationRoutes(app);
   await registerNotificationRoutes(app);
   await registerHealthRoutes(app);
+  await registerCanaryRoutes(app);
   await registerStaticRoutes(app);
 
   return app;

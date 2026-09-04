@@ -34,6 +34,11 @@ const PUBLIC: Array<{ method: string; url: string; why: string }> = [
   { method: "POST", url: "/api/auth/recovery/challenge", why: "the challenge precedes the session" },
   { method: "POST", url: "/api/auth/recovery/complete", why: "the recovery signature is the login" },
   { method: "POST", url: "/api/auth/pgp/complete", why: "the PGP signature is the second factor of a login" },
+  {
+    method: "GET",
+    url: "/api/canary",
+    why: "the operator's signed statement: a canary an account is needed to read is a canary nobody reads (ADR-0099)",
+  },
   { method: "GET", url: "/api/market/listings", why: "browsing is public by design" },
   { method: "GET", url: "/api/market/listings/:id", why: "browsing is public by design" },
   { method: "GET", url: "/api/market/categories", why: "browsing is public by design" },

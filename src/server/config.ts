@@ -156,6 +156,14 @@ export interface Config {
    * server can hold a year of anybody's activity (ADR-0090).
    */
   securityEventRetentionDays: number;
+  /**
+   * The fingerprint of the one OpenPGP key whose signature this deployment will publish as
+   * its canary (OPS-7, ADR-0099), lower-case hex without spaces. Empty means this
+   * deployment publishes no canary at all — `POST /api/admin/canary` refuses and the client
+   * shows nothing, which is honest: a canary nobody signs is worse than no canary, because
+   * it looks like one.
+   */
+  canaryFingerprint: string;
 }
 
 /**
@@ -342,6 +350,21 @@ function onionHostname(value: string | undefined): string {
  * by a client that compares it: a value with spaces or newlines in it could make one
  * statement look like another.
  */
+/**
+ * A fingerprint as people copy it: `gpg --fingerprint` prints it in groups of four, and a
+ * paste with spaces is the normal case rather than the mistake. Stored and compared in the
+ * form the OpenPGP library returns, so the comparison is between two canonical strings and
+ * never between two spellings of the same key.
+ */
+function canaryFingerprint(value: string | undefined): string {
+  if (!value) return "";
+  const hex = value.replace(/[\s:]/g, "").toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(hex) && !/^[0-9a-f]{64}$/.test(hex)) {
+    throw new Error("CANARY_FINGERPRINT must be an OpenPGP fingerprint: 40 or 64 hex characters");
+  }
+  return hex;
+}
+
 function serviceId(value: string | undefined): string {
   const id = (value ?? "symvolon").trim().toLowerCase();
   if (!/^[a-z0-9][a-z0-9._:-]{0,63}$/.test(id)) {
@@ -413,6 +436,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     walletPollMs:
       positiveInteger("WALLET_POLL_SECONDS", process.env.WALLET_POLL_SECONDS, 45) * 1000,
     payoutWorkerToken: workerToken(secretFromEnv("PAYOUT_WORKER_TOKEN"), env),
+    canaryFingerprint: canaryFingerprint(process.env.CANARY_FINGERPRINT),
     onionHostname: onionHostname(process.env.ONION_HOSTNAME),
     behindTls: process.env.BEHIND_TLS !== "false",
     serviceId: serviceId(process.env.SERVICE_ID),

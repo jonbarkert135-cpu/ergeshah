@@ -63,6 +63,7 @@ page says how long v1 answers and what replaced it.
 | `GET /favicon.svg` | — | Icon |
 | `GET /build.txt` | — | Digests of exactly these files, so a visitor can verify the build (`npm run audit:deployment`) |
 | `GET /healthz` | — | Liveness for the container healthcheck. Reveals nothing |
+| `GET /api/canary` | — | The operator's current signed statement, if this deployment publishes one (ADR-0099): `{ published: false }`, or the statement, the armoured detached signature, the public key it was verified against, its fingerprint, `signedDate`, `nextDate`, `ageDays` and `overdueDays`. Public and unauthenticated on purpose — a canary an account is needed to read is a canary nobody reads. The dates come out of the signed text, so this server cannot make a stale one look fresh |
 | `GET /api/admin/health` | admin | Operational health: uptime, CPU, memory, disk, database latency, storage and housekeeping state, request count, error rate and latency percentiles. Numbers, booleans and four fixed words only — see `docs/OBSERVABILITY.md` |
 
 ## Accounts and sessions
@@ -250,6 +251,7 @@ result, including refusals (`docs/PRIVACY.md`, ADR-0024).
 | `GET /api/admin/treasury` | session (admin) | `moderation` | The books as five totals (uncredited top-ups among them) plus liabilities, and — when a wallet tier exists — what the wallet actually holds and the shortfall between them (`null` otherwise). Names nobody |
 | `GET /api/moderation/audit` | staff | `moderation` | Read the administrative log |
 | `POST /api/admin/users/:username/role` | admin | `moderation` | Grant or remove staff roles |
+| `POST /api/admin/canary` | session (admin) | `sensitive` | Publish a canary: `{ statement, signature }`, the signature armoured and detached over exactly the statement. Verified against the PGP key on the publishing admin's own account, and that key against `CANARY_FINGERPRINT` — a stolen admin session cannot write one, because the private key is not here. The statement must carry `Signed: YYYY-MM-DD` and `Next: YYYY-MM-DD` lines, be signed no more than seven days ago, fall due within ninety, and be newer than the last one published. Stored trimmed and Unicode-normalised, so verify the published copy afterwards. Audited as `canary.published`, refusals included |
 
 ## Error codes
 
@@ -290,6 +292,8 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `stale_status` | 409 | The order moved on before this transition arrived |
 | `current_key_signature_required` | 400 | Replacing a PGP key without a signature from the key being replaced. A session and a password are not enough to swap the second factor (ADR-0088) |
 | `pgp_absent` | 400 | A removal challenge was asked for on an account with no PGP key |
+| `canary_invalid` | 400 | A canary was refused: the signature does not verify, the key is not the configured one, the dates are missing, impossible or too old, or the statement is not newer than the one already published. The message says which |
+| `canary_not_configured` | 409 | This deployment has no `CANARY_FINGERPRINT`, or the publishing administrator has enrolled no PGP key. Nothing to sign with means nothing to publish |
 | `vault_required` | 409 | The account has no sealed vault yet, and the operation needs one |
 | `too_large` | 413 | The body exceeds the configured cap |
 | `pow_required` | 428 | Solve the enclosed challenge and repeat the request |

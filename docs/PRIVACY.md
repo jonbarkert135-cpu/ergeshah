@@ -42,6 +42,26 @@ someone else; the internal id never leaves the server; the cryptographic identit
 only one that actually proves anything, which is why verification is built on it and not
 on the name.
 
+## What this client refuses to know
+
+A page that reads a canvas, a WebGL renderer, an audio stack, the screen dimensions, the
+plugin list or the time zone can tell one visitor from another without a cookie and without
+a login. None of those appear in `src/client` or `src/shared`, and the `fingerprint-surface`
+lint rule fails the build if one does (ADR-0098) — so this is a property a grep keeps, not a
+promise somebody remembers in review.
+
+The reverse is not on offer. A website cannot make its visitors look alike: letterboxing a
+window, spoofing a user agent, adding noise to a canvas are all things the *browser* does,
+and a page that tries only fingerprints itself as a page that tries. Someone who needs that
+should use Tor Browser, which this deployment supports directly through its onion service.
+
+A query string is treated the same way. This client has no query parameters — every route is
+in the fragment, which is never sent anywhere — so anything after a `?` came from whoever
+shared the link (`utm_source`, `fbclid`, an affiliate identifier). It is removed on load with
+`replaceState`, which takes it out of the address bar, out of this browser's history and out
+of the next link a user copies. It does not un-send the request that carried it here, and
+there was never a third party to forward it to.
+
 ## Cryptographic material
 
 `devices` and `one_time_prekeys` hold public keys, key ids and signatures only. A

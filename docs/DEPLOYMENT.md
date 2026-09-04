@@ -299,6 +299,40 @@ The database contains no plaintext messages, but it does contain password hashes
 vaults, marketplace records and public keys. The backup key is not part of the application's
 configuration on purpose: a compromised running service cannot decrypt the backup history.
 
+## The canary
+
+Optional, and worth doing only if you will keep it up: a canary nobody refreshes for two
+months, when the statement said fourteen days, is either a signal or a habit that lapsed, and
+your users cannot tell which. Set `CANARY_FINGERPRINT` to the fingerprint of a key whose
+private half stays on your own machine, enrol the same key on your administrator account
+(Security → PGP), and publish the fingerprint out of band in `SECURITY.md`.
+
+Then, on your machine and not on the server:
+
+```bash
+cat > canary.txt <<'EOF'
+Symvolon canary
+Signed: 2026-09-04
+Next: 2026-09-18
+
+No warrant, subpoena, national security letter or other demand for user data has been
+received. No key has been handed to anyone. No search or seizure has taken place.
+EOF
+gpg --detach-sign --armor --output canary.asc canary.txt
+```
+
+Post the two files as `{ "statement": …, "signature": … }` to `POST /api/admin/canary`. The
+server checks the signature against your enrolled key, checks that key against
+`CANARY_FINGERPRINT`, reads both dates out of the signed text, and refuses anything signed
+more than seven days ago, due more than ninety days out, or older than what is already
+published.
+
+Two habits make it real. Verify the published copy afterwards — `curl -s
+https://your-host/api/canary` gives back the statement and the signature exactly as visitors
+receive them, and `gpg --verify` on those bytes is the check a careful user will do. And put
+the next date in your own calendar: the deadline is inside the signature, so the client will
+show it as overdue whether or not you meant it to.
+
 ## When something goes wrong
 
 Procedures — credential rotation, session revocation, a compromised server, a database

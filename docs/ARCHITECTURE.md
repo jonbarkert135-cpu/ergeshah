@@ -82,7 +82,7 @@ src/server/
   db/                driver interface + sqlite/postgres drivers + migrations
   lib/               sessions, password hashing, validation, audit, rate limiting
   routes/            auth, recovery, keys, messages, market, deliveries, moderation,
-                     health, static
+                     canary, health, static
 src/client/
   state.ts           encrypted vault, device publication
   messaging.ts       sessions, send/receive/acknowledge
@@ -116,6 +116,7 @@ in `src/` and fails if one crosses a line in the table below.
 | SECURITY | `app.ts`, `security.ts`, `lib/rate_limit.ts`, `lib/validate.ts` | authentication of requests, CSRF, CSP, limits, input validation at the boundary |
 | INFRASTRUCTURE | `db/*`, `config.ts`, `main.ts`, `routes/static.ts` | drivers, migrations, configuration, the built client and its digests |
 | OBSERVABILITY | `routes/health.ts`, `lib/metrics.ts` | uptime, resources, database latency and aggregate request counters, for an administrator only. Counts and times, never a route, an account or a body (point 85, `docs/OBSERVABILITY.md`) |
+| TRANSPARENCY | `routes/canary.ts`, `lib/canary.ts`, `client/canary.ts` | the operator's signed statement and its age (ADR-0099). It is its own domain because it belongs to nobody in the system: no account owns it, no other module reads it, and the only key that can write one is not on this machine |
 | NOTIFICATIONS | `routes/notifications.ts`, `lib/notify.ts`, `client/views/notifications.ts` | the internal inbox: which of *your* records changed, never what a message said. No push, no email, no device token — the client polls (point 48, ADR-0032) |
 
 Rules the test enforces: `shared/` imports no side; the client never imports the server and

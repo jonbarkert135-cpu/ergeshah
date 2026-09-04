@@ -92,6 +92,14 @@ const RULES = [
     message: "build tables with table() from ui.ts, which adds thead/scope and stacks on phones",
   },
   {
+    name: "fingerprint-surface",
+    pattern:
+      /navigator\.(?:userAgent|userAgentData|appVersion|platform|plugins|mimeTypes|hardwareConcurrency|deviceMemory|languages|connection|getBattery)|\bscreen\.(?:width|height|availWidth|availHeight|colorDepth|pixelDepth)\b|\.getContext\s*\(|\.toDataURL\s*\(|\b(?:Offline)?AudioContext\s*\(|resolvedOptions\s*\(\s*\)\s*\.timeZone|\bdevicePixelRatio\b/,
+    files: /^src\/(?:client|shared)\//,
+    message:
+      "this is the browser's fingerprinting surface (ADR-0098): a page cannot make its visitors look alike, but it can refuse to be the thing that tells them apart",
+  },
+  {
     name: "focused-test",
     pattern: /\b(?:describe|it|test)\.only\s*\(/,
     files: /^test\//,

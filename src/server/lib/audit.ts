@@ -51,6 +51,11 @@ export type AuditAction =
    * Written by `scripts/incident.mjs` with no actor: nobody was signed in — it is a command
    * run on the machine.
    */
+  /**
+   * An administrator published — or was refused — a signed canary (ADR-0099). The subject
+   * is the date on the statement, never the statement itself.
+   */
+  | "canary.published"
   | "platform.locked_down"
   | "platform.reopened";
 

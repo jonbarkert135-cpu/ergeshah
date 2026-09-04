@@ -3277,3 +3277,133 @@ the trade being made deliberately. `test/accessibility.test.ts` enforces the par
 reviewer would otherwise have to remember — no control without a name, no outcome written
 into a silent `<div>`, no positive `tabindex`, and `focusAnchor()` present in every view
 that redraws — and unit-tests the two decisions the helper makes without needing a DOM.
+
+## ADR-0098 — Third review: fifteen mechanisms from Signal, WireGuard, Zcash, IPFS, ZeroNet, Tor Browser and Brave
+
+**Status:** accepted (2026-09-04)
+
+**Context.** A third batch of mechanisms was proposed, collected from other anonymity
+systems and delivered with sample code and a priority table: sealed sender and private
+contact discovery from Signal, one-time pre-keys and a zero-round-trip handshake under a
+WireGuard heading, CoinJoin and zero-knowledge proofs from Zcash and Wasabi, content
+addressing and erasure coding from IPFS and Storj, distributed publishing and content
+signatures from ZeroNet, letterboxing and fingerprinting resistance from Tor Browser,
+PayJoin and BIP-47 from Samourai, anonymous swarms from Tribler, and URL cleaning from
+Brave. Five were marked for immediate implementation.
+
+Two things had to be separated before anything could be decided: the *mechanism*, which is
+usually real and well understood, and the *sample code*, which in this batch is mostly not
+implementable as written. Several of the samples would have removed a property this system
+already has — the loudest example is a CoinJoin service that ends by notifying each
+participant of their own amount by account id, which is a table linking accounts to sums
+that no part of this platform keeps today.
+
+The rule from `docs/CHANGE_REVIEW.md` §7 applies as it does to every block: read
+`docs/FEATURES.md` and `docs/MECHANISMS.md` first, because most of a batch is usually
+already built. Here, five of the fifteen were.
+
+**Decision.** Take three, and record the other twelve with the reason, so nobody proposes
+them again from scratch.
+
+| Proposal | Verdict |
+| --- | --- |
+| Sealed sender | **Already shipped** (ADR-0084), and with a stronger property than the proposal: the send path carries a single-use token and no cookie, so there is no sender in the data at rest and no session to attribute an envelope to. The suggested `SEALED_SENDER_ROTATION=86400` is a knob for a long-lived credential this design does not have — a token is spent once |
+| Private contact discovery | **Refused as designed, and there is nothing here to discover.** The sample hashes each contact with a salt the *server* holds and asks the server to match: the server can compute the same hash for every candidate, so a contact list stays as enumerable as it was. A salt held by the verifier is not a blinding. Real private discovery needs an enclave (which is what Signal uses) or private information retrieval, and neither can be built honestly at this size. It is also solving a problem this project does not have: no address book, no phone number, no email — you find someone by the username they gave you. The part worth keeping was that a lookup must not become an enumeration oracle, and the key-bundle route already has its own tight bucket for exactly that reason (ADR-0035) |
+| One-time pre-keys | **Already shipped**, from X3DH rather than from WireGuard: published per device, claimed by a single `DELETE … RETURNING` so two callers cannot get the same key (ADR-0060), topped up when the server reports the count is low, with a signed prekey that rotates weekly on a live session (ADR-0078) and a documented fallback when the stock runs out. The sample is not this — random bytes with no Diffie–Hellman, an in-memory `used` flag, an expiry and no refill |
+| Zero-round-trip handshake | **Already true.** X3DH sends the first message together with the initiator's ephemeral key and the claimed bundle; there is no extra round trip left to remove |
+| CoinJoin | **Refused, and it would be a regression.** CoinJoin exists because Bitcoin's ledger is transparent. This platform settles in Monero: ring signatures, RingCT and stealth addresses already hide sender, amount and recipient, so there is no address graph for a join to break. The sample also builds a multisignature transaction over other people's funds, takes a percentage, and then notifies each participant of their amount by account id — inventing precisely the account-to-amount linkage this system avoids. The timing half of the idea is real, and is already how payouts work: a worker on its own clock, on another host (ADR-0070) |
+| PayJoin, Stonewall, BIP-47 reusable codes | **Refused for the same reason.** Monero subaddresses give BIP-47's property natively — one identity, a distinct address per payment — and this deployment derives one per account. PayJoin and Stonewall are transaction-graph defences for a chain that has a transaction graph |
+| Zero-knowledge proofs | **Refused as a general mechanism; already present in the one place it was needed.** A proving system is a large dependency and a large audit surface. Where "prove something without revealing it" was an actual requirement — dispute evidence — the answer is an HMAC commitment that costs one hash and that both parties can check (ADR-0074) |
+| Content-addressed storage, deduplication | **Refused, on privacy grounds rather than effort.** Storing by content hash means two people holding the same file share a row, which hands the server a confirmation oracle: "does anybody else have this file" becomes a lookup. It would not even work here — blobs are encrypted in the browser with per-file keys, so identical plaintexts are not identical ciphertexts — and both of those properties are worth more than the disk they cost |
+| Erasure coding, pinning, distributed storage | **Deferred, and not a privacy mechanism.** They buy availability across many hosts. This is one VPS with encrypted, verified backups and a restore drill (`docs/BACKUPS.md`). A fragment protocol with no second host is complexity that removes no failure |
+| Distributed content publishing, anonymous swarms, DHT search | **Out of the architecture, deliberately.** The application container has no route to the internet (ADR-0081): it cannot be a peer, and giving it one to become a peer would undo the tier that makes SSRF and a phoning-home dependency impossible. Beyond that, "content that cannot be removed once published" is the opposite of a marketplace with moderation, a takedown path and a deletion promise (`docs/DELETION.md`) |
+| Content signature | **Taken, in the one place it buys something: the canary** (ADR-0099). Messages are already signed end to end by the sender's identity key, so signing content again adds nothing. What was missing is a statement about the *operator* that a reader can verify without trusting the server that serves it |
+| Letterboxing | **Refused: a page cannot do it.** `window.resizeTo` does nothing to a tab a script did not open, and rounding the viewport to a standard size is a browser behaviour. A site that tried would only make itself the site that resizes windows |
+| Resist fingerprinting: faked canvas, WebGL, audio, spoofed user agent | **Refused as written, and the useful half implemented.** Returning noise from *our own* page's canvas protects a visitor from nobody: this page is the party they would be hiding from, and a value randomised per session is itself a fingerprint. A page cannot spoof the user agent its browser sends. What a page can do is read none of it — no canvas, no WebGL renderer, no audio stack, no screen dimensions, no plugin list, no time zone — and that is now the `fingerprint-surface` lint rule, with `test/fingerprint.test.ts` behind it. Users who need real fingerprinting resistance should use Tor Browser, which this deployment already supports through its onion service |
+| Brave Shields, tracker blocking | **Not applicable: there is nothing to block.** No third-party request exists to intercept — `default-src 'self'`, no CDN, no analytics, no fonts — and `npm run audit:bundle` and `audit:egress` fail the push that adds one |
+| Debouncing, URL cleaning | **Taken, adapted.** Curating a list of tracking parameter names is a list that is always one campaign out of date. This client reads no query parameter at all — every route is in the fragment — so the whole query string is removed on load, and a test fails if a client module ever starts reading one |
+
+The configuration block proposed with the batch follows the same verdicts: no
+`SEALED_SENDER_ROTATION` (nothing rotates), no `CONTACT_SALT` (a salt in the environment for
+a scheme that was refused), no letterboxing dimensions, no `CONTENT_STORAGE_*`. One variable
+is added, `CANARY_FINGERPRINT`, and it is documented in `docs/ENVIRONMENT.md`.
+
+**Consequences.** Three things shipped in this block: the canary (ADR-0099, which also
+closes roadmap item OPS-7), the fingerprinting-surface rule, and the query-string strip. The
+first is a real defence with a real limit; the other two are small, and both are the kind of
+promise that only survives if a machine checks it, which is why each has a test rather than a
+paragraph.
+
+The refusals are the more valuable half of this record. Four of the fifteen proposals are
+Bitcoin privacy machinery applied to a Monero deployment, where the property they buy is
+already a property of the money; two would have made this server hold data it does not hold
+today; three would require the application to reach the network, which the deployment
+forbids on purpose. Writing that down once is cheaper than re-litigating it every time the
+same well-known list is copied from another project's README.
+
+What this block does not do is address the residual risks that actually remain — cover
+traffic, the classical handshake, and an external audit. They are on the roadmap as MD-2's
+remainder, PQ-1 and CRY-1, and none of them is cheap.
+
+## ADR-0099 — The canary: signed off the machine, published with its age
+
+**Status:** accepted (2026-09-04)
+
+**Context.** OPS-7 has been on the roadmap since ADR-0083, where a dead man's switch was
+refused and its honest half kept: a short statement the operator signs and refreshes, so that
+users can see for themselves when nobody has refreshed it. The threat is the one this
+project can do least about — an operator compelled to hand over data or keys and forbidden
+from saying so. Nothing in the code can prevent that. What can be arranged is that the
+operator's *silence* is legible to people who never think about it.
+
+Three ways to get it wrong were worth avoiding. A canary the server can write itself is
+theatre: the statement must be signed by a key this machine does not have. A canary whose
+dates the server chooses is the same theatre one step removed: a stale statement could be
+republished with today's date. And a canary on a page nobody visits is not seen — the whole
+mechanism is about someone noticing an old date.
+
+**Decision.** A signed statement, its dates inside the signature, in the footer of every
+screen.
+
+- **The statement carries its own dates.** `Signed: YYYY-MM-DD` and `Next: YYYY-MM-DD` are
+  lines of the signed text, parsed out of it by `lib/canary.ts`. The server never chooses
+  either, and rewriting one invalidates the signature it is published beside.
+- **The key is pinned by configuration, not by the database.** `CANARY_FINGERPRINT` names
+  the one key whose signatures this deployment will publish. The signature is verified
+  against the PGP key enrolled on the publishing administrator's account (ADR-0087) and that
+  key against the fingerprint. A stolen admin session therefore cannot publish a canary: the
+  private half is on the operator's machine, where `gpg --detach-sign` runs.
+- **Freshness rules, enforced.** A statement signed more than seven days ago is refused —
+  otherwise an operator could sign a stack of them in advance, which is the failure the whole
+  mechanism exists to expose. A statement due more than ninety days out is refused, because an
+  open-ended promise cannot go stale. And a statement must be newer than the one already
+  published, so an older, still-perfectly-valid signature cannot be replayed to look fresh.
+- **Reading it needs no account.** `GET /api/canary` is public and returns the statement, the
+  signature, the key, the fingerprint, both dates, the age and how many days overdue it is.
+  The client shows one line in the footer of every screen, and opens to the three blocks a
+  reader pastes into `gpg --verify`.
+- **A deployment with no canary shows nothing.** No widget, no "not configured", no zero
+  state. A line that is usually empty teaches people to skip the line.
+
+**Rejected.** Verifying in the browser with OpenPGP.js: it would put a server-only dependency
+into the bundle (`audit:bundle` refuses one, and it is right to) for a check that is only
+meaningful if the reader supplies the key themselves. Storing the operator's armoured key in
+an environment variable: multi-line secrets in `.env` files are a mistake generator, and the
+fingerprint is the part that has to be compared out of band anyway. A background job that
+posts a warning to administrators when the date passes: the audience for an overdue canary is
+users, not the operator, who knows. Automatically re-publishing or extending: an automated
+canary is a canary that keeps chirping after the bird is gone.
+
+**Consequences.** The honesty of the feature is in what it does *not* claim, and that wording
+is in the client, in `SECURITY.md` and in the mechanism register: a refreshed canary proves
+nothing, because an operator can be compelled to keep signing; the server hands out the key
+beside the statement, so a reader who wants a real check compares the fingerprint with the
+one published out of band. The rest is maintenance the operator has to keep up — a deadline
+that passes shows as overdue whether or not anything happened, which is the intended
+behaviour and the reason the roadmap entry warns against configuring one you will not keep
+refreshing.
+
+The cost is one table of a few rows a year, two routes, one environment variable and about
+two hundred lines including the client. There is no background work, no clock the server
+depends on, and nothing that fails if the operator disappears — which is the case it exists
+for.

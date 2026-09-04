@@ -84,6 +84,7 @@ or if a record is missing a section.
 | [ADR-0061](../DECISIONS.md#adr-0061--recoverability-is-a-command-not-a-claim) | Recoverability is a command, not a claim |
 | [ADR-0094](../DECISIONS.md#adr-0094--the-zero-cost-promise-is-a-check-not-a-sentence-in-a-readme) | The zero-cost promise is a check, not a sentence in a README |
 | [ADR-0096](../DECISIONS.md#adr-0096--two-deployment-profiles-one-architecture-and-kubernetes-in-neither) | Two deployment profiles, one architecture, and Kubernetes in neither |
+| [ADR-0099](../DECISIONS.md#adr-0099--the-canary-signed-off-the-machine-published-with-its-age) | The canary: signed off the machine, published with its age |
 
 ### Privacy model
 
@@ -98,6 +99,7 @@ or if a record is missing a section.
 | [ADR-0045](../DECISIONS.md#adr-0045--a-review-does-not-name-its-buyer) | A review does not name its buyer |
 | [ADR-0047](../DECISIONS.md#adr-0047--blocking-is-the-recipients-decision-and-the-server-is-not-told) | Blocking is the recipient's decision, and the server is not told |
 | [ADR-0092](../DECISIONS.md#adr-0092--image-metadata-is-stripped-in-the-browser-by-dropping-segments-rather-than-re-encoding) | Image metadata is stripped in the browser, by dropping segments rather than re-encoding |
+| [ADR-0098](../DECISIONS.md#adr-0098--third-review-fifteen-mechanisms-from-signal-wireguard-zcash-ipfs-zeronet-tor-browser-and-brave) | Third review: fifteen mechanisms from Signal, WireGuard, Zcash, IPFS, ZeroNet, Tor Browser and Brave |
 
 ### Security and abuse
 

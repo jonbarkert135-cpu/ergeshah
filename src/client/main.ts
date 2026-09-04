@@ -19,6 +19,8 @@ import { renderAccount } from "./views/account.ts";
 import { renderSecurity } from "./views/security.ts";
 import { renderNotifications, unreadCount } from "./views/notifications.ts";
 import { randomUnit, receiveMessages } from "./messaging.ts";
+import { canarySlot, loadCanary } from "./canary.ts";
+import { withoutQuery } from "./urls.ts";
 import { jitteredInterval } from "../shared/jitter.ts";
 
 const root = document.getElementById("app") as HTMLElement;
@@ -37,6 +39,9 @@ const ROUTES = [
 
 async function main(): Promise<void> {
   applyTheme();
+  stripTrackingQuery();
+  // The operator's canary, once per page load, into the footer of every screen (ADR-0099).
+  void loadCanary();
   // Paint before the cryptography arrives. libsodium is a megabyte of WebAssembly that a
   // visitor reading the sign-in page does not need until they submit, so it downloads in
   // the background while the shell is already on screen (ADR-0027). Every flow that
@@ -256,7 +261,19 @@ function footer(): HTMLElement {
     "footer",
     { class: "legal" },
     "Encryption happens in this browser. The server sees ciphertext, not messages — but it does see when you connect. Read docs/THREAT_MODEL.md before trusting it with anything that matters.",
+    canarySlot(),
   );
+}
+
+/**
+ * A query string on this application came from whoever shared the link, never from this
+ * application (ADR-0098): the routes are all in the fragment. Removing it takes the campaign
+ * identifier out of the address bar, out of this browser's history, and out of the link the
+ * next person is given. `replaceState` does not reload and does not add a history entry.
+ */
+function stripTrackingQuery(): void {
+  const cleaned = withoutQuery(location.href);
+  if (cleaned) history.replaceState(null, "", cleaned);
 }
 
 void main();

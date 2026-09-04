@@ -62,6 +62,23 @@ indicators, no "who is online", day-granular timestamps wherever a day is enough
 notification that says something arrived without saying what, from whom, or how much.
 Retention is a configuration value for every table that grows.
 
+## The canary
+
+A deployment may publish a signed statement — no demand for user data received, no key handed
+over — and refresh it on a schedule (ADR-0099). It is at `GET /api/canary` and in the footer
+of every screen, with the date it was signed and the date the next one is due.
+
+Two things about it are worth saying plainly. A canary that is refreshed proves nothing: an
+operator can be compelled to keep signing. A canary that has gone **stale** is the signal, and
+it is one anybody can read without an account. And the signature is only worth the key it is
+checked against: this server hands out the public key beside the statement, which a hostile
+server could match to a forgery, so the fingerprint an operator publishes here — out of band,
+in this file, in the repository — is the one to compare against.
+
+> Operators: replace this line with your own fingerprint when you deploy, and set
+> `CANARY_FINGERPRINT` to the same value. This repository publishes no canary of its own,
+> because there is no deployment behind it.
+
 ## Known limitations
 
 - Not anonymous, not unbreakable, not free of metadata: connection timing, message timing
