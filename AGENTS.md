@@ -54,7 +54,9 @@ waiver must carry a reason.
 Documentation is machine-checked: `test/docs.test.ts` fails if a route, table or
 environment variable exists that `docs/API.md`, `docs/DATABASE.md` or
 `docs/ENVIRONMENT.md` does not mention, and if any document makes an absolute security
-claim. A new endpoint is not done until it is documented.
+claim. A new endpoint is not done until it is documented — and until it has a row in
+`docs/AUTHZ_MATRIX.json` saying who may reach it (`test/authz_matrix.test.ts` fails by name
+without one, and fails again if the server admits a caller the row excludes).
 
 A new migration needs `npm run migrate:checksums`; an old one is never edited.
 

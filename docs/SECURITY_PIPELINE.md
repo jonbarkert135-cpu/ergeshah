@@ -38,7 +38,7 @@ that disagree.
 | CONFIG SCAN | `npm run audit:cost`, `audit:egress`, and the five static checks in `scripts/release.mjs` |
 | CONTAINER SCAN | `test/deployment.test.ts` and the baseline's privileged/hardening counts (`deploy/security-baseline.json`) |
 | UNIT SECURITY TESTS | `test/fuzz.test.ts`, `test/cryptography.test.ts`, `test/hkdf.test.ts`, `test/padding.test.ts` |
-| INTEGRATION SECURITY TESTS | `test/authz_fuzz.test.ts`, `test/authorization.test.ts`, `test/idor.test.ts`, `test/security.test.ts`, `test/compromise.test.ts` |
+| INTEGRATION SECURITY TESTS | `test/authz_fuzz.test.ts`, `test/authorization.test.ts`, `test/authz_matrix.test.ts`, `test/idor.test.ts`, `test/security.test.ts`, `test/compromise.test.ts` |
 | DYNAMIC APPLICATION TEST | OWASP ZAP against a running deployment — an operator step, not a CI step (see below) |
 | REPORT | the summary `npm run security` prints, and the register |
 | FIX AND RESCAN | `skills/vulnerability-remediation/SKILL.md`, the loop in point 179 |

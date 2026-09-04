@@ -1,0 +1,692 @@
+{
+  "$schema-note": "Who may reach each route, as data. Checked live by test/authz_matrix.test.ts: every route in Fastify's inventory must have exactly one row, every row must name a live route, and each of the four callers (anonymous, user, moderator, admin) is sent to each route — a caller the row admits must get past the authentication and role gate, a caller it excludes must be stopped by that gate and nothing later. Widening a route (a moderator reaching an admin action) fails CI naming the route. 'who' is the coarse gate the server enforces before the handler runs; 'scope' is the finer ownership or state rule the handler enforces afterwards and which test/idor.test.ts and test/authz_fuzz.test.ts cover.",
+  "who": {
+    "public": "no session needed",
+    "account": "any signed-in account (user, moderator, admin)",
+    "staff": "moderator or admin",
+    "admin": "admin only",
+    "worker": "the payout worker's bearer token; every browser session is refused"
+  },
+  "routes": [
+    {
+      "method": "POST",
+      "url": "/api/auth/register",
+      "who": "public",
+      "resource": "account",
+      "action": "create"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/login",
+      "who": "public",
+      "resource": "session",
+      "action": "create"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/logout",
+      "who": "account",
+      "resource": "session",
+      "action": "end",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/logout-everywhere",
+      "who": "account",
+      "resource": "session",
+      "action": "end-all",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/password",
+      "who": "account",
+      "resource": "credential",
+      "action": "change",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/delete",
+      "who": "account",
+      "resource": "account",
+      "action": "delete",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/auth/me",
+      "who": "account",
+      "resource": "account",
+      "action": "read",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/auth/security-events",
+      "who": "account",
+      "resource": "security-events",
+      "action": "list",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/auth/sessions",
+      "who": "account",
+      "resource": "session",
+      "action": "list",
+      "scope": "own"
+    },
+    {
+      "method": "DELETE",
+      "url": "/api/auth/sessions/:id",
+      "who": "account",
+      "resource": "session",
+      "action": "end",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/link",
+      "who": "account",
+      "resource": "device-link",
+      "action": "create",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/link/claim",
+      "who": "public",
+      "resource": "device-link",
+      "action": "redeem",
+      "scope": "the link secret is the credential"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/recovery/challenge",
+      "who": "public",
+      "resource": "recovery",
+      "action": "challenge",
+      "scope": "the recovery signature is the login"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/recovery/complete",
+      "who": "public",
+      "resource": "recovery",
+      "action": "complete",
+      "scope": "the recovery signature is the login"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/pgp/challenge",
+      "who": "account",
+      "resource": "pgp",
+      "action": "challenge",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/pgp/key",
+      "who": "account",
+      "resource": "pgp",
+      "action": "enrol",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/pgp/complete",
+      "who": "public",
+      "resource": "pgp",
+      "action": "complete-login",
+      "scope": "second factor of a login in progress"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/pgp/remove",
+      "who": "account",
+      "resource": "pgp",
+      "action": "remove",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/auth/recovery/key",
+      "who": "account",
+      "resource": "recovery",
+      "action": "replace-key",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/keys/device",
+      "who": "account",
+      "resource": "device-keys",
+      "action": "publish",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/keys/one-time",
+      "who": "account",
+      "resource": "one-time-keys",
+      "action": "publish",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/keys/status",
+      "who": "account",
+      "resource": "one-time-keys",
+      "action": "read",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/keys/identity/:username",
+      "who": "account",
+      "resource": "identity-key",
+      "action": "read",
+      "scope": "any account (public directory, ADR-0112)"
+    },
+    {
+      "method": "GET",
+      "url": "/api/keys/bundle/:username",
+      "who": "account",
+      "resource": "key-bundle",
+      "action": "fetch",
+      "scope": "any account (consumes a one-time key)"
+    },
+    {
+      "method": "POST",
+      "url": "/api/keys/revoke",
+      "who": "account",
+      "resource": "device-keys",
+      "action": "revoke",
+      "scope": "own"
+    },
+    {
+      "method": "PUT",
+      "url": "/api/keys/vault",
+      "who": "account",
+      "resource": "vault",
+      "action": "write",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/keys/vault",
+      "who": "account",
+      "resource": "vault",
+      "action": "read",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/messages/tokens",
+      "who": "account",
+      "resource": "send-token",
+      "action": "mint",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/messages",
+      "who": "account",
+      "resource": "envelope",
+      "action": "send",
+      "scope": "to any account, with a send token"
+    },
+    {
+      "method": "GET",
+      "url": "/api/messages",
+      "who": "account",
+      "resource": "envelope",
+      "action": "fetch",
+      "scope": "own device"
+    },
+    {
+      "method": "POST",
+      "url": "/api/messages/ack",
+      "who": "account",
+      "resource": "envelope",
+      "action": "ack",
+      "scope": "own device"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/seller-applications",
+      "who": "account",
+      "resource": "seller-application",
+      "action": "create",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/market/seller-applications/mine",
+      "who": "account",
+      "resource": "seller-application",
+      "action": "read",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/listings",
+      "who": "account",
+      "resource": "listing",
+      "action": "create",
+      "scope": "approved sellers only (state gate in the handler)"
+    },
+    {
+      "method": "PATCH",
+      "url": "/api/market/listings/:id",
+      "who": "account",
+      "resource": "listing",
+      "action": "update",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/market/listings",
+      "who": "public",
+      "resource": "listing",
+      "action": "list"
+    },
+    {
+      "method": "GET",
+      "url": "/api/market/listings/:id",
+      "who": "public",
+      "resource": "listing",
+      "action": "read"
+    },
+    {
+      "method": "GET",
+      "url": "/api/market/categories",
+      "who": "public",
+      "resource": "category",
+      "action": "list"
+    },
+    {
+      "method": "GET",
+      "url": "/api/market/sellers/:username",
+      "who": "public",
+      "resource": "seller-profile",
+      "action": "read"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/orders",
+      "who": "account",
+      "resource": "order",
+      "action": "create",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/market/orders",
+      "who": "account",
+      "resource": "order",
+      "action": "list",
+      "scope": "own, as buyer or seller"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/orders/:id/status",
+      "who": "account",
+      "resource": "order",
+      "action": "transition",
+      "scope": "order party; disputes also staff"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/orders/:id/review",
+      "who": "account",
+      "resource": "review",
+      "action": "create",
+      "scope": "buyer of the order"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/seller/bond",
+      "who": "account",
+      "resource": "seller-bond",
+      "action": "stake",
+      "scope": "approved sellers only (state gate in the handler)"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/seller/bond/release",
+      "who": "account",
+      "resource": "seller-bond",
+      "action": "release",
+      "scope": "approved sellers only (state gate in the handler)"
+    },
+    {
+      "method": "GET",
+      "url": "/api/market/seller/bond",
+      "who": "account",
+      "resource": "seller-bond",
+      "action": "read",
+      "scope": "approved sellers only (state gate in the handler)"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/moderation/orders/:id/bond-claim",
+      "who": "staff",
+      "resource": "seller-bond",
+      "action": "claim",
+      "scope": "any order"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/orders/:id/delivery",
+      "who": "account",
+      "resource": "delivery",
+      "action": "upload",
+      "scope": "seller of the order"
+    },
+    {
+      "method": "GET",
+      "url": "/api/market/orders/:id/delivery",
+      "who": "account",
+      "resource": "delivery",
+      "action": "download",
+      "scope": "buyer of the order"
+    },
+    {
+      "method": "DELETE",
+      "url": "/api/market/orders/:id/delivery",
+      "who": "account",
+      "resource": "delivery",
+      "action": "delete",
+      "scope": "buyer of the order"
+    },
+    {
+      "method": "POST",
+      "url": "/api/attachments",
+      "who": "account",
+      "resource": "attachment",
+      "action": "upload",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/attachments/:id",
+      "who": "account",
+      "resource": "attachment",
+      "action": "download",
+      "scope": "holder of the unguessable id (ciphertext; the id travels inside an encrypted message)"
+    },
+    {
+      "method": "DELETE",
+      "url": "/api/attachments/:id",
+      "who": "account",
+      "resource": "attachment",
+      "action": "delete",
+      "scope": "holder of the unguessable id (sender or recipient)"
+    },
+    {
+      "method": "POST",
+      "url": "/api/market/orders/:id/evidence",
+      "who": "account",
+      "resource": "evidence",
+      "action": "submit",
+      "scope": "order party"
+    },
+    {
+      "method": "GET",
+      "url": "/api/market/orders/:id/evidence",
+      "who": "account",
+      "resource": "evidence",
+      "action": "read",
+      "scope": "order party; disputes also staff"
+    },
+    {
+      "method": "GET",
+      "url": "/api/wallet",
+      "who": "account",
+      "resource": "wallet",
+      "action": "read",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/wallet/entries",
+      "who": "account",
+      "resource": "ledger",
+      "action": "list",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/wallet/withdrawals",
+      "who": "account",
+      "resource": "withdrawal",
+      "action": "create",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/wallet/refunds",
+      "who": "account",
+      "resource": "refund",
+      "action": "create",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/wallet/withdrawals",
+      "who": "account",
+      "resource": "withdrawal",
+      "action": "list",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/wallet/withdrawals/:id/cancel",
+      "who": "account",
+      "resource": "withdrawal",
+      "action": "cancel",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/payouts/claim",
+      "who": "worker",
+      "resource": "payout",
+      "action": "claim",
+      "scope": "the payout worker's bearer token; no browser session reaches it"
+    },
+    {
+      "method": "POST",
+      "url": "/api/payouts/:id/sent",
+      "who": "worker",
+      "resource": "payout",
+      "action": "mark-sent",
+      "scope": "the payout worker's bearer token"
+    },
+    {
+      "method": "POST",
+      "url": "/api/payouts/:id/failed",
+      "who": "worker",
+      "resource": "payout",
+      "action": "mark-failed",
+      "scope": "the payout worker's bearer token"
+    },
+    {
+      "method": "POST",
+      "url": "/api/moderation/reports",
+      "who": "account",
+      "resource": "report",
+      "action": "create",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/api/moderation/queue",
+      "who": "staff",
+      "resource": "moderation-queue",
+      "action": "read"
+    },
+    {
+      "method": "POST",
+      "url": "/api/moderation/seller-applications/:id/decide",
+      "who": "staff",
+      "resource": "seller-application",
+      "action": "decide"
+    },
+    {
+      "method": "POST",
+      "url": "/api/moderation/listings/:id/remove",
+      "who": "staff",
+      "resource": "listing",
+      "action": "remove"
+    },
+    {
+      "method": "POST",
+      "url": "/api/moderation/users/:username/status",
+      "who": "staff",
+      "resource": "account",
+      "action": "suspend/restore",
+      "scope": "an admin cannot be suspended by a moderator (handler)"
+    },
+    {
+      "method": "POST",
+      "url": "/api/moderation/reviews/:id/hide",
+      "who": "staff",
+      "resource": "review",
+      "action": "hide"
+    },
+    {
+      "method": "POST",
+      "url": "/api/moderation/reports/:id/resolve",
+      "who": "staff",
+      "resource": "report",
+      "action": "resolve"
+    },
+    {
+      "method": "GET",
+      "url": "/api/moderation/withdrawals",
+      "who": "staff",
+      "resource": "withdrawal",
+      "action": "list-all",
+      "scope": "read-only oversight; deciding is admin"
+    },
+    {
+      "method": "POST",
+      "url": "/api/moderation/withdrawals/:id/decide",
+      "who": "admin",
+      "resource": "withdrawal",
+      "action": "approve/refuse"
+    },
+    {
+      "method": "POST",
+      "url": "/api/moderation/withdrawals/:id/resolve",
+      "who": "admin",
+      "resource": "withdrawal",
+      "action": "rescue-stuck"
+    },
+    {
+      "method": "GET",
+      "url": "/api/moderation/audit",
+      "who": "staff",
+      "resource": "audit-log",
+      "action": "read"
+    },
+    {
+      "method": "POST",
+      "url": "/api/admin/users/:username/role",
+      "who": "admin",
+      "resource": "role",
+      "action": "assign"
+    },
+    {
+      "method": "POST",
+      "url": "/api/admin/users/:username/payout-limit",
+      "who": "admin",
+      "resource": "payout-limit",
+      "action": "set"
+    },
+    {
+      "method": "GET",
+      "url": "/api/admin/treasury",
+      "who": "admin",
+      "resource": "treasury",
+      "action": "read"
+    },
+    {
+      "method": "GET",
+      "url": "/api/admin/health",
+      "who": "admin",
+      "resource": "health",
+      "action": "read-detailed"
+    },
+    {
+      "method": "POST",
+      "url": "/api/admin/canary",
+      "who": "admin",
+      "resource": "canary",
+      "action": "publish"
+    },
+    {
+      "method": "GET",
+      "url": "/api/canary",
+      "who": "public",
+      "resource": "canary",
+      "action": "read"
+    },
+    {
+      "method": "GET",
+      "url": "/api/notifications",
+      "who": "account",
+      "resource": "notification",
+      "action": "list",
+      "scope": "own"
+    },
+    {
+      "method": "POST",
+      "url": "/api/notifications/read",
+      "who": "account",
+      "resource": "notification",
+      "action": "mark-read",
+      "scope": "own"
+    },
+    {
+      "method": "GET",
+      "url": "/",
+      "who": "public",
+      "resource": "app-shell",
+      "action": "read"
+    },
+    {
+      "method": "GET",
+      "url": "/assets/*",
+      "who": "public",
+      "resource": "static-asset",
+      "action": "read",
+      "scope": "content-addressed build output"
+    },
+    {
+      "method": "GET",
+      "url": "/favicon.svg",
+      "who": "public",
+      "resource": "static-asset",
+      "action": "read"
+    },
+    {
+      "method": "GET",
+      "url": "/build.txt",
+      "who": "public",
+      "resource": "build-digests",
+      "action": "read"
+    },
+    {
+      "method": "GET",
+      "url": "/healthz",
+      "who": "public",
+      "resource": "liveness",
+      "action": "read"
+    }
+  ]
+}

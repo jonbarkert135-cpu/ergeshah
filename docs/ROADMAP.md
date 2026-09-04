@@ -193,13 +193,17 @@ text, an older statement cannot be replayed over a newer one, and an admin sessi
 cannot publish anything, because the private key is not on this machine. What it still cannot
 do is prove anything when it *is* refreshed; that limit is written into the client's own
 wording.*
-- **OPS-11 — The authorisation matrix as data (point 132).** Authorisation is proved today by
-  a test that walks Fastify's whole route table: anything not on an explicit public allowlist
-  must answer 401, ownership is checked, and every staff route refuses a normal account
-  (`test/authorization.test.ts`). What does not exist is the matrix as a *machine-readable
-  table* — role × resource × action, with CI reporting an unintended widening rather than a
-  missing refusal. The honest gap: the sweep catches a route that forgot its check, and it
-  would not catch a moderator gaining an `export` capability that nobody wrote a test for.
+- **OPS-11 — The authorisation matrix as data (point 132). _Closed._** `docs/AUTHZ_MATRIX.json`
+  has one row per route — `who` may reach it (`public`, `account`, `staff`, `admin`, the payout
+  `worker`), the `resource` and `action` it touches, and the ownership or state `scope` the
+  handler enforces afterwards. `test/authz_matrix.test.ts` sends an anonymous caller, a user, a
+  moderator and an admin to every route and compares both directions with the table: a caller
+  the row admits must get past the gate, a caller it excludes must be stopped by the gate itself
+  and not by a later validation step. A moderator gaining an admin action, an admin route
+  slipping to staff, or a route missing from the table each fail with the route's name — checked
+  by widening one `requireRole` and by deleting one row, before the file was committed. The
+  sweep in `test/authorization.test.ts` stays: it is the proof that nothing is missing a check,
+  this is the proof that no check has quietly moved (ADR-0114).
 - **OPS-3 — Container image signing and an SBOM.**
 - **OPS-8 — Authenticate the wallet RPC, not just its network position.** `app` reaches the
   view-only wallet over the internal network with `--disable-rpc-login`, which is the one

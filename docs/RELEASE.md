@@ -169,7 +169,7 @@ Fourteen areas, each resting on evidence from *this* run:
 | ARCHITECTURE | `test/architecture.test.ts`, `test/features.test.ts`, `test/adr.test.ts` |
 | SECURITY | `test/security.test.ts`, `test/hardening.test.ts`, `test/compromise.test.ts`, `test/fuzz.test.ts`, `audit:security` |
 | PRIVACY | `test/metadata.test.ts`, `test/logging.test.ts`, `test/observability.test.ts` |
-| AUTH | `test/auth.test.ts`, `test/authorization.test.ts`, `test/sessions.test.ts`, `test/idor.test.ts`, `test/authz_fuzz.test.ts` |
+| AUTH | `test/auth.test.ts`, `test/authorization.test.ts`, `test/authz_matrix.test.ts`, `test/sessions.test.ts`, `test/idor.test.ts`, `test/authz_fuzz.test.ts` |
 | CRYPTO | `test/cryptography.test.ts`, `test/protocol.test.ts`, `test/hkdf.test.ts`, `test/pgp.test.ts` |
 | DATABASE | `audit:migrations`, `test/migrations.test.ts`, `deploy/postgres-roles.sql` (ADR-0095) |
 | STORAGE | `test/uploads.test.ts`, `test/attachments.test.ts`, `test/images.test.ts`, `test/jobs.test.ts` |
@@ -232,7 +232,7 @@ Points 113–137 are mostly older work; this page exists so that nobody has to g
 | 129 message attachment security | Encrypted in the browser, stored and served as ciphertext, no server-side preview (`test/attachments.test.ts`) |
 | 130 message metadata review | `docs/METADATA.md`, the four questions per leak, `test/metadata.test.ts` |
 | 131 session revocation | `test/auth.test.ts`, `test/recovery.test.ts`, `test/security_center.test.ts` — password change, key rotation, recovery and logout-everywhere each end every other session |
-| 132 authorisation matrix | `test/authorization.test.ts` walks the route table: public by allowlist, ownership, and every staff route refused to a normal account |
+| 132 authorisation matrix | `docs/AUTHZ_MATRIX.json` — who × resource × action per route, checked live in both directions by `test/authz_matrix.test.ts`; `test/authorization.test.ts` walks the route table for the missing-check case: public by allowlist, ownership, and every staff route refused to a normal account |
 | 133 privilege escalation | The same suite, plus `test/moderation.test.ts` and `test/idor.test.ts`: no route promotes its caller |
 | 134 break-glass | This page, ADR-0037, `scripts/incident.mjs`, and the static check above |
 | 135 database least privilege | `deploy/postgres-roles.sql` (ADR-0095) — a non-superuser application role, a read-only backup role, and the migration trade stated in the file |

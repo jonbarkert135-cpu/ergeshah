@@ -3971,3 +3971,44 @@ proceeds. `migrate()` now returns the files *this* call applied, not the files t
 when it looked. Reversible: delete `serialised()` and the re-check, and the runner is the
 pre-OPS-10 one. `test/migrations.test.ts` runs two runners concurrently on PostgreSQL and
 asserts each file was applied once; on SQLite the test is skipped, with the reason on the line.
+
+## ADR-0114 — The authorisation matrix is a committed table, and the test reads it
+
+**Status:** accepted (2026-09-04)
+
+**Context.** Authorisation was proved by `test/authorization.test.ts`: walk the route table,
+anything not on the public allowlist must refuse an anonymous caller, ownership is checked on
+one order, and every `/api/moderation/` route refuses a normal account. That catches a route
+that *forgot* its check. It does not catch a check that *moved*: a moderator gaining
+`POST /api/admin/users/:username/role` because somebody widened one `requireRole` from
+`["admin"]` to `["moderator", "admin"]` would have passed, since the sweep only asks whether a
+user is refused. Point 132 of the release gate asks for a role × resource × action matrix, and
+the honest answer was that it existed only in the heads of whoever read the handlers.
+
+**Decision.** `docs/AUTHZ_MATRIX.json` holds one row per route: `who` may reach it (`public`,
+`account`, `staff`, `admin`, or the payout `worker`, whose bearer token no browser session can
+imitate), the `resource` and `action` it touches, and a `scope` sentence for the ownership or
+state rule the handler applies after the gate. `test/authz_matrix.test.ts` starts a server,
+takes the first-account admin seat, and sends four callers — anonymous, user, moderator,
+admin — to every route with placeholder parameters and an empty body. A caller the row admits
+must get any answer but the gate's (401, or 403 "insufficient privileges"); a caller the row
+excludes must get exactly the gate's answer, because a 400 for the wrong role means the
+handler already ran. The same test keeps the table honest against the inventory: a route
+without a row and a row without a route both fail by name, so the file cannot drift into a
+snapshot of a server that no longer exists.
+
+**Rejected.** Deriving the table from the code (reading `requireRole` calls with a parser):
+it would report what the code does, which is what a widening *is*, so it could not disagree
+with one. Putting the matrix in TypeScript beside the routes: a reviewer of a permission
+change then reads a diff of code, not of a table, and the point of the table is that a
+permission change shows up as a one-line change to a document with the word `admin` in it.
+Per-resource capability objects inside the handlers (a real RBAC layer): more code between a
+request and its check, for a system with three roles and a worker.
+
+**Consequences.** Adding a route now means adding a row, and the failing test says so. The
+finer rules — the buyer, not the seller, fetches a delivery; a moderator cannot suspend an
+admin — remain the business of `test/idor.test.ts`, `test/authz_fuzz.test.ts` and the domain
+suites; the matrix records them in `scope` as prose for the reader, and does not check them,
+because a placeholder id reaches no real object. Reversible: delete the file and the test and
+the sweep is what remains. Verified before commit: widening one admin route to staff failed
+naming the route; deleting one row failed naming the route.

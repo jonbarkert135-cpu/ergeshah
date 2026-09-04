@@ -33,6 +33,7 @@ about the system is worse than no test, and the cheapest way to lie is to test a
 | `recovery.test.ts`, `verification.test.ts`, `pgp.test.ts`, `linking.test.ts` | Integration | Recovery phrases against an independent BIP-39 implementation, safety numbers and the QR encoder against an independent decoder, PGP login, second-device linking |
 | `auth.test.ts`, `messaging.test.ts`, `market.test.ts`, `delivery.test.ts`, `moderation.test.ts` | Integration | The API as a browser uses it: cookies, CSRF header, state machines, ownership |
 | `authorization.test.ts` | **Security** | Walks Fastify's whole route table and calls every endpoint anonymously; anything not on an explicit public allowlist must answer 401. Also ownership and staff-role refusals, and that refusals are audited |
+| `authz_matrix.test.ts` | **Security** | The authorisation matrix as data (point 132): `docs/AUTHZ_MATRIX.json` names who may reach every route; four real callers are sent to each and both directions are compared — an admitted caller must pass the gate, an excluded one must be stopped by it. Widening fails by route name |
 | `limits.test.ts` | **Security** | Per-operation buckets, per-account fairness, oversized bodies, 500s that leak nothing, login responses that do not reveal whether an account exists |
 | `revocation.test.ts` | **Security** | The point-131 matrix from the other browser's side: a password change, a PGP enrolment, rotation or removal, a recovery, a replaced recovery key and a sign-out everywhere each end the sessions minted under the old credential — and unspent send tokens, which cannot be revoked, are stated rather than implied |
 | `release.test.ts` | **Security** | The release gate describes a system that exists: the generated dependency inventory matches the tree, the security baseline matches the measurements, every suite and npm script the gate names is real, the static checks pass, and a category that did not run is not a pass |
@@ -69,7 +70,7 @@ check you can skip is a security check that gets skipped.
 | Class | Primary | Also |
 | --- | --- | --- |
 | Authentication | `auth.test.ts` | `security.test.ts` (forged, truncated, expired and orphaned tokens), `pgp.test.ts`, `recovery.test.ts` |
-| Authorization | `authorization.test.ts` | `security.test.ts` (a demotion takes effect on the next request), `moderation.test.ts` |
+| Authorization | `authorization.test.ts`, `authz_matrix.test.ts` | `security.test.ts` (a demotion takes effect on the next request), `moderation.test.ts` |
 | E2EE | `messaging.test.ts`, `protocol.test.ts` | `security.test.ts` (a substituted signed prekey is refused; no column holds a plaintext) |
 | Replay | `protocol.test.ts` | `security.test.ts` (a cookie captured before a password change; a device-link code), `cryptography.test.ts`, `recovery.test.ts` |
 | Key rotation | `protocol.test.ts` | `security.test.ts` (the rotated prekey is served, a revoked identity never returns) |
