@@ -8,7 +8,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Config } from "./config.ts";
 import { forbidden } from "./lib/errors.ts";
-import { API_VERSION, cookiesAreSecure, isOnionHost } from "./app.ts";
+import { API_VERSION, cookiesAreSecure, isApiRequest, isOnionHost } from "./app.ts";
 import { parseCookies, serializeCookie } from "./lib/cookies.ts";
 import { constantTimeEqual, randomToken } from "./lib/ids.ts";
 
@@ -83,7 +83,7 @@ export function registerSecurity(app: FastifyInstance, config: Config): void {
   app.addHook("onSend", async (request, reply, payload) => {
     const onion = isOnionHost(request.headers.host);
     // Which API answered, whether or not the caller asked through the versioned path.
-    if (request.url.startsWith("/api/")) reply.header("x-api-version", String(API_VERSION));
+    if (isApiRequest(request)) reply.header("x-api-version", String(API_VERSION));
     reply.header("content-security-policy", onion ? CSP_ONION : CSP);
     reply.header("referrer-policy", "no-referrer");
     reply.header("x-content-type-options", "nosniff");
@@ -105,7 +105,7 @@ export function registerSecurity(app: FastifyInstance, config: Config): void {
     // Onion-Location tells Tor Browser that this site has an onion address and offers to
     // switch to it. It is only meaningful on the clearnet document responses, and Tor
     // Browser ignores it unless it arrives over HTTPS.
-    if (config.onionHostname && !onion && request.method === "GET" && !request.url.startsWith("/api/")) {
+    if (config.onionHostname && !onion && request.method === "GET" && !isApiRequest(request)) {
       reply.header("onion-location", `http://${config.onionHostname}${request.url}`);
     }
     reply.removeHeader("x-powered-by");

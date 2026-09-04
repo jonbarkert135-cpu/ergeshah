@@ -182,7 +182,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   registerSecurity(app, config);
 
   app.addHook("preHandler", async (request, reply) => {
-    if (!request.url.startsWith("/api/")) return;
+    if (!isApiRequest(request)) return;
     // The freeze (ADR-0080), before anything else: while it is on, this service accepts no
     // writes at all, and it says that rather than answering a CSRF or authentication error
     // to a request it was never going to perform. It covers the routes that have no session
@@ -263,7 +263,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
   });
 
   app.setNotFoundHandler(async (request, reply) => {
-    if (request.url.startsWith("/api/")) {
+    if (isApiRequest(request)) {
       return reply.status(404).send({ error: "not_found", message: "not found" });
     }
     // Single-page app: unknown paths render the shell, never a directory listing.
@@ -316,6 +316,25 @@ function limitSubject(request: FastifyRequest): string {
  */
 export function isOnionHost(host: string | undefined): boolean {
   return typeof host === "string" && /\.onion(?::\d+)?$/i.test(host.trim());
+}
+
+/**
+ * Whether this request is for the API, decided from the route Fastify matched rather than
+ * from the raw request line. The router percent-decodes static path segments, so
+ * `/%61pi/auth/login` is dispatched to the handler registered at `/api/auth/login` while
+ * `request.url` still reads `/%61pi/...` — a prefix test on the raw URL says "not the API"
+ * for a request that is about to run an API handler. Every hook that gates the API on its
+ * path (the freeze, the CSRF check, the session pre-resolution, the version header) asks
+ * this one question, so that there is exactly one answer (SEC-2026-007).
+ *
+ * `routeOptions.url` is the registered pattern (`/api/market/orders/:id`), which is the
+ * canonical spelling by construction. A request that matched no route has no pattern and
+ * is not an API request — the 404 handler answers it.
+ */
+export function isApiRequest(request: FastifyRequest): boolean {
+  const routed = request.routeOptions?.url;
+  if (typeof routed === "string") return routed.startsWith("/api/");
+  return request.url.startsWith("/api/");
 }
 
 export function cookiesAreSecure(config: Config, request: FastifyRequest): boolean {

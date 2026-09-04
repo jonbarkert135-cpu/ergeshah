@@ -25,6 +25,7 @@ import { createDeviceIdentity, signSignedPreKey } from "../src/shared/crypto/ide
 import { openSession } from "../src/shared/crypto/session.ts";
 import { fromBase64Url, toBase64Url } from "../src/shared/encoding.ts";
 import { listColumns, listTables } from "./database.ts";
+import { forgetLockdownCache } from "../src/server/lib/lockdown.ts";
 
 let server: TestServer;
 
@@ -395,6 +396,38 @@ describe("cross-site request forgery", () => {
       { csrf: other.cookie("csrf")! },
     );
     expect(response.status).toBe(403);
+  });
+
+  // SEC-2026-007: the router percent-decodes static segments, so `/%61pi/...` runs the
+  // handler registered at `/api/...` while the raw URL does not start with `/api/`. Every
+  // spelling that reaches an API handler must reach the API's gates first.
+  it("applies the CSRF check and the freeze to a percent-encoded API path", async () => {
+    const alice = await register(server, "alice");
+    const spellings = ["/%61pi/auth/logout", "/%61%70%69/auth/logout", "/api/%61uth/logout"];
+    for (const url of spellings) {
+      const forged = await server.app.inject({
+        method: "POST",
+        url,
+        headers: { cookie: `session=${alice.cookie("session")}`, origin: "http://localhost", host: "localhost" },
+      });
+      expect(forged.statusCode, `${url} without a CSRF token`).toBe(403);
+      expect(forged.headers["x-api-version"], `${url} names the API version`).toBeDefined();
+    }
+    await server.db.run("INSERT INTO lockdown (id, engaged_at, note) VALUES (1, ?, 'test')", [
+      Date.now(),
+    ]);
+    forgetLockdownCache();
+    try {
+      for (const url of spellings) {
+        const frozen = await alice.request("POST", url, {});
+        expect(frozen.status, `${url} while frozen`).toBe(503);
+      }
+    } finally {
+      await server.db.run("DELETE FROM lockdown");
+      forgetLockdownCache();
+    }
+    // And the session is still alive: no spelling reached the handler.
+    expect((await alice.get("/api/auth/me")).status).toBe(200);
   });
 });
 
