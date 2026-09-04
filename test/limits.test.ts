@@ -9,7 +9,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { register, startTestServer, TestClient, type TestServer } from "./helpers.ts";
-import { DEFAULT_LIMITS, resolveLimits } from "../src/server/lib/rate_limit.ts";
+import { DEFAULT_LIMITS, consume, resolveLimits } from "../src/server/lib/rate_limit.ts";
+import type { Db } from "../src/server/db/index.ts";
 import { asString, asUsername } from "../src/server/lib/validate.ts";
 
 let server: TestServer;
@@ -283,5 +284,46 @@ describe("uploads are charged in bytes, not only in requests", () => {
     } finally {
       await tight.close();
     }
+  });
+});
+
+/**
+ * SEC-2026-011. On PostgreSQL under READ COMMITTED, k requests arriving together each read
+ * the same bucket level and each wrote `level - 1`, so a burst cost one token. SQLite hides
+ * the race, so this stages its symptom instead: a database whose *reads* of the bucket are
+ * always a stale, full snapshot, while writes go to the real table. A limiter that decides
+ * from what it read is fooled forever; one that decides in the statement is not.
+ */
+describe("the limiter spends in one statement (SEC-2026-011)", () => {
+  function staleBucketReads(db: Db, burst: number): Db {
+    const wrap = (inner: Db): Db => ({
+      dialect: inner.dialect,
+      all: (sql, params) => inner.all(sql, params),
+      get: async <T>(sql: string, params?: unknown[]) =>
+        sql.startsWith("SELECT tokens, updated_at FROM rate_limits")
+          ? ({ tokens: burst, updated_at: Date.now() } as unknown as T)
+          : inner.get<T>(sql, params),
+      run: (sql, params) => inner.run(sql, params),
+      transaction: (fn) => inner.transaction((tx) => fn(wrap(tx))),
+      close: () => inner.close(),
+    });
+    return wrap(db);
+  }
+
+  it("refuses the request after the burst even when every read says the bucket is full", async () => {
+    const limits = { ...DEFAULT_LIMITS, sensitive: { burst: 3, perMinute: 1 } };
+    const db = staleBucketReads(server.db, 3);
+    const now = Date.now();
+    for (let i = 0; i < 3; i += 1) {
+      await consume(db, "pepper", "sensitive", "user:stale", limits, now);
+    }
+    await expect(consume(db, "pepper", "sensitive", "user:stale", limits, now)).rejects.toMatchObject({
+      statusCode: 429,
+    });
+    // And the real row says the same thing.
+    const row = await server.db.get<{ tokens: number }>(
+      "SELECT tokens FROM rate_limits ORDER BY tokens ASC LIMIT 1",
+    );
+    expect(Number(row!.tokens)).toBe(0);
   });
 });

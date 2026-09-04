@@ -174,40 +174,52 @@ export async function consume(
 ): Promise<void> {
   const limit = limits[scope];
   const key = bucketKey(pepper, scope, subject);
+  const refillPerMs = limit.perMinute / 60_000;
+  // The bucket's current level, refilled to this instant and capped at the burst, as one SQL
+  // expression over the row *as the database sees it when the statement runs* — not as this
+  // process read it a moment ago. Written with CASE rather than MIN/LEAST so that both
+  // dialects run the same text.
+  const refilled =
+    "CASE WHEN tokens + (? - updated_at) * ? > ? THEN ? ELSE tokens + (? - updated_at) * ? END";
+  const refilledParams = [now, refillPerMs, limit.burst, limit.burst, now, refillPerMs];
   await db.transaction(async (tx) => {
+    // A bucket that has never been seen starts full. `ON CONFLICT DO NOTHING` makes the
+    // first sight of a bucket safe against itself: two requests creating it at once leave
+    // one row, and both then spend from it below.
+    await tx.run(
+      "INSERT INTO rate_limits (bucket, tokens, updated_at) VALUES (?, ?, ?) ON CONFLICT (bucket) DO NOTHING",
+      [key, limit.burst, now],
+    );
+    // The spend is one conditional UPDATE. A read-then-write here was correct on SQLite,
+    // which serialises transactions, and wrong on PostgreSQL, where READ COMMITTED let
+    // several requests read the same level and each write `level - cost`: k concurrent
+    // requests cost one token (SEC-2026-011). The database evaluates the condition against
+    // the row it is about to change, under the row lock, so the k-th request finds the
+    // bucket the previous k-1 left behind.
+    const spent = await tx.get<{ tokens: number }>(
+      `UPDATE rate_limits
+          SET tokens = ${refilled} - ?, updated_at = ?
+        WHERE bucket = ? AND ${refilled} >= ?
+        RETURNING tokens`,
+      [...refilledParams, cost, now, key, ...refilledParams, cost],
+    );
+    if (spent) return;
+    // Refused. Say when a retry can succeed: how long the missing tokens take to appear,
+    // rounded up — the earliest moment rather than a number that sounds reassuring.
     const row = await tx.get<{ tokens: number; updated_at: number }>(
       "SELECT tokens, updated_at FROM rate_limits WHERE bucket = ?",
       [key],
     );
-    const refillPerMs = limit.perMinute / 60_000;
     const tokens = row
-      ? Math.min(limit.burst, row.tokens + (now - row.updated_at) * refillPerMs)
-      : limit.burst;
-    if (tokens < cost) {
-      // How long the missing tokens take to appear, rounded up: the earliest moment a retry
-      // can succeed rather than a number that sounds reassuring.
-      const seconds = Math.max(1, Math.ceil((cost - tokens) / refillPerMs / 1000));
-      // One bucket counts bytes rather than calls, and "too many upload_bytes requests"
-      // would be a sentence about the implementation instead of about what happened.
-      const message = scope === "upload_bytes"
-        ? "this account has uploaded its allowance for now — try again later"
-        : `too many ${scope} requests — slow down`;
-      throw tooManyRequests(message, seconds);
-    }
-    const remaining = tokens - cost;
-    if (row) {
-      await tx.run("UPDATE rate_limits SET tokens = ?, updated_at = ? WHERE bucket = ?", [
-        remaining,
-        now,
-        key,
-      ]);
-    } else {
-      await tx.run("INSERT INTO rate_limits (bucket, tokens, updated_at) VALUES (?, ?, ?)", [
-        key,
-        remaining,
-        now,
-      ]);
-    }
+      ? Math.min(limit.burst, Number(row.tokens) + (now - Number(row.updated_at)) * refillPerMs)
+      : 0;
+    const seconds = Math.max(1, Math.ceil((cost - tokens) / refillPerMs / 1000));
+    // One bucket counts bytes rather than calls, and "too many upload_bytes requests"
+    // would be a sentence about the implementation instead of about what happened.
+    const message = scope === "upload_bytes"
+      ? "this account has uploaded its allowance for now — try again later"
+      : `too many ${scope} requests — slow down`;
+    throw tooManyRequests(message, seconds);
   });
 }
 
