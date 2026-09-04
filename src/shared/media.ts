@@ -85,14 +85,33 @@ function stripJpeg(bytes: Uint8Array): Uint8Array {
       at += 1;
       continue;
     }
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
+    // End of image. Whatever follows it is not part of the picture, and a trailer is exactly
+    // where some tools park a second copy of the EXIF block — so the file ends here.
+    if (marker === 0xd9) {
+      keep.push(bytes.subarray(at, at + 2));
+      kept += 2;
+      return kept === bytes.length ? bytes : concat(keep, kept);
+    }
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
       keep.push(bytes.subarray(at, at + 2));
       kept += 2;
       at += 2;
       continue;
     }
-    // Start of scan: the entropy-coded image follows and is not segmented. Copy the rest.
-    if (marker === 0xda) break;
+    // Start of scan: the entropy-coded image follows and is not segmented, so it is copied
+    // verbatim — up to the end-of-image marker, which cannot occur inside scan data (a real
+    // 0xFF there is stuffed with 0x00 or is a restart marker). Anything after it is dropped
+    // for the reason above.
+    if (marker === 0xda) {
+      let end = at + 2;
+      while (end + 1 < bytes.length && !(bytes[end] === 0xff && bytes[end + 1] === 0xd9)) end += 1;
+      // No end marker: the file is truncated. Return it untouched rather than guess where it
+      // should have stopped.
+      if (end + 1 >= bytes.length) return bytes;
+      keep.push(bytes.subarray(at, end + 2));
+      kept += end + 2 - at;
+      return kept === bytes.length ? bytes : concat(keep, kept);
+    }
     const length = be16(bytes, at + 2);
     if (length < 2 || at + 2 + length > bytes.length) return bytes;
     const end = at + 2 + length;
@@ -165,6 +184,30 @@ function stripWebp(bytes: Uint8Array): Uint8Array {
   out[6] = (size >> 16) & 0xff;
   out[7] = (size >>> 24) & 0xff;
   return out;
+}
+
+/**
+ * Containers that carry camera and location metadata and are *not* cleaned here: ISO base
+ * media files (HEIC and HEIF, which is what an iPhone camera writes by default, plus AVIF, MP4
+ * and MOV), TIFF and the raw formats built on it, GIF, PDF and SVG.
+ *
+ * A caller uses this to say so on the screen. Silence would be the dishonest option: a sender
+ * who is told nothing reasonably assumes the picture was cleaned like the others
+ * (`docs/STORAGE.md` §Image metadata, roadmap UI-4). Recognised by the file's own bytes, never
+ * by a name or a type the user supplied.
+ */
+export function metadataUnhandled(bytes: Uint8Array): boolean {
+  if (bytes.length >= 12 && fourCc(bytes, 4) === "ftyp") return true;
+  const tiffLittle = [0x49, 0x49, 0x2a, 0x00];
+  const tiffBig = [0x4d, 0x4d, 0x00, 0x2a];
+  if (bytes.length >= 4 && [tiffLittle, tiffBig].some((magic) => magic.every((byte, index) => bytes[index] === byte))) {
+    return true;
+  }
+  if (bytes.length >= 4 && (fourCc(bytes, 0) === "GIF8" || fourCc(bytes, 0) === "%PDF")) return true;
+  const head = String.fromCharCode(...bytes.subarray(0, Math.min(bytes.length, 200)))
+    .trimStart()
+    .toLowerCase();
+  return head.startsWith("<?xml") || head.startsWith("<svg");
 }
 
 /**

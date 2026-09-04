@@ -21,7 +21,6 @@ import {
 } from "./state.ts";
 import { fromBase64Url, toBase64Url } from "../shared/encoding.ts";
 import { safeFileName } from "../shared/uploads.ts";
-import { stripImageMetadata, type StrippedImage } from "../shared/images.ts";
 import { randomBytes } from "../shared/crypto/sodium.ts";
 import { delayStepsSeconds } from "../shared/jitter.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../shared/crypto/file.ts";
@@ -125,7 +124,7 @@ export async function sendAttachment(
   conversation: Conversation,
   bytes: Uint8Array,
   name: string,
-): Promise<StrippedImage> {
+): Promise<void> {
   if (isBlocked(conversation.peer)) throw new Error("you blocked this person; unblock them to write");
   // Strip first, then measure: what is sent is what is cleaned (src/shared/media.ts). The
   // recipient decrypts this file, so EXIF is a leak end-to-end encryption does not close.
@@ -144,7 +143,6 @@ export async function sendAttachment(
   // Upload first, key second: a key without a blob is a broken message, a blob without a
   // key is unopenable noise that expires on its own.
   await sendPayload(conversation, { text: attachment.name, attachment }, { attachment });
-  return image;
 }
 
 /** Fetch and open one attachment. The server hands over ciphertext and learns nothing more. */

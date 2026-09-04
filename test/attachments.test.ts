@@ -215,9 +215,7 @@ describe("a file sent between two browsers", () => {
 
     await actAs(alice);
     const conversation = await startConversation("bob");
-    const stripped = await sendAttachment(conversation, photograph, "holiday.jpg");
-    expect(stripped.cleaned).toBe(true);
-    expect(stripped.removedBytes).toBeGreaterThan(payload.length);
+    await sendAttachment(conversation, photograph, "holiday.jpg");
 
     await actAs(bob);
     expect(await receiveMessages()).toBe(1);

@@ -211,6 +211,7 @@ verified state, and a warning when an unverified device appears.*
   metadata, and the screen says so. Closing it means either an ISO base media box walker (HEIC,
   AVIF, MP4 share the container, so one walker covers four formats) or a decode-and-re-encode
   path, which costs image quality and a DOM in shared code. The disclosure is honest today; the
-  gap is real.
+  gap is real. The chat screen already says when a file's format was not cleaned
+  (`metadataUnhandled`); the delivery screen does not, and should.
 - **UI-2 — Offline queue** for messages composed without connectivity.
 - **UI-3 — Accessibility pass** (keyboard traps, focus management, screen-reader labels).

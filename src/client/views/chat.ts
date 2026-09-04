@@ -23,6 +23,7 @@ import { persistVault, state } from "../state.ts";
 import type { AttachmentRef, ChatMessage, Conversation } from "../state.ts";
 import { MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
 import { safeFileName } from "../../shared/uploads.ts";
+import { metadataUnhandled } from "../../shared/media.ts";
 import {
   acknowledgeKeyChange,
   markVerified,
@@ -217,14 +218,19 @@ export function renderChat(root: HTMLElement): void {
       }
       attach.disabled = true;
       status.replaceChildren(notice("Encrypting in this browser…"));
+      let unhandled = false;
       void chosen
         .arrayBuffer()
-        .then((buffer) => sendAttachment(conversation, new Uint8Array(buffer), chosen.name))
-        .then((image) => {
-          // Metadata stripping is silent when it worked, and says so when it could not: a
-          // HEIC straight from a phone camera still carries the coordinates of the shot.
+        .then((buffer) => {
+          const bytes = new Uint8Array(buffer);
+          unhandled = metadataUnhandled(bytes);
+          return sendAttachment(conversation, bytes, chosen.name);
+        })
+        .then(() => {
+          // Stripping is silent when it worked and says so when it could not: a HEIC straight
+          // from a phone camera still carries the coordinates of the shot (ADR-0092).
           status.replaceChildren();
-          if (image.mayCarryMetadata) {
+          if (unhandled) {
             status.append(
               notice(
                 "Sent. This file type keeps its own metadata — location and camera details are not removed from it. Send a JPEG or PNG if that matters.",

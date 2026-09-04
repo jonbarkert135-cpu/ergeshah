@@ -3096,6 +3096,30 @@ anything steganographic survive, and stripping metadata is not anonymity. Files 
 does not understand pass through unchanged, which is a deliberate false negative rather than
 a corrupted file.
 
+**Amended (2026-09-04), same day, from a second pass over the same requirement.** Three gaps in
+the first implementation, each of which let a photograph keep the thing this decision exists to
+remove:
+
+- **A trailer after the end-of-image marker.** Tools append one, and a second copy of the EXIF
+  block is a normal thing to find in it. The walker met those bytes, failed to find a marker
+  where one should be, and returned the file untouched — so a JPEG with a trailer kept *all* of
+  its metadata. It now ends the file at the end-of-image marker (which cannot occur inside scan
+  data) and drops whatever follows; a file with no end marker is truncated and is still returned
+  as it was.
+- **The dispute-evidence digest** (`orderDigest`, ADR-0074) hashed the file the seller chose,
+  while `deliver` uploaded the stripped one. A legitimate commitment could therefore never be
+  matched against the file the buyer holds. The digest strips first; stripping is idempotent, so
+  both parties compute the same value.
+- **Silence about the formats it cannot clean.** `metadataUnhandled()` recognises HEIC, HEIF,
+  AVIF, MP4, MOV, TIFF and its raw derivatives, GIF, PDF and SVG by their own bytes, and the
+  chat screen says so after sending one. HEIC is what an iPhone writes by default, which makes
+  this the difference between a disclosed gap and a false impression. The delivery screen does
+  not say it yet — roadmap UI-4.
+
+`test/images.test.ts` covers all three. The second pass had also written its own stripper; it
+was deleted rather than shipped beside this one (`docs/CHANGE_REVIEW.md` §7), and what it
+contributed is this amendment.
+
 ## ADR-0093 — Uploads are charged in bytes, against a bucket that has no owner column
 
 **Status:** accepted (2026-09-04)
