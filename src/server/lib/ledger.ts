@@ -570,10 +570,15 @@ export async function claimWithdrawal(
     // `claimed_at` is written here and nowhere else: it is the clock an operator reads when
     // a payout is stuck in `sending`, and it has to start at the same instant the row does
     // (ADR-0073).
+    // A queued row with no destination is never claimed: `sending` is a one-way door
+    // (below), and a row moved through it with nowhere to send to would freeze its owner's
+    // held balance until an administrator resolved it by hand, one row per poll
+    // (SEC-2026-020). Such a row stays visibly `queued` for the queue view instead.
     `UPDATE withdrawals SET status = 'sending', claimed_at = ?
-      WHERE id = (SELECT id FROM withdrawals WHERE status = 'queued'
+      WHERE id = (SELECT id FROM withdrawals
+                   WHERE status = 'queued' AND address IS NOT NULL
                    ORDER BY requested_at LIMIT 1)
-        AND status = 'queued'
+        AND status = 'queued' AND address IS NOT NULL
       RETURNING id, amount_pico, address`,
     [now],
   );

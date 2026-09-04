@@ -315,6 +315,25 @@ describe("the payout queue belongs to the worker and to nobody else", () => {
     expect(second.json()).toEqual({ payout: null });
   });
 
+  // SEC-2026-020: a queued row whose destination is gone used to be flipped to `sending`
+  // and then dropped by the worker — through the one-way door, with nowhere to send to, and
+  // its owner's hold frozen until an administrator resolved it by hand.
+  it("never claims a queued payout that has no destination", async () => {
+    const { id, userId } = await queuedPayout();
+    await server.db.run("UPDATE withdrawals SET address = NULL WHERE id = ?", [id]);
+    const claimed = await asWorker("/api/payouts/claim");
+    expect(claimed.json()).toEqual({ payout: null });
+    const row = await server.db.get<{ status: string; claimed_at: number | null }>(
+      "SELECT status, claimed_at FROM withdrawals WHERE id = ?",
+      [id],
+    );
+    // Still visibly queued — not silently parked in `sending`.
+    expect(row).toMatchObject({ status: "queued", claimed_at: null });
+    // And the owner can still take it back themselves.
+    const account = await server.db.get<{ status: string }>("SELECT status FROM users WHERE id = ?", [userId]);
+    expect(account?.status).toBe("active");
+  });
+
   it("marks a payout sent, forgets the destination, and keeps the ledger square", async () => {
     const { id, userId } = await queuedPayout();
     await asWorker("/api/payouts/claim");
