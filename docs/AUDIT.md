@@ -31,9 +31,10 @@ floor of verifiability for any web application, and closing the source does not 
 | Git history | `npm run audit:history` | Something that looks like key material was committed *at any point*, including in a commit later reverted |
 | Migrations | `npm run audit:migrations` | A released migration was edited, numbering has a gap, or something destructive is unexplained |
 | Supply chain | `npm run audit:supply` | The lockfile lost an integrity hash, a package resolves outside the public registry, or install scripts are no longer disabled |
+| Server egress | `npm run audit:egress` | A file under `src/server` or `scripts` grew an outbound call the audit does not name with a reason, a host was written into the source, or a telemetry package entered the lockfile |
 | Reproducibility | part of `audit:bundle` | Two identical builds produced different bytes |
 
-`npm run check` runs lint and types; `npm run audit` runs the seven audits.
+`npm run check` runs lint and types; `npm run audit` runs the eight audits.
 
 They all live in `scripts/audit.mjs` and `scripts/lint.mjs`, are `String.matchAll` and
 `git` plumbing, and add no dependency.
@@ -110,6 +111,29 @@ It reads *tracked* files only, so run it after `git add` — a new file that has
 staged is invisible to it, and to CI it will not be. A line can opt out with an
 `audit:allow` comment plus a reason. That is deliberately
 ugly and shows up in review.
+
+### `audit:egress` — every call that leaves this process (points 51, 52, 53)
+
+`audit:bundle` answers the question for the browser. This answers it for the server, which
+until now was answered by reading the code — and the deployment's *no egress at all* property
+is a fact about `deploy/docker-compose.yml`, not about this source: a developer running the
+app outside Docker has a full route to the internet, and so would a compromised dependency.
+
+It fails on three things:
+
+1. **An outbound call in a file the audit does not name.** Six exist, and each is listed in the
+   script with its destination, its reason and whether it is optional. A seventh is a finding.
+2. **A remote host written into the source.** Every destination comes from configuration, so a
+   literal one is a host nobody chose and nobody can turn off. The two exemptions are the XML
+   namespace an SVG must carry and the registry name `audit:supply` compares against.
+3. **A telemetry package anywhere in `package-lock.json`** — Sentry, Datadog, PostHog,
+   OpenTelemetry, LogRocket and the rest, transitive included. None is in the tree; the check
+   is there so that adding one is a failed build rather than a review nobody does.
+
+The inventory it prints is the short form of the table in `docs/NETWORK.md` §Every external
+request. What it cannot see is a transitive package that opens a socket without saying so in
+its name; the mitigations for that are the tree size, `ignore-scripts`, and the application
+container having no gateway.
 
 ## The zero-cost audit
 

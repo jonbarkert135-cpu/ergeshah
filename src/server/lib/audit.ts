@@ -12,7 +12,9 @@
  * 2. **No content.** An entry names an actor, an action, a subject and a result. `note` is
  *    a short controlled value — a role name, a decision — never user text, never a reason
  *    field somebody will paste an address into. There is no plaintext, no key, no token,
- *    no password, and nothing derived from one; `test/audit.test.ts` asserts it.
+ *    no password, and nothing derived from one; `test/moderation.test.ts` fills every free-text
+ *    field a privileged action takes with an address and a phone number, and asserts that
+ *    neither reaches any column of this table.
  * 3. **It expires.** `pruneAuditLog` deletes entries older than the retention window
  *    (`AUDIT_RETENTION_MS`, one year by default). Oversight needs recent history; keeping
  *    it forever just builds the personal-data pile this project exists to avoid.

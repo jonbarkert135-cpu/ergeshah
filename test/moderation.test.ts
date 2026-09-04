@@ -126,6 +126,52 @@ describe("moderation powers and their limits", () => {
   });
 });
 
+describe("the audit log holds actions, never content (point 41)", () => {
+  it("records the action and refuses to carry the words anybody typed", async () => {
+    const moderator = await register(server, "mod");
+    await promote(server, "mod", "moderator");
+    const seller = await register(server, "vendor");
+    // Every free-text field a privileged action can be given, filled with something that
+    // must not end up in the log: a statement, a note, a report's details.
+    const application = await seller.post<{ id: string }>("/api/market/seller-applications", {
+      displayName: "Vendor",
+      statement: "My wallet is 44AFFq5kSiGBoZ and I live at 12 Bank Street, ask for Jane.",
+    });
+    await moderator.post(`/api/moderation/seller-applications/${application.body.id}/decide`, {
+      decision: "approved",
+      note: "call her on 555-0134 about the address",
+    });
+    // And a refusal, which is audited too.
+    await seller.get("/api/moderation/queue");
+
+    const rows = await server.db.all<Record<string, unknown>>("SELECT * FROM audit_log");
+    expect(rows.length).toBeGreaterThan(1);
+    const serialised = JSON.stringify(rows);
+    for (const secret of [
+      "44AFFq5kSiGBoZ",
+      "Bank Street",
+      "555-0134",
+      "call her",
+      "ask for Jane",
+    ]) {
+      expect(serialised, secret).not.toContain(secret);
+    }
+    // `note` is a controlled vocabulary, not a text field: short, and one of a known set.
+    for (const row of rows) {
+      const note = String(row.note ?? "");
+      expect(note.length, `note: ${note}`).toBeLessThanOrEqual(64);
+      expect(note, `note: ${note}`).toMatch(/^[a-z0-9_.:\/ -]*$/i);
+    }
+    // No column holds anything that looks like key material or a long opaque blob.
+    for (const row of rows) {
+      for (const [column, value] of Object.entries(row)) {
+        if (typeof value !== "string") continue;
+        expect(value, `${column} = ${value}`).not.toMatch(/[A-Za-z0-9_-]{80,}/);
+      }
+    }
+  });
+});
+
 describe("what a moderator sees about both sides of a dispute (ADR-0083)", () => {
   it("shows the buyer's record beside the seller's, and no verdict", async () => {
     const moderator = await register(server, "referee2");

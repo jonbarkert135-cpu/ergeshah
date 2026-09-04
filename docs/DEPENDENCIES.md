@@ -14,6 +14,27 @@ Padding a string, generating a UUID, parsing a cookie, formatting a date, deep-c
 object and validating a schema do not — those are in `src/shared` and `src/server/lib`,
 under a hundred lines each, and they carry no supply-chain risk.
 
+## What each one does on the network (point 53)
+
+A security review of a dependency asks whether it has a CVE. A privacy review asks a different
+question — *does it talk to anyone?* — and the answer has to be per package, because "we have
+four dependencies" says nothing about what those four do at runtime.
+
+| Package | Opens a connection? | Sends anything anywhere? |
+| --- | --- | --- |
+| `fastify` | Yes: it *is* the listener. Inbound only — it accepts connections, it never initiates one | No telemetry, no update check, no phone-home |
+| `libsodium-wrappers-sumo` | No. WASM and arithmetic | No |
+| `openpgp` | No, in the way this project uses it: signature verification over bytes already in memory. It has no key-server client here and is never given a URL | No |
+| `pg` | Yes: to the database in `DATABASE_URL`, and nowhere else | No |
+
+Two checks keep that table from becoming a claim nobody verifies: `npm run audit:egress` fails
+if a package whose purpose is telemetry appears anywhere in `package-lock.json`, or if any file
+under `src/server` or `scripts` grows an outbound call that the audit does not already name with
+a reason. What neither check can see is a *transitive* dependency that opens a socket at
+runtime without saying so in its name — the mitigations for that are the small tree, the
+install-script refusal (`.npmrc`), and the application container having no route to the
+internet at all (`docs/NETWORK.md`).
+
 ## Production dependencies
 
 ### `libsodium-wrappers-sumo`

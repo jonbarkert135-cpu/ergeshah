@@ -48,6 +48,27 @@ Caddy, so the two entrypoints share no TLS terminator and no log.
 | app | *nothing else* | `internal: true` gives the network no gateway, so there is nothing to reach |
 | database | *nothing* | It answers; it does not call out |
 
+## Every external request (point 51)
+
+Six call sites in this repository can leave the process, and `npm run audit:egress` fails the
+build if a seventh appears or if a host is written into the source instead of read from
+configuration. This is the table that check enforces: what, where to, why, what is sent, and
+whether the deployment needs it.
+
+| Call site | Destination | Why | What is sent | Needed? |
+| --- | --- | --- | --- | --- |
+| `src/server/lib/monero.ts` | `MONERO_WALLET_RPC_URL` — the view-only wallet, on the internal network | `create_address`, `get_transfers`, `get_balance`, and nothing else (ADR-0070) | A subaddress index, a minimum height, a JSON-RPC method name. No username, no order id, no user text | **Optional.** With no wallet configured the marketplace runs and the screen says top-ups are not open |
+| `scripts/payout-worker.mjs` (×2) | This platform's payout queue, and the worker's own wallet — both from its environment, on another host | The only process holding a spend key pulls the queue; nothing can call it (ADR-0070) | A bearer token, a payout id, an address and an amount | **Optional.** Payouts queue without it and say so |
+| `scripts/backup.mjs` (×2) | `127.0.0.1` — the throwaway server the restore drill just started | Proving a backup boots, not just decrypts (`docs/BACKUPS.md`) | Nothing: a `GET /healthz` and a page load | Operator tool; never runs in the service |
+| `scripts/audit.mjs` | The origin an operator names on the command line | Comparing a running deployment's bytes with this source tree | Nothing but the request | Operator tool |
+| The browser (`src/client/api.ts`) | This origin only | The application | What the user typed, encrypted where it matters | Mandatory, and constrained by `connect-src 'self'` plus `audit:bundle` |
+
+Everything a product like this usually calls out to is absent rather than optional: no email or
+SMS gateway, no push service, no CAPTCHA provider, no analytics, no error reporter, no CDN, no
+font host, no AI API, no update check, no licence check (`docs/AUDIT.md` §The zero-cost audit).
+`docs/DEPENDENCIES.md` records the same question per package, because a dependency that opens a
+socket is an external request whether or not this code asked for one.
+
 ## The database is not on the internet
 
 There is no `ports:` mapping on the database service, and the commented-out PostgreSQL

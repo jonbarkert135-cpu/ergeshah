@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   approveSeller,
   fund,
+  promote,
   register,
   startTestServer,
   type TestClient,
@@ -234,5 +235,28 @@ describe("storage", () => {
     expect((await buyer.get(`/api/market/orders/${order}/delivery`)).status).toBe(200);
     expect((await buyer.del(`/api/market/orders/${order}/delivery`)).status).toBe(200);
     expect((await buyer.get(`/api/market/orders/${order}/delivery`)).status).toBe(404);
+  });
+
+  it("refuses the same file to a moderator and to an administrator (point 89)", async () => {
+    const order = await acceptedOrder("Staff Probe");
+    await seller.post(`/api/market/orders/${order}/delivery`, { ciphertext: b64("payload") });
+
+    // One account, given each staff role in turn. A role is not a party to an order: a
+    // moderator's job is the dispute, an administrator's is the machine, and neither is served
+    // the buyer's bytes.
+    const staff = await register(server, "uploadstaff");
+    for (const role of ["moderator", "admin"] as const) {
+      await promote(server, "uploadstaff", role);
+      const response = await staff.get(`/api/market/orders/${order}/delivery`);
+      expect([403, 404], `${role} → ${response.status}`).toContain(response.status);
+    }
+
+    // The brief's fourth case — "admin with legitimate moderation permission: ALLOWED and
+    // audited" — has no route to test, because no staff endpoint serves a private file at
+    // all: a dispute is decided on digests the parties commit to (ADR-0074). That is a
+    // stronger answer than an audited exception, and `docs/MODERATION.md` says so.
+    expect(read("src/server/routes/moderation.ts")).not.toMatch(/FROM deliveries|FROM attachments/);
+    // And the buyer still gets it: the rule is ownership, not blanket denial.
+    expect((await buyer.get(`/api/market/orders/${order}/delivery`)).status).toBe(200);
   });
 });

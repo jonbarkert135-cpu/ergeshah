@@ -15,7 +15,6 @@ import {
   authSecretFor,
   promote,
   publishDevice,
-  fund,
   register,
   startTestServer,
   TestClient,
@@ -481,66 +480,6 @@ describe("injection", () => {
 });
 
 /* ------------------------------------- IDOR ------------------------------------- */
-
-describe("insecure direct object references", () => {
-  it("answers a stranger with 404 for another pair's order, delivery and notification", async () => {
-    const seller = await register(server, "seller");
-    await approveSeller(server, seller, "Seller of goods");
-    const listing = await seller.post<{ id: string }>("/api/market/listings", {
-      title: "A carefully written program",
-      description: "Long enough a description to satisfy the validator on this route, honestly.",
-      category: "software",
-      kind: "digital_good",
-      priceXmr: "0.025",
-    });
-    const buyer = await register(server, "buyer");
-    await fund(server, buyer, "5");
-    const order = await buyer.post<{ id: string }>("/api/market/orders", {
-      listingId: listing.body.id,
-    });
-    await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
-    await seller.post(`/api/market/orders/${order.body.id}/delivery`, { ciphertext: "Zm9vYmFy" });
-
-    const mallory = await register(server, "mallory");
-    for (const [method, url] of [
-      ["GET", `/api/market/orders/${order.body.id}/delivery`],
-      ["POST", `/api/market/orders/${order.body.id}/status`],
-      ["POST", `/api/market/orders/${order.body.id}/review`],
-      ["DELETE", `/api/market/orders/${order.body.id}/delivery`],
-    ] as const) {
-      const response = await mallory.request(method, url, { status: "completed", rating: 5 });
-      expect([403, 404], `${method} ${url}`).toContain(response.status);
-    }
-
-    // The buyer's own notification id is equally useless to a stranger.
-    const inbox = await seller.get<{ notifications: Array<{ id: string }> }>("/api/notifications");
-    const someoneElsesId = inbox.body.notifications[0]!.id;
-    const marked = await mallory.post<{ read: number }>("/api/notifications/read", {
-      ids: [someoneElsesId],
-    });
-    expect(marked.body.read ?? 0).toBe(0);
-    const stillUnread = await seller.get<{ unread: number }>("/api/notifications");
-    expect(stillUnread.body.unread).toBeGreaterThan(0);
-  });
-
-  it("does not let one account fetch or acknowledge another account's envelopes", async () => {
-    const bob = await register(server, "bob");
-    const bobDevice = await publishDevice(bob);
-    const alice = await register(server, "alice");
-    await alice.post("/api/messages", {
-      to: bob.username,
-      channel: toBase64Url(new Uint8Array(16).fill(9)),
-      messages: [{ deviceId: bobDevice, payload: "Y2lwaGVydGV4dA" }],
-    });
-    const mallory = await register(server, "mallory");
-    expect((await mallory.get(`/api/messages?deviceId=${bobDevice}`)).status).toBe(404);
-    const envelope = await server.db.get<{ id: string }>("SELECT id FROM envelopes");
-    await mallory.post("/api/messages/ack", { deviceId: bobDevice, ids: [envelope!.id] });
-    expect((await server.db.all("SELECT id FROM envelopes")).length).toBe(1);
-  });
-});
-
-/* -------------------------------- race conditions -------------------------------- */
 
 describe("race conditions", () => {
   it("gives one of five simultaneous registrations of the same name the account", async () => {

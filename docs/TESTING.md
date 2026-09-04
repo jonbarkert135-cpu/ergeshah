@@ -47,6 +47,9 @@ about the system is worse than no test, and the cheapest way to lie is to test a
 | `api.test.ts` | **Security** | The interface itself: the `/api/v1` prefix, `X-API-Version`, every error code documented, one error envelope everywhere, `Retry-After` on a 429, no database structure in a message, and no WebSocket anywhere (points 87–89) |
 | `environments.test.ts` | **Security** | Development, test and production are separated: production refuses a missing secret and a `development-only-` placeholder, `NODE_ENV` typos stop the boot, and a test database is in memory (point 91) |
 | `mechanisms.test.ts` | **Security** | The mechanism register is complete and honest — six columns per row, an implementation and a test that exist — plus the free-space floor in front of blob writes, and the quality bar and cycle in `docs/CHANGE_REVIEW.md` (points 96–100) |
+| `idor.test.ts` | **Security** | Point 44, one suite for the whole class: another pair's order, delivery, review and notification, another account's envelopes, somebody else's seller application and dispute evidence, and a public profile that carries none of it |
+| `images.test.ts` | **Security** | Point 88: a JPEG, PNG and WebP built segment by segment with EXIF, GPS, XMP, IPTC and comments in them; the metadata is gone from the output and the picture is unchanged. Also what the stripper refuses to touch, and says so about |
+| `jobs.test.ts` | **Security** | Housekeeping: order and failure isolation (ADR-0079), the blob sweep that no longer needs traffic (point 77), the whole list run twice with nothing changed (point 32), the object ceiling (point 81) and the integrity check (point 68) |
 | `adr.test.ts` | Documentation | Every ADR is indexed under `docs/adr/`, every index link resolves, records keep their template, and `docs/CHANGE_REVIEW.md` carries both regression questions and the priority ladder in order (points 92–95) |
 | `docs.test.ts` | Documentation | Every route, table and environment variable is documented, and nothing documented has disappeared |
 | `features.test.ts` | Documentation | The completeness matrix covers every route file, screen and table, names tests that exist and still admits what is unfinished; every specification cited in `docs/` appears in `docs/SOURCES.md` with its labelled beliefs (points 103, 106) |
@@ -68,7 +71,7 @@ check you can skip is a security check that gets skipped.
 | XSS | `client.test.ts`, `hardening.test.ts` | `security.test.ts` (markup stored as data, CSP on every response including errors) |
 | CSRF | `auth.test.ts` | `security.test.ts` (a sweep of every unsafe route with no token, and a token from another browser) |
 | Injection | `search.test.ts` | `security.test.ts` (SQL as data, prototype pollution, line breaks in single-line fields) |
-| IDOR | `authorization.test.ts` | `security.test.ts` (another pair's order, delivery, notification and envelopes), `notifications.test.ts`, `delivery.test.ts` |
+| IDOR | `idor.test.ts` | `authorization.test.ts` (the anonymous sweep and staff refusals), `uploads.test.ts` (a delivery refused to a stranger, a seller and staff), `notifications.test.ts`, `delivery.test.ts` |
 | Race conditions | `integrity.test.ts` | `security.test.ts` (contested registration, concurrent prekey claims) |
 | Rate limits | `limits.test.ts` | `security.test.ts` (prekey exhaustion) |
 | Privilege escalation | `moderation.test.ts` | `security.test.ts` (role in a registration body, suspended account, staff and messages) |

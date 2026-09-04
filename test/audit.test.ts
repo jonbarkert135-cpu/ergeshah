@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { startTestServer } from "./helpers.ts";
 // @ts-expect-error - plain ESM script, no types needed for two pure functions
-import { scanBundle, scanSource } from "../scripts/audit.mjs";
+import { isTelemetryPackage, scanBundle, scanEgress, scanSource } from "../scripts/audit.mjs";
 // @ts-expect-error - same: the linter is a plain ESM script
 import { lintFile } from "../scripts/lint.mjs";
 
@@ -38,6 +38,49 @@ describe("bundle audit", () => {
     const findings = scanBundle(`ok\nok\nfetch("https://evil.example.com/x")\n`);
     expect(findings).toHaveLength(1);
     expect(findings[0].line).toBe(3);
+  });
+});
+
+describe("egress audit (points 51, 52, 53)", () => {
+  it("finds a call that leaves the process", () => {
+    expect(rules(scanEgress(`const r = await fetch(endpoint, { method: "POST" });`))).toContain(
+      "outbound request",
+    );
+    expect(rules(scanEgress(`https.request(options, handle);`))).toContain("outbound request");
+    expect(rules(scanEgress(`const s = net.connect(9000, host);`))).toContain("raw socket");
+    expect(rules(scanEgress(`import { lookup } from "node:dns";`))).toContain("name resolution");
+  });
+
+  it("does not mistake the database or the router for a network call", () => {
+    // The reason a rule like this gets switched off is false positives, and this codebase is
+    // full of `db.get(` and `app.get(`.
+    expect(scanEgress(`const row = await db.get("SELECT 1 AS ok");`)).toEqual([]);
+    expect(scanEgress(`app.get("/api/attachments/:id", handler);`)).toEqual([]);
+    expect(scanEgress(`const held = state.vault?.deliveries?.[order.id];`)).toEqual([]);
+  });
+
+  it("knows a telemetry package by name, and leaves the four real dependencies alone", () => {
+    for (const name of [
+      "node_modules/@sentry/node",
+      "node_modules/posthog-node",
+      "node_modules/dd-trace",
+      "node_modules/@opentelemetry/api",
+    ]) {
+      expect(isTelemetryPackage(name), name).toBe(true);
+    }
+    for (const name of ["node_modules/pg", "node_modules/fastify", "node_modules/openpgp"]) {
+      expect(isTelemetryPackage(name), name).toBe(false);
+    }
+  });
+
+  it("passes on this tree, which is the assertion that matters", () => {
+    // Six call sites, all in files the audit names with a reason. A seventh fails the build.
+    const output = execFileSync("node", ["scripts/audit.mjs", "egress"], {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      encoding: "utf8",
+    });
+    expect(output).toMatch(/all accounted for/);
+    expect(output).toMatch(/no telemetry/);
   });
 });
 
