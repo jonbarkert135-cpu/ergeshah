@@ -11,7 +11,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.ts";
-import { asString } from "../lib/validate.ts";
+import { asId, asString } from "../lib/validate.ts";
 import { parseXmr, xmrString } from "../../shared/money.ts";
 import { recordAudit } from "../lib/audit.ts";
 import {
@@ -19,6 +19,7 @@ import {
   bondFor,
   claimBond,
   openDisputeCount,
+  openReportCount,
   postBond,
   releaseBond,
 } from "../lib/bonds.ts";
@@ -77,12 +78,19 @@ export async function registerBondRoutes(app: FastifyInstance): Promise<void> {
     await ownSeller(user.id);
     const state = await bondFor(db, user.id);
     const disputes = await openDisputeCount(db, user.id);
+    const reports = await openReportCount(db, user.id);
     const releasableAt =
       state.postedAt === null ? null : state.postedAt + config.bondCooloffMs;
     return {
       bondXmr: xmrString(state.bondPico),
       openDisputes: disputes,
-      releasable: state.bondPico > 0 && disputes === 0 && releasableAt !== null && releasableAt <= Date.now(),
+      openReports: reports,
+      releasable:
+        state.bondPico > 0 &&
+        disputes === 0 &&
+        reports === 0 &&
+        releasableAt !== null &&
+        releasableAt <= Date.now(),
       releasableInDays:
         releasableAt === null
           ? null
@@ -101,7 +109,7 @@ export async function registerBondRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post("/api/market/moderation/orders/:id/bond-claim", async (request) => {
     const moderator = await app.requireRole(request, ["moderator", "admin"]);
-    const orderId = asString((request.params as { id: string }).id, "id", 64);
+    const orderId = asId((request.params as { id: string }).id, "id");
     const body = (request.body ?? {}) as Record<string, unknown>;
     const order = await db.get<{
       id: string;
@@ -114,6 +122,13 @@ export async function registerBondRoutes(app: FastifyInstance): Promise<void> {
       [orderId],
     );
     if (!order) throw notFound("no such order");
+    // Conflict of interest: a claim pays the buyer out of the seller's bond, on the say-so
+    // of the moderator. A moderator who is that buyer (or that seller) would be paying
+    // themselves, or forgiving themselves; they get a stranger's answer here and take the
+    // order to a colleague (SEC-2026-012).
+    if (order.buyer_user_id === moderator.id || order.seller_user_id === moderator.id) {
+      throw forbidden("a moderator cannot decide a bond claim on their own order");
+    }
     if (order.status !== "completed") {
       throw conflict(
         "a bond claim belongs to an order that completed and went wrong afterwards: " +
@@ -129,9 +144,13 @@ export async function registerBondRoutes(app: FastifyInstance): Promise<void> {
       "SELECT COUNT(*) AS count FROM order_events WHERE order_id = ? AND to_status = 'disputed'",
       [orderId],
     );
+    // The report must be the buyer's own: `POST /api/moderation/reports` accepts any order
+    // id from any account, so a report from anyone else would let a third account
+    // manufacture the precondition for a claim (SEC-2026-012).
     const reported = await db.get<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM reports WHERE target_type = 'order' AND target_id = ?",
-      [orderId],
+      `SELECT COUNT(*) AS count FROM reports
+        WHERE target_type = 'order' AND target_id = ? AND reporter_user_id = ?`,
+      [orderId, order.buyer_user_id],
     );
     if (Number(disputed?.count ?? 0) === 0 && Number(reported?.count ?? 0) === 0) {
       throw conflict("nobody has disputed or reported this order");

@@ -92,9 +92,31 @@ export async function openDisputeCount(db: Db, sellerUserId: string): Promise<nu
 }
 
 /**
- * Give it back. Refused while a dispute is open or the cool-off has not run out — a bond a
- * seller can withdraw the moment an argument starts is decoration — and allowed for a
- * suspended seller, because their money is still their money.
+ * A completed order of this seller that its buyer has reported and nobody has resolved yet.
+ * This is the case the bond exists for (the header above: harm that surfaces after escrow has
+ * paid out), and until SEC-2026-013 it did not hold the bond: only a *live dispute* did, and a
+ * completed order cannot be disputed, so a seller could release the stake between the buyer's
+ * report and the moderator's claim. Only the buyer's own report counts — a report filed by a
+ * stranger against an order id would otherwise be a way to freeze any seller's money.
+ */
+export async function openReportCount(db: Db, sellerUserId: string): Promise<number> {
+  const row = await db.get<{ count: number }>(
+    `SELECT COUNT(*) AS count
+       FROM reports r
+       JOIN orders o ON o.id = r.target_id
+      WHERE r.target_type = 'order'
+        AND r.status = 'open'
+        AND r.reporter_user_id = o.buyer_user_id
+        AND o.seller_user_id = ?`,
+    [sellerUserId],
+  );
+  return Number(row?.count ?? 0);
+}
+
+/**
+ * Give it back. Refused while a dispute or a buyer's report is open or the cool-off has not
+ * run out — a bond a seller can withdraw the moment an argument starts is decoration — and
+ * allowed for a suspended seller, because their money is still their money.
  */
 export async function releaseBond(
   db: Db,
@@ -108,6 +130,9 @@ export async function releaseBond(
   }
   if ((await openDisputeCount(db, input.sellerUserId)) > 0) {
     throw conflict("a bond cannot be released while one of your orders is disputed");
+  }
+  if ((await openReportCount(db, input.sellerUserId)) > 0) {
+    throw conflict("a bond cannot be released while a buyer's report on one of your orders is open");
   }
   return await db.transaction(async (tx) => {
     // Re-read inside the transaction, then *take* the bond with a compare-and-swap before a

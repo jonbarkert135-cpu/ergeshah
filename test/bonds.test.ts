@@ -343,3 +343,107 @@ describe("the bond under a concurrent release (SEC-2026-008)", () => {
     expect(paid).toHaveLength(1);
   });
 });
+
+describe("the bond and the people who decide about it (SEC-2026-012, SEC-2026-013)", () => {
+  it("is held while the buyer's report on a completed order is open", async () => {
+    const vendor = await seller("holden");
+    const listingId = await listingBy(vendor, "0.5");
+    await vendor.post("/api/market/seller/bond", { amountXmr: "1" });
+    await server.db.run("UPDATE sellers SET bond_posted_at = ? WHERE user_id IS NOT NULL", [
+      Date.now() - 30 * 86_400_000,
+    ]);
+    const buyer = await register(server, "reporter");
+    await fund(server, buyer, "2");
+    const orderId = await completedOrder(buyer, vendor, listingId);
+    const report = await buyer.post<{ id: string }>("/api/moderation/reports", {
+      targetType: "order",
+      targetId: orderId,
+      reason: "fraud",
+      details: "The licence key stopped working the day after I confirmed the order.",
+    });
+    expect(report.status).toBe(200);
+
+    // The report is on file; the stake stays where a moderator can reach it.
+    const status = await vendor.get<{ releasable: boolean; openReports: number }>("/api/market/seller/bond");
+    expect(status.body.openReports).toBe(1);
+    expect(status.body.releasable).toBe(false);
+    const release = await vendor.post<{ message: string }>("/api/market/seller/bond/release", {});
+    expect(release.status).toBe(409);
+    expect(release.body.message).toContain("report");
+
+    // A stranger's report against the order id is not a hold on somebody else's money.
+    const stranger = await register(server, "meddler");
+    await stranger.post("/api/moderation/reports", {
+      targetType: "order",
+      targetId: orderId,
+      reason: "fraud",
+      details: "I have nothing to do with this order and I am filing anyway.",
+    });
+    const moderator = await register(server, "resolver");
+    await promote(server, "resolver", "moderator");
+    const resolved = await moderator.post(`/api/moderation/reports/${report.body.id}/resolve`, {
+      outcome: "dismissed",
+      note: "Looked into it: the key works, the buyer had a typo.",
+    });
+    expect(resolved.status).toBe(200);
+    const afterwards = await vendor.post("/api/market/seller/bond/release", {});
+    expect(afterwards.status).toBe(200);
+  });
+
+  it("refuses a bond claim decided by a moderator who is a party to the order", async () => {
+    const vendor = await seller("target");
+    const listingId = await listingBy(vendor, "0.5");
+    await vendor.post("/api/market/seller/bond", { amountXmr: "1" });
+    // The moderator buys from the seller, then reports the order from their own account.
+    const moderator = await register(server, "selfserve");
+    await promote(server, "selfserve", "moderator");
+    await fund(server, moderator, "2");
+    const orderId = await completedOrder(moderator, vendor, listingId);
+    await moderator.post("/api/moderation/reports", {
+      targetType: "order",
+      targetId: orderId,
+      reason: "fraud",
+      details: "Filing against my own order so that I can pay myself out of the bond.",
+    });
+    const claim = await moderator.post(`/api/market/moderation/orders/${orderId}/bond-claim`, {
+      amountXmr: "0.5",
+      note: "Paying myself, allegedly on behalf of a buyer.",
+    });
+    expect(claim.status).toBe(403);
+    const bond = await server.db.get<{ bond_pico: number }>("SELECT bond_pico FROM sellers");
+    expect(Number(bond!.bond_pico)).toBe(1_000_000_000_000);
+
+    // A colleague may decide it — but only on the buyer's own report, not a third account's.
+    const colleague = await register(server, "colleague");
+    await promote(server, "colleague", "moderator");
+    const decided = await colleague.post(`/api/market/moderation/orders/${orderId}/bond-claim`, {
+      amountXmr: "0.5",
+      note: "Reviewed the buyer's report; the goods were never usable.",
+    });
+    expect(decided.status).toBe(200);
+  });
+
+  it("gives a moderator who is the buyer only a buyer's say over their own order", async () => {
+    const vendor = await seller("victim");
+    const listingId = await listingBy(vendor, "0.5");
+    const moderator = await register(server, "judgebuyer");
+    await promote(server, "judgebuyer", "moderator");
+    await fund(server, moderator, "2");
+    const order = await moderator.post<{ id: string }>("/api/market/orders", { listingId });
+    await vendor.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
+    await moderator.post(`/api/market/orders/${order.body.id}/status`, {
+      status: "disputed",
+      reason: "Nothing arrived and the seller has stopped answering me entirely.",
+    });
+    // Settling a dispute is a moderator's move; a buyer cannot make it on their own order.
+    const settled = await moderator.post(`/api/market/orders/${order.body.id}/status`, {
+      status: "cancelled",
+      reason: "I am the buyer and the moderator, and I say I win.",
+    });
+    expect(settled.status).toBe(403);
+    const row = await server.db.get<{ status: string }>("SELECT status FROM orders WHERE id = ?", [
+      order.body.id,
+    ]);
+    expect(row!.status).toBe("disputed");
+  });
+});

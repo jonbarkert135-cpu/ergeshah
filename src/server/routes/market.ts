@@ -495,7 +495,9 @@ export async function registerMarketRoutes(app: FastifyInstance): Promise<void> 
     const actorRoles: Array<"buyer" | "seller" | "moderator"> = [];
     if (order.buyer_user_id === user.id) actorRoles.push("buyer");
     if (order.seller_user_id === user.id) actorRoles.push("seller");
-    if (user.role === "moderator" || user.role === "admin") actorRoles.push("moderator");
+    // Staff act as staff only on orders they are not party to (SEC-2026-012).
+    const staff = user.role === "moderator" || user.role === "admin";
+    if (staff && actorRoles.length === 0) actorRoles.push("moderator");
     // A stranger gets the same answer as a wrong id. 403 here would confirm that an order
     // with this id exists, which is exactly what an id-guessing attacker is asking
     // (point 70) — and it is the answer `routes/deliveries.ts` already refuses to give.
