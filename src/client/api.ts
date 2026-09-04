@@ -47,6 +47,29 @@ function csrfToken(): string {
  * party, no image to squint at. It costs a fraction of a second, so it is handled here
  * rather than shown to the user — the sign-in button simply takes slightly longer.
  */
+/**
+ * The most difficulty this client will grind for. The server refuses to configure more than
+ * 24 bits (`config.ts`, `POW_BITS`), so a larger ask is not a puzzle but a hostile or broken
+ * server telling this tab to hang for minutes on the main thread. `bits` also has to be a
+ * whole number: `meetsDifficulty` compares against it, and a `NaN` is never met.
+ */
+export const MAX_POW_BITS = 24;
+
+export function solvablePow(pow: unknown): pow is { challenge: string; mac: string; bits: number } {
+  if (typeof pow !== "object" || pow === null) return false;
+  const { challenge, mac, bits } = pow as Record<string, unknown>;
+  return (
+    typeof challenge === "string" &&
+    challenge.length <= 256 &&
+    typeof mac === "string" &&
+    mac.length <= 256 &&
+    typeof bits === "number" &&
+    Number.isInteger(bits) &&
+    bits >= 0 &&
+    bits <= MAX_POW_BITS
+  );
+}
+
 async function solve(challenge: { challenge: string; mac: string; bits: number }) {
   const sodium = await sodiumReady();
   return {
@@ -76,7 +99,9 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     // One retry, and only for the one code that means "this is solvable". A second 428
     // would be a server that never accepts the answer, and retrying that forever is how a
     // client becomes the load it was supposed to prevent.
-    if (!(error instanceof ApiError) || error.code !== "pow_required" || !error.pow) throw error;
+    if (!(error instanceof ApiError) || error.code !== "pow_required" || !solvablePow(error.pow)) {
+      throw error;
+    }
     const body = (options.body ?? {}) as Record<string, unknown>;
     return await send<T>(path, { ...options, body: { ...body, pow: await solve(error.pow) } });
   }

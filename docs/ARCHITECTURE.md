@@ -86,6 +86,7 @@ src/server/
 src/client/
   state.ts           encrypted vault, device publication
   messaging.ts       sessions, send/receive/acknowledge
+  incoming.ts        the shape a decrypted payload must have before it is kept
   verification.ts    safety numbers, per-device verified state
   views/             auth, chat, market, orders, account, security, moderation
 test/                RFC vectors, protocol properties, API behaviour, authorization

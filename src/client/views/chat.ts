@@ -125,7 +125,7 @@ export function renderChat(root: HTMLElement): void {
               },
             },
             el("strong", {}, hit.peer),
-            el("span", { class: "muted mono" }, ` ${hit.message.text.slice(0, 40)}`),
+            el("span", { class: "muted mono" }, ` ${String(hit.message.text ?? "").slice(0, 40)}`),
           ),
         );
       }
@@ -152,7 +152,7 @@ export function renderChat(root: HTMLElement): void {
           },
           el("strong", {}, conversation.peer),
           isBlocked(conversation.peer) ? el("span", { class: "tag" }, "blocked") : null,
-          el("span", { class: "muted mono" }, last ? ` ${last.text.slice(0, 22)}` : " —"),
+          el("span", { class: "muted mono" }, last ? ` ${String(last.text ?? "").slice(0, 22)}` : " —"),
         ),
       );
     }

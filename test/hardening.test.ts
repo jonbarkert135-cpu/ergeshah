@@ -6,6 +6,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { register, startTestServer, TestClient, type TestServer } from "./helpers.ts";
 import { safeUrl } from "../src/client/ui.ts";
+import { MAX_POW_BITS, solvablePow } from "../src/client/api.ts";
 
 let server: TestServer;
 
@@ -159,8 +160,30 @@ describe("the DOM helper refuses unsafe URLs", () => {
       "vbscript:msgbox(1)",
       "file:///etc/passwd",
       "//evil.example/path",
+      "/\\evil.example/path",
+      "/\\\\evil.example",
     ]) {
       expect(safeUrl(url), url).toBe(false);
+    }
+  });
+
+  // A hostile or broken server must not be able to hang the tab by asking for a puzzle the
+  // honest server can never ask for (SEC-2026-015, variant analysis on the same boundary).
+  it("solves only a proof-of-work the server is allowed to ask for", () => {
+    expect(solvablePow({ challenge: "c", mac: "m", bits: 0 })).toBe(true);
+    expect(solvablePow({ challenge: "c", mac: "m", bits: MAX_POW_BITS })).toBe(true);
+    for (const pow of [
+      { challenge: "c", mac: "m", bits: MAX_POW_BITS + 1 },
+      { challenge: "c", mac: "m", bits: 64 },
+      { challenge: "c", mac: "m", bits: "20" },
+      { challenge: "c", mac: "m", bits: Number.NaN },
+      { challenge: "c", mac: "m", bits: 20.5 },
+      { challenge: "c", mac: "m" },
+      { challenge: "c".repeat(10_000), mac: "m", bits: 10 },
+      null,
+      "pow",
+    ]) {
+      expect(solvablePow(pow), JSON.stringify(pow)).toBe(false);
     }
   });
 });

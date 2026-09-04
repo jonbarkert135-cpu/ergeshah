@@ -34,6 +34,7 @@ import {
 } from "../shared/crypto/session.ts";
 import { deserializeState, serializeState } from "../shared/crypto/ratchet.ts";
 import { notePeerKeys } from "./verification.ts";
+import { parseIncoming, validAttachment } from "./incoming.ts";
 
 interface Bundle {
   deviceId: string;
@@ -419,20 +420,20 @@ export async function receiveMessages(): Promise<number> {
     try {
       const conversation = resolveConversation(envelope);
       const opened = decryptEnvelope(conversation, envelope);
-      const plaintext = JSON.parse(opened.plaintext) as {
-        from: string;
-        text: string;
-        at: number;
-        expiresAt?: number;
-        attachment?: AttachmentRef;
-        signal?: { type: string; upTo?: number };
-        delivery?: DeliveryKey & { orderId: string };
-        shipping?: { orderId: string; details: string };
-      };
+      // The ratchet advanced, so the session is committed whatever the plaintext says:
+      // dropping a message must never desynchronise the conversation.
       notePeerKeys(conversation, [opened.sessionKey]);
       conversation.sessions[opened.sessionKey] = serializeState(opened.state);
-      if (conversation.peer === "unknown") conversation.peer = plaintext.from;
       handled.push(envelope.id);
+      // Authentic is not the same as well-formed. The AEAD proves the peer's device wrote
+      // these bytes; it says nothing about their shape, and a peer running an edited client
+      // can write anything. A message without a string `text` used to be stored as-is and
+      // then thrown a TypeError from every view that rendered the list — the whole Messages
+      // screen blank, persistently, from one envelope (SEC-2026-015). Refused here means:
+      // acknowledged, session kept, nothing stored.
+      const plaintext = parseIncoming(opened.plaintext);
+      if (plaintext === null) continue;
+      if (conversation.peer === "unknown") conversation.peer = plaintext.from;
       // A blocked peer's message is decrypted (the ratchet has to advance or the session
       // desynchronises) and then dropped without being stored or shown (point 84). The
       // server is told nothing: it never knew who sent it, and a block it could see would
@@ -482,17 +483,6 @@ function expiryFor(
     typeof requested === "number" && Number.isFinite(requested) && requested > at ? requested : null;
   const soonest = mine === null ? theirs : theirs === null ? mine : Math.min(mine, theirs);
   return soonest === null ? {} : { expiresAt: soonest };
-}
-
-/** A peer sends this, so it is validated rather than trusted, exactly like a delivery key. */
-function validAttachment(value: unknown): value is AttachmentRef {
-  const reference = value as AttachmentRef | undefined;
-  if (!reference || typeof reference !== "object") return false;
-  return (
-    /^[A-Za-z0-9_-]{8,64}$/.test(String(reference.id)) &&
-    typeof reference.key === "string" &&
-    typeof reference.nonce === "string"
-  );
 }
 
 /**
@@ -593,7 +583,7 @@ export function searchMessages(query: string, limit = 50): SearchHit[] {
   const hits: SearchHit[] = [];
   for (const conversation of conversations()) {
     for (const message of conversation.messages) {
-      if (!message.text.toLowerCase().includes(needle)) continue;
+      if (!String(message.text ?? "").toLowerCase().includes(needle)) continue;
       hits.push({ channel: conversation.channel, peer: conversation.peer, message });
       if (hits.length >= limit) return hits;
     }

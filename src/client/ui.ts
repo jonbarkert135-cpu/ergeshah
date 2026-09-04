@@ -15,6 +15,9 @@ export function safeUrl(value: string): boolean {
   const url = value.trim();
   // `//host/path` is protocol-relative — same-origin at a glance, off-site in a browser.
   if (url.startsWith("//")) return false;
+  // `/\host` is the same thing spelled the way the WHATWG parser also reads: `\` after a
+  // leading `/` is normalised to `/`, so `/\evil.example` navigates off-site too.
+  if (/^\/[\\]/.test(url)) return false;
   if (url.startsWith("/") || url.startsWith("#") || url.startsWith("?")) return true;
   if (url.startsWith("blob:")) return true;
   if (url.startsWith("data:image/svg+xml;base64,") || url.startsWith("data:image/png;base64,")) return true;

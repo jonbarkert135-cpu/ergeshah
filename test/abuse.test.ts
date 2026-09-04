@@ -25,10 +25,14 @@ import {
   conversations,
   isBlocked,
   receiveMessages,
+  searchMessages,
   sendMessage,
   setBlocked,
   startConversation,
 } from "../src/client/messaging.ts";
+import { api } from "../src/client/api.ts";
+import { encryptText } from "../src/shared/crypto/session.ts";
+import { deserializeState, serializeState } from "../src/shared/crypto/ratchet.ts";
 import { listColumns } from "./database.ts";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -187,6 +191,77 @@ describe("blocking is the recipient's decision", () => {
     expect(state.vault!.blocked).toEqual(["bob"]);
     const routes = server.app.routeInventory.map((route) => route.url);
     expect(routes.filter((url) => /block/i.test(url))).toEqual([]);
+  });
+});
+
+/**
+ * SEC-2026-015. An authentic envelope is not a well-formed one: the ratchet proves who wrote
+ * the bytes, not what they are. This sends Bob a hand-built plaintext through Alice's real
+ * session — `{from, at}` with no `text`, a numeric `text`, an array — the way an edited client
+ * would, and asserts Bob keeps nothing, keeps the session, and can still render and search.
+ */
+describe("a hostile peer cannot plant a message the client cannot render", () => {
+  let alice: Persona;
+  let bob: Persona;
+
+  beforeEach(async () => {
+    await fetch("/");
+    alice = await signUp("alice", recoveryPhrase);
+    lock();
+    localStorage.clear();
+    await fetch("/");
+    bob = await signUp("bob", recoveryPhrase);
+  });
+
+  async function sendRaw(peer: string, inner: unknown): Promise<void> {
+    const conversation = conversations().find((c) => c.peer === peer)!;
+    const { bundles } = await api<{ bundles: Array<{ deviceId: string; identityKey: string }> }>(
+      `/api/keys/bundle/${peer}`,
+    );
+    const messages = bundles.map((bundle) => {
+      const session = deserializeState(conversation.sessions[bundle.identityKey]!);
+      const payload = encryptText(session, JSON.stringify(inner));
+      conversation.sessions[bundle.identityKey] = serializeState(session);
+      return { deviceId: bundle.deviceId, payload };
+    });
+    await api("/api/messages", { method: "POST", body: { to: peer, channel: conversation.channel, messages } });
+  }
+
+  it("drops a payload without a string text, keeps the session, and still renders", async () => {
+    await actAs(alice);
+    const conversation = await startConversation("bob");
+    await sendMessage(conversation, "a well-formed one first");
+    await actAs(bob);
+    expect(await receiveMessages()).toBe(1);
+
+    await actAs(alice);
+    await sendRaw("bob", { from: "alice", at: Date.now() });
+    await sendRaw("bob", { from: "alice", at: Date.now(), text: 123 });
+    await sendRaw("bob", { from: "alice", at: Date.now(), text: "x", attachment: [1, 2, 3] });
+    await sendRaw("bob", { from: "alice", at: Date.now(), text: "x", signal: "typing" });
+    await sendRaw("bob", { from: "<script>", at: Date.now(), text: "x" });
+    await sendRaw("bob", { from: "alice", at: Date.now(), text: "x", attachment: { id: "AAAAAAAA", key: "", nonce: "", name: "x".repeat(10_000), bytes: {} } });
+    await sendRaw("bob", ["not", "an", "object"]);
+
+    await actAs(bob);
+    expect(await receiveMessages()).toBe(1); // the one with the oversized attachment name: text kept, attachment dropped
+    const stored = conversations()[0]!.messages;
+    expect(stored.map((message) => message.text)).toEqual(["a well-formed one first", "x"]);
+    expect(stored.every((message) => typeof message.text === "string")).toBe(true);
+    expect(stored.some((message) => message.attachment)).toBe(false);
+    // The list view's two text sinks and search do not throw on what was kept.
+    expect(() => searchMessages("well")).not.toThrow();
+    expect(searchMessages("well")).toHaveLength(1);
+    // Everything was acknowledged: nothing hostile sits on the server waiting to be re-fetched.
+    const left = await server.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM envelopes");
+    expect(left!.n).toBe(0);
+
+    // And the session survived the rejected envelopes: a normal message still arrives.
+    await actAs(alice);
+    await sendMessage(conversations()[0]!, "still talking");
+    await actAs(bob);
+    expect(await receiveMessages()).toBe(1);
+    expect(conversations()[0]!.messages.at(-1)!.text).toBe("still talking");
   });
 });
 
