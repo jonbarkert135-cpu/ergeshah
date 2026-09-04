@@ -66,7 +66,16 @@ const SECRETS = [
     // keyword may be part of a camelCase name (dbPassword), so no leading word boundary
     /(?:api[_-]?key|secret|token|password|passphrase|credential)s?\s*[:=]\s*["'`]([^"'`\n]{16,})["'`]/gi,
   ],
+  // A URL with `user:TOKEN@` in front of the host — what npm writes into `package-lock.json`
+  // when a registry was given with credentials in its URL, and what a lockfile-blind scanner used to miss
+  // (SEC-2026-021). The captured value is the userinfo, so a placeholder still passes.
+  ["credential in URL", /\bhttps?:\/\/([^\s"'`/@:]+:[^\s"'`/@]+)@[a-z0-9.-]+/gi],
+  // npm's own way of writing a registry token into a config or lock file.
+  ["npm auth token", /\b_authToken\s*[=:]\s*["']?([^\s"'\n]{16,})/gi],
 ];
+
+/** The lockfile is JSON npm writes; the credential-literal heuristic would drown in it. */
+const LOCKFILE_RULES = SECRETS.filter(([rule]) => rule !== "credential literal");
 
 /**
  * XML namespace URIs are identifiers, not endpoints: no browser ever fetches them, and
@@ -107,7 +116,10 @@ export const scanBundle = (text) => scan(text, [...EXTERNAL, ...SECRETS]);
  * anywhere: a real private key or token in a fixture is a real leak.
  */
 export const scanSource = (text, path = "") =>
-  scan(text, path.startsWith("test/") ? SECRETS.filter(([r]) => r !== "credential literal") : SECRETS);
+  scan(
+    text,
+    path.startsWith("test/") || path === "package-lock.json" || path.endsWith(".lock") ? LOCKFILE_RULES : SECRETS,
+  );
 
 export function report(findings) {
   for (const { file, rule, line, match } of findings) {
@@ -221,7 +233,7 @@ function history() {
       const [meta, path] = entry.split("\t");
       const [, type, hash] = meta.split(/\s+/);
       if (type !== "blob") continue;
-      if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|pdf)$/i.test(path) || path === "package-lock.json") continue;
+      if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|pdf)$/i.test(path)) continue;
       if (!blobs.has(hash)) blobs.set(hash, path);
     }
   }
@@ -375,6 +387,12 @@ function supply() {
     if (entry.resolved && !entry.resolved.startsWith("https://registry.npmjs.org/")) {
       problems.push(`${path}: resolved from ${entry.resolved} — only the public registry is expected`);
     }
+    // A resolved URL with `user:token@` before the registry host passes the prefix test above
+    // only if the prefix is wrong anyway, but a lockfile from a private mirror would carry the credential in every
+    // clone; the userinfo is refused by shape, not by host (SEC-2026-021).
+    if (entry.resolved && /^[a-z]+:\/\/[^/]*@/i.test(entry.resolved)) {
+      problems.push(`${path}: resolved URL carries credentials — rotate them and re-resolve`);
+    }
     // Not a failure by itself — esbuild ships one to link its platform binary, and with
     // ignore-scripts it simply never runs (verified: `npm ci` then a build still works).
     // Worth counting, because the number going up is worth a look.
@@ -481,7 +499,7 @@ function secrets() {
     .split("\0")
     .filter(Boolean)
     // Binary and vendored word lists have no credentials and produce noise.
-    .filter((f) => !/\.(png|jpg|jpeg|gif|svg|ico|woff2?|pdf|lock)$/i.test(f) && f !== "package-lock.json");
+    .filter((f) => !/\.(png|jpg|jpeg|gif|svg|ico|woff2?|pdf)$/i.test(f));
   const findings = [];
   for (const file of tracked) {
     findings.push(...scanSource(readFileSync(join(root, file), "utf8"), file).map((f) => ({ ...f, file })));

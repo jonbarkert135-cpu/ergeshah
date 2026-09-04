@@ -95,6 +95,21 @@ describe("secret audit", () => {
     expect(rules(scanSource(`const dbPassword = "hunter2-9f3a-b71c-2210"`))).toContain("credential literal");
   });
 
+  // SEC-2026-021: the lockfile was skipped by path in both the working-tree and the history
+  // scan, so a registry URL carrying `user:TOKEN@` ended up committed with a green build.
+  it("catches a credential in a URL, including inside the lockfile", () => {
+    const lock = JSON.stringify({
+      packages: { "node_modules/x": { resolved: "https://ci-bot:npm_9f3ab71c2210deadbeef@registry.example.internal/x/-/x-1.0.0.tgz" } }, // audit:allow fixture
+    });
+    expect(rules(scanSource(lock, "package-lock.json"))).toContain("credential in URL");
+    expect(rules(scanSource("//registry.example.internal/:_authToken=npm_9f3ab71c2210deadbeef00", ".npmrc"))).toContain("npm auth token"); // audit:allow fixture
+    // The lockfile is scanned with the key-material rules only: a JSON of `"integrity": "sha512-…"`
+    // lines is not a credential literal.
+    expect(scanSource(JSON.stringify({ token: "sha512-abcdefghijklmnopqrstuvwxyz" }), "package-lock.json")).toEqual([]);
+    // And a placeholder is still a placeholder.
+    expect(scanSource("https://user:changeme@registry.example.org/", "README.md")).toEqual([]);
+  });
+
   it("does not fire on placeholders, env lookups or short values", () => {
     expect(scanSource(`SESSION_SECRET=changeme-in-production`)).toEqual([]);
     expect(scanSource(`const secret = process.env.SESSION_SECRET;`)).toEqual([]);
