@@ -191,10 +191,11 @@ integrity and `npm run audit:deployment`.*
   (`npm run backup:drill`), but this service has never run on a VPS with a domain, a
   certificate and a proxy in front of it. Until it has, the guide is tested and the
   deployment is not.
-- **OPS-5 — Storage accounting for blobs.** The free-space floor keeps the service alive
-  (ADR-0057); it does not stop one account consuming the allowance. Wanted: a shorter default
-  lifetime for attachments, and a way to charge storage without an owner column
-  (`docs/SELF_CRITIQUE.md`, finding 1).
+- **OPS-5 — Storage accounting for blobs.** *Half shipped (2026-09-04, ADR-0093): uploads are
+  charged in bytes against a daily-rotating bucket, so an account now pays for the disk it
+  fills without an owner column ever existing.* What remains is the other half named in
+  `docs/SELF_CRITIQUE.md` finding 1: a shorter default lifetime for attachments, so that an
+  account spending its allowance every day does not accumulate thirty days of blobs.
 - **OPS-4 — Rate-limit tuning under real traffic.** The backoff hint shipped with point 89:
   a 429 carries `retryAfterSeconds` and the client shows it. What remains is the tuning
   itself, which needs traffic to tune against.

@@ -25,6 +25,7 @@ import { stripImageMetadata, type StrippedImage } from "../shared/images.ts";
 import { randomBytes } from "../shared/crypto/sodium.ts";
 import { delayStepsSeconds } from "../shared/jitter.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../shared/crypto/file.ts";
+import { stripImageMetadata } from "../shared/media.ts";
 import {
   acceptSession,
   decryptText,
@@ -126,20 +127,19 @@ export async function sendAttachment(
   name: string,
 ): Promise<StrippedImage> {
   if (isBlocked(conversation.peer)) throw new Error("you blocked this person; unblock them to write");
-  if (bytes.length > MAX_FILE_BYTES) throw new Error(`file: larger than ${MAX_FILE_BYTES} bytes`);
-  // Camera and location metadata is dropped before anything is encrypted (point 88). It is
-  // done here rather than in the view so that no future caller can skip it, and the result
-  // is returned so the screen can say when a format could not be cleaned.
-  const image = stripImageMetadata(bytes);
+  // Strip first, then measure: what is sent is what is cleaned (src/shared/media.ts). The
+  // recipient decrypts this file, so EXIF is a leak end-to-end encryption does not close.
+  const cleaned = stripImageMetadata(bytes);
+  if (cleaned.length > MAX_FILE_BYTES) throw new Error(`file: larger than ${MAX_FILE_BYTES} bytes`);
   const id = toBase64Url(randomBytes(24));
-  const { key, nonce, ciphertext } = encryptFile(id, image.bytes);
+  const { key, nonce, ciphertext } = encryptFile(id, cleaned);
   await api("/api/attachments", { method: "POST", body: { id, ciphertext: toBase64Url(ciphertext) } });
   const attachment: AttachmentRef = {
     id,
     key: toBase64Url(key),
     nonce: toBase64Url(nonce),
     name: safeFileName(name),
-    bytes: image.bytes.length,
+    bytes: cleaned.length,
   };
   // Upload first, key second: a key without a blob is a broken message, a blob without a
   // key is unopenable noise that expires on its own.

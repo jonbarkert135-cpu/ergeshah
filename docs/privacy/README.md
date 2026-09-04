@@ -11,6 +11,8 @@
   optional one is off by default. Also why there is no push notification.
 - [`../DELETION.md`](../DELETION.md) — what "delete" removes at each of the four layers,
   disappearing messages, key destruction and its ceiling, and the retention table.
+- [`../STORAGE.md`](../STORAGE.md) — uploads: what the server may know about a file, and the
+  image metadata removed in the browser before the recipient — not the server — could read it.
 - [`../LOGGING.md`](../LOGGING.md) — the absence of an access log is a privacy control, and
   this is where it is written down.
 - [`../BACKUPS.md`](../BACKUPS.md) — retention, because a backup that never expires undoes
@@ -27,6 +29,7 @@ nothing), `lib/audit.ts` (privileged actions only, and they expire), `routes/mes
 `test/notifications.test.ts` (an inbox that carries no subject, sender or count),
 `test/metadata.test.ts` (no presence, no read state, no push, signals indistinguishable),
 `test/deletion.test.ts` (expiry, key destruction, retention), `test/attachments.test.ts`,
-`test/logging.test.ts`, `test/delivery.test.ts` (dumps the whole schema and asserts a
+`test/compromise.test.ts` (a stolen database, disk or backup yields no marker planted in any
+private field), `test/logging.test.ts`, `test/delivery.test.ts` (dumps the whole schema and asserts a
 shipping address appears nowhere), `test/security.test.ts` (no column anywhere holds a
 message plaintext).

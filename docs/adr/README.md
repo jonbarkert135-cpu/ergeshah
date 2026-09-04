@@ -31,6 +31,7 @@ or if a record is missing a section.
 | [ADR-0013](../DECISIONS.md#adr-0013--the-project-is-called-symvolon-the-protocol-labels-keep-their-old-strings) | The project is called Symvolon; the protocol labels keep their old strings |
 | [ADR-0050](../DECISIONS.md#adr-0050--one-version-in-the-path-one-envelope-for-every-error) | One version in the path, one envelope for every error |
 | [ADR-0051](../DECISIONS.md#adr-0051--no-websocket-and-the-nine-things-one-would-have-to-do) | No WebSocket, and the nine things one would have to do |
+| [ADR-0095](../DECISIONS.md#adr-0095--compartmentalisation-without-a-distributed-system-one-database-least-privilege-no-cache) | Compartmentalisation without a distributed system: one database, least privilege, no cache |
 
 ### Cryptographic protocol
 
@@ -81,6 +82,8 @@ or if a record is missing a section.
 | [ADR-0048](../DECISIONS.md#adr-0048--health-is-two-endpoints-and-monitoring-counts-nothing-but-numbers) | Health is two endpoints, and monitoring counts nothing but numbers |
 | [ADR-0053](../DECISIONS.md#adr-0053--three-environments-and-a-placeholder-that-says-what-it-is) | Three environments, and a placeholder that says what it is |
 | [ADR-0061](../DECISIONS.md#adr-0061--recoverability-is-a-command-not-a-claim) | Recoverability is a command, not a claim |
+| [ADR-0094](../DECISIONS.md#adr-0094--the-zero-cost-promise-is-a-check-not-a-sentence-in-a-readme) | The zero-cost promise is a check, not a sentence in a README |
+| [ADR-0096](../DECISIONS.md#adr-0096--two-deployment-profiles-one-architecture-and-kubernetes-in-neither) | Two deployment profiles, one architecture, and Kubernetes in neither |
 
 ### Privacy model
 
@@ -94,7 +97,7 @@ or if a record is missing a section.
 | [ADR-0044](../DECISIONS.md#adr-0044--search-happens-in-the-browser-and-push-does-not-happen-at-all) | Search happens in the browser, and push does not happen at all |
 | [ADR-0045](../DECISIONS.md#adr-0045--a-review-does-not-name-its-buyer) | A review does not name its buyer |
 | [ADR-0047](../DECISIONS.md#adr-0047--blocking-is-the-recipients-decision-and-the-server-is-not-told) | Blocking is the recipient's decision, and the server is not told |
-| [ADR-0092](../DECISIONS.md#adr-0092--picture-metadata-is-stripped-in-the-senders-browser-and-only-three-formats-are-claimed) | Picture metadata is stripped in the sender's browser, and only three formats are claimed |
+| [ADR-0092](../DECISIONS.md#adr-0092--image-metadata-is-stripped-in-the-browser-by-dropping-segments-rather-than-re-encoding) | Image metadata is stripped in the browser, by dropping segments rather than re-encoding |
 
 ### Security and abuse
 
@@ -107,6 +110,7 @@ or if a record is missing a section.
 | [ADR-0039](../DECISIONS.md#adr-0039--arithmetic-instead-of-a-captcha) | Arithmetic instead of a CAPTCHA |
 | [ADR-0049](../DECISIONS.md#adr-0049--ceilings-the-rate-limiter-cannot-enforce) | Ceilings the rate limiter cannot enforce |
 | [ADR-0057](../DECISIONS.md#adr-0057--uploads-stop-before-the-disk-does-and-trust_proxy-names-the-proxy) | Uploads stop before the disk does, and `TRUST_PROXY` names the proxy |
+| [ADR-0093](../DECISIONS.md#adr-0093--uploads-are-charged-in-bytes-against-a-bucket-that-has-no-owner-column) | Uploads are charged in bytes, against a bucket that has no owner column |
 
 ### Marketplace
 

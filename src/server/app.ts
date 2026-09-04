@@ -68,7 +68,7 @@ declare module "fastify" {
     /** Throws unless the request carries a valid session for an active account. */
     authenticate(request: FastifyRequest): Promise<SessionUser>;
     requireRole(request: FastifyRequest, roles: SessionUser["role"][]): Promise<SessionUser>;
-    limit(request: FastifyRequest, scope: LimitName): Promise<void>;
+    limit(request: FastifyRequest, scope: LimitName, cost?: number): Promise<void>;
     /**
      * Refuse the request unless its body carries a solved proof of work. Used by the
      * three endpoints a script attacks and an account cannot yet be charged for.
@@ -161,8 +161,16 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
     },
   );
 
-  app.decorate("limit", async (request: FastifyRequest, scope: LimitName): Promise<void> => {
-    await consume(db, config.bucketPepper, scope, limitSubject(request), config.rateLimits);
+  app.decorate("limit", async (request: FastifyRequest, scope: LimitName, cost = 1): Promise<void> => {
+    await consume(
+      db,
+      config.bucketPepper,
+      scope,
+      limitSubject(request),
+      config.rateLimits,
+      Date.now(),
+      cost,
+    );
   });
 
   app.decorate("requireWork", async (request: FastifyRequest): Promise<void> => {

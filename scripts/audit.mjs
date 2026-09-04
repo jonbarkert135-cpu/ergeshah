@@ -12,6 +12,8 @@
  *   node scripts/audit.mjs migrations  — migrations are ordered, and released ones are
  *                                        byte-for-byte what they were when released
  *   node scripts/audit.mjs supply      — lockfile, pinning and install-script policy
+ *   node scripts/audit.mjs cost        — the core deployment needs no paid service, no
+ *                                        API key and nothing hosted by anybody else
  *   node scripts/audit.mjs dependencies
  *                                      — every production dependency is justified in
  *                                        docs/DEPENDENCIES.md, licensed acceptably, and
@@ -31,6 +33,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// The egress audit lives next door; `audit.mjs` was past the 700-line ceiling.
+import { egress } from "./audit-egress.mjs";
+export { egress, isTelemetryPackage, scanEgress } from "./audit-egress.mjs";
 
 /** Anything that would make the browser reach a host we do not operate. */
 const EXTERNAL = [
@@ -97,7 +103,7 @@ export const scanBundle = (text) => scan(text, [...EXTERNAL, ...SECRETS]);
 export const scanSource = (text, path = "") =>
   scan(text, path.startsWith("test/") ? SECRETS.filter(([r]) => r !== "credential literal") : SECRETS);
 
-function report(findings) {
+export function report(findings) {
   for (const { file, rule, line, match } of findings) {
     console.error(`  ${file}:${line}  ${rule}: ${match}`);
   }
@@ -359,6 +365,7 @@ function supply() {
   for (const [path, entry] of Object.entries(lock.packages ?? {})) {
     if (!path || entry.link) continue;
     if (entry.resolved && !entry.integrity) problems.push(`${path}: no integrity hash in the lockfile`);
+    // audit:allow — the registry is where dependencies are installed from at build time, not a service the deployment calls.
     if (entry.resolved && !entry.resolved.startsWith("https://registry.npmjs.org/")) {
       problems.push(`${path}: resolved from ${entry.resolved} — only the public registry is expected`);
     }
@@ -463,110 +470,6 @@ function dependencies() {
   );
 }
 
-/**
- * Server-side egress (points 51, 52, 53).
- *
- * The client's outbound behaviour is audited by `bundle` and constrained by the CSP. The
- * server's was audited by reading, which is another way of saying it was not audited: the
- * application container has no route to the internet (`docs/NETWORK.md`), and that is a
- * property of the deployment file, not of this code — a developer running it outside Docker
- * has full egress and so does a compromised dependency.
- *
- * So: every call site that can leave this process must be in a file this list names, with the
- * reason it exists. A new one is a finding, not a review note. The inventory it prints is the
- * short version of the table in `docs/NETWORK.md`.
- */
-const EGRESS_ALLOWED = new Map([
-  [
-    "src/server/lib/monero.ts",
-    "view-only Monero wallet RPC, host from MONERO_WALLET_RPC_URL, three methods only (ADR-0070); optional — absent unless a deployment has a wallet tier",
-  ],
-  [
-    "scripts/payout-worker.mjs",
-    "the payout worker, on its own host: this platform's payout queue and its own wallet, both from its environment; optional",
-  ],
-  [
-    "scripts/backup.mjs",
-    "the restore drill fetches the throwaway server it just started on localhost; operator tool, never the running service",
-  ],
-  [
-    "scripts/audit.mjs",
-    "the deployment audit fetches the origin an operator names on the command line; operator tool",
-  ],
-]);
-
-/**
- * Anything that can open a connection from this process. Deliberately specific: `db.get(` and
- * `app.get(` are not egress, and a rule that cannot tell them apart is a rule that gets
- * switched off.
- */
-const OUTBOUND = [
-  ["outbound request", /\bfetch\s*\(|\b(?:https?|undici|axios|superagent|node-fetch)\s*\.\s*(?:request|get|post)\s*\(|\bgot\s*\(/g],
-  ["raw socket", /\bnet\s*\.\s*(?:connect|createConnection)\b|\bnew\s+WebSocket\b|\bnode:dgram\b/g],
-  ["name resolution", /\bnode:dns\b/g],
-];
-
-/** A host written into the source is a host nobody configured and nobody can turn off. */
-const LITERAL_HOST = [
-  ["hard-coded remote host", /["'`](?:https?|wss?):\/\/(?!localhost|127\.0\.0\.1|0\.0\.0\.0|\$\{)[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi],
-];
-
-/**
- * Two hosts that appear in the source and are not endpoints anything reaches: the XML
- * namespace every standalone SVG has to carry, and the registry name `audit supply` compares
- * the lockfile against.
- */
-const NOT_AN_ENDPOINT = /www\.w3\.org|registry\.npmjs\.org/i;
-
-/**
- * Packages whose entire purpose is to send somebody else data about your users. None of these
- * is in the tree; the check exists so that adding one is a failed build rather than a
- * dependency review nobody does (point 52).
- */
-const TELEMETRY = /(?:^|\/)(?:@sentry|@datadog|dd-trace|newrelic|@newrelic|bugsnag|@bugsnag|rollbar|posthog-|mixpanel|amplitude-|@segment|analytics-node|@amplitude|logrocket|fullstory|@elastic\/apm|@opentelemetry|appsignal|raygun|instabug)/i;
-
-export const scanEgress = (text) => scan(text, OUTBOUND);
-export const isTelemetryPackage = (name) => TELEMETRY.test(name);
-
-function egress() {
-  const tracked = execFileSync("git", ["ls-files", "-z", "src", "scripts"], { cwd: root, encoding: "utf8" })
-    .split("\0")
-    .filter(Boolean)
-    .filter((file) => /\.(ts|mjs|js)$/.test(file));
-
-  const findings = [];
-  const inventory = [];
-  for (const file of tracked) {
-    const text = readFileSync(join(root, file), "utf8");
-    // The client talks to its own origin through `api.ts`, which is what a web page does; the
-    // rule is about the server and the operator tools that run beside it.
-    const serverSide = file.startsWith("src/server/") || file.startsWith("scripts/");
-    const calls = serverSide ? scan(text, OUTBOUND) : [];
-    for (const call of calls) {
-      const reason = EGRESS_ALLOWED.get(file);
-      if (reason) inventory.push({ file, line: call.line, reason });
-      else findings.push({ ...call, file });
-    }
-    for (const literal of scan(text, LITERAL_HOST)) {
-      if (NOT_AN_ENDPOINT.test(literal.match)) continue;
-      findings.push({ ...literal, file });
-    }
-  }
-
-  const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
-  const packages = Object.keys(lock.packages ?? {});
-  for (const name of packages.filter((name) => TELEMETRY.test(name))) {
-    findings.push({ file: "package-lock.json", line: 1, rule: "telemetry package", match: name });
-  }
-
-  if (findings.length) report(findings);
-  for (const { file, line, reason } of inventory) console.log(`  ${file}:${line}  ${reason}`);
-  console.log(
-    `egress audit: ${inventory.length} outbound call site(s), all accounted for; ` +
-      `${packages.length} packages, no telemetry, no host written into the source`,
-  );
-}
-
 function secrets() {
   const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
     .split("\0")
@@ -581,6 +484,102 @@ function secrets() {
   console.log(`secret audit: ${tracked.length} tracked files, nothing that looks like a credential`);
 }
 
+/**
+ * Point 99: the cost audit. The promise is that a core deployment costs nothing but the
+ * VPS it runs on — no SaaS, no API key, no hosted database, no object store, no analytics
+ * — and a promise nobody checks is a promise until the first commit that quietly adds a
+ * client library for one.
+ *
+ * Three greps with that threat model attached: a dependency that is an SDK for somebody's
+ * service, a request in the code to a host we do not operate, and a configuration variable
+ * that is a credential for one. Anything the *operator* chooses to run themselves — their
+ * own PostgreSQL, their own Monero node, their own reverse proxy — is not a cost of the
+ * software and is listed rather than counted.
+ */
+const HOSTED_SERVICE_SDK =
+  /^(?:@aws-sdk\/|aws-sdk$|@google-cloud\/|@azure\/|firebase|@sentry\/|@datadog\/|dd-trace$|newrelic$|@segment\/|analytics-node$|mixpanel|amplitude|posthog|stripe$|@stripe\/|braintree|paypal|@sendgrid\/|nodemailer-sendgrid|mailgun|postmark|resend$|twilio|@twilio\/|@supabase\/|@clerk\/|auth0|@auth0\/|algolia|cloudinary|pusher|openai$|@anthropic-ai\/|@vercel\/|@planetscale\/|@upstash\/|@neondatabase\/|mongodb\+srv|contentful|recaptcha|hcaptcha)/i;
+
+/** Configuration that would be a credential for somebody else's service. */
+const HOSTED_SERVICE_ENV =
+  /\b(?:STRIPE|SENDGRID|MAILGUN|POSTMARK|TWILIO|SENTRY|DATADOG|NEWRELIC|SEGMENT|MIXPANEL|AMPLITUDE|POSTHOG|GOOGLE|GCP|AWS|AZURE|CLOUDFLARE|OPENAI|ANTHROPIC|RECAPTCHA|HCAPTCHA|AUTH0|CLERK|SUPABASE|ALGOLIA|CLOUDINARY|SMTP)_[A-Z0-9_]+/;
+
+/** Hosts the running software may name. Everything here is the operator's own machine. */
+const LOCAL_HOST = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|app|db|proxy|monerod|wallet)(?::\d+)?$/;
+
+/** Comments cite specifications by URL; only code that *runs* is evidence of a dependency. */
+function withoutComments(text) {
+  // Blanked, not deleted: the line numbers have to keep matching the file on disk, both for
+  // the report and for the `audit:allow` marker that is read from the original line.
+  const blank = (match) => match.replace(/[^\n]/g, " ");
+  return text.replace(/\/\*[\s\S]*?\*\//g, blank).replace(/(^|[^:])(\/\/[^\n]*)/g, (_, before, comment) => before + blank(comment));
+}
+
+function cost() {
+  const problems = [];
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+
+  for (const name of Object.keys(pkg.dependencies ?? {})) {
+    if (HOSTED_SERVICE_SDK.test(name)) {
+      problems.push(`${name}: a client for a hosted service — the core deployment may not require one`);
+    }
+  }
+
+  const tracked = execFileSync("git", ["ls-files", "-z", "src", "scripts", "deploy", ".env.example"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .split("\0")
+    .filter(Boolean);
+
+  for (const file of tracked) {
+    const text = readFileSync(join(root, file), "utf8");
+    if (file.endsWith(".env.example") || file === ".env.example") {
+      for (const match of text.matchAll(/^([A-Z][A-Z0-9_]*)=/gm)) {
+        if (HOSTED_SERVICE_ENV.test(match[1])) {
+          problems.push(`${file}: ${match[1]} configures a third-party service`);
+        }
+      }
+      continue;
+    }
+    const code = withoutComments(text);
+    for (const match of code.matchAll(/\b(?:https?|wss?):\/\/([a-z0-9.-]+)(?::[\d$][^\s"'`]*)?(?:\/[^\s"'`]*)?/gi)) {
+      const host = match[1];
+      if (LOCAL_HOST.test(host) || NAMESPACES.test(match[0])) continue;
+      const line = code.slice(0, match.index).split("\n").length;
+      const lines = text.split("\n");
+      // The waiver may sit on the line or in the comment directly above it, as everywhere else.
+      if (`${lines[line - 2] ?? ""}${lines[line - 1] ?? ""}`.includes("audit:allow")) continue;
+      problems.push(`${file}:${line}: names ${host}, a host this deployment does not operate`);
+    }
+    for (const match of text.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) {
+      if (HOSTED_SERVICE_ENV.test(match[1])) problems.push(`${file}: reads ${match[1]}`);
+    }
+  }
+
+  if (problems.length) {
+    for (const problem of problems) console.error(`  ${problem}`);
+    console.error(`\n${problems.length} finding(s): the zero-cost promise (docs/AUDIT.md) is broken.`);
+    process.exit(1);
+  }
+
+  console.log("cost audit:");
+  for (const line of [
+    "MANDATORY EXTERNAL SERVICES: 0",
+    "MANDATORY PAID APIS: 0",
+    "MANDATORY API KEYS: 0",
+    "MANDATORY CLOUD SERVICES: 0",
+    "MANDATORY THIRD-PARTY TRACKERS: 0",
+    "MANDATORY EXTERNAL DATABASES: 0",
+    "MANDATORY EXTERNAL STORAGE: 0",
+  ]) {
+    console.log(`  ${line}`);
+  }
+  console.log(
+    "  optional, and run by the operator on their own hardware: PostgreSQL, a Monero node\n" +
+      "  and wallet RPC, a reverse proxy. Infrastructure the operator chooses, not a fee.",
+  );
+}
+
 // Only when run as a command; the tests import the scanners.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
@@ -590,14 +589,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   else if (mode === "migrations") migrations(process.argv.includes("--update"));
   else if (mode === "supply") supply();
   else if (mode === "dependencies") dependencies();
+  else if (mode === "cost") cost();
   else if (mode === "egress") egress();
   else if (mode === "deployment") {
     const origin = process.argv[3];
+    // audit:allow — a usage string; the origin is the operator's own deployment, supplied on the command line.
     if (!origin) throw new Error("usage: node scripts/audit.mjs deployment https://host");
     await deployment(origin);
   } else {
     throw new Error(
-      `usage: node scripts/audit.mjs bundle|secrets|history|migrations|supply|dependencies|egress|deployment (got '${mode ?? ""}')`,
+      `usage: node scripts/audit.mjs bundle|secrets|history|migrations|supply|dependencies|cost|egress|deployment (got '${mode ?? ""}')`,
     );
   }
 }

@@ -159,9 +159,9 @@ that was not.
 
 | # | Pass | Finding | Severity | Status |
 | --- | --- | --- | --- | --- |
-| R-18 | Privacy | Nothing anywhere stripped image metadata. A photograph sent as an attachment, or delivered to a buyer, carried its GPS coordinates, camera body and editing history to the recipient — encrypted from the server, fully readable by the peer. For a seller photographing goods, that is a home address delivered with the order | **high** | **fixed** — ADR-0092: JPEG, PNG and WebP are rewritten in the sending browser before encryption; formats that cannot be cleaned are reported on the screen instead of implied clean; `test/images.test.ts`, `test/attachments.test.ts` |
+| R-18 | Privacy | Nothing anywhere stripped image metadata. A photograph sent as an attachment, or delivered to a buyer, carried its GPS coordinates, camera body and editing history to the recipient — encrypted from the server, fully readable by the peer. For a seller photographing goods, that is a home address delivered with the order | **high** | **fixed** — ADR-0092, `src/shared/media.ts`: JPEG, PNG and WebP are rewritten in the sending browser before encryption. This round found the same gap independently and its own stripper was dropped rather than shipped beside that one (`docs/CHANGE_REVIEW.md` §7: never two implementations of one thing); what it contributed instead is the three cases the walker did not yet handle — see R-29 |
 | R-19 | Storage / failure | Expired blobs were deleted only by the request handlers that touched them, so an instance with no traffic kept expired ciphertext indefinitely. The retention promise in `docs/DELETION.md` was conditional on load | medium | **fixed** — the sweep is an hourly housekeeping job as well; `test/jobs.test.ts` deletes an expired blob with no request at all |
-| R-20 | Storage | The free-space floor guarded bytes and nothing guarded the object *count*: a million small uploads cost little disk and a great deal of index, sweep and backup time | medium | **fixed** — `MAX_BLOB_ROWS`, checked in front of both blob writes, refused as `503 storage_full` |
+| R-20 | Storage | The free-space floor guarded bytes and nothing guarded the object *count*: a million small uploads cost little disk and a great deal of index, sweep and backup time | medium | **fixed** — `MAX_BLOB_ROWS`, checked in front of both blob writes, refused as `503 storage_full`. Complementary to the per-account byte budget shipped the same day (ADR-0093): that one bounds how much disk an account may fill, this one bounds how many rows everybody together may leave behind |
 | R-21 | Failure | `availableBytes` invented `MAX_SAFE_INTEGER` whenever `statfs` failed, so a data filesystem that had gone away *permitted* every upload instead of refusing it — the service accepted bytes into nothing | medium | **fixed** — repeated failures on a path that used to answer refuse blob writes with `503 storage_unavailable` and show `storage.ok: false`; a path that never answered is treated as a deployment where the check cannot run |
 | R-22 | Database / privacy | `docs/PRIVACY.md` said audit entries are kept "indefinitely" while housekeeping has pruned them at one year since the retention sweep existed. A privacy document overstating retention is the direction that fails badly | low | **fixed** — the retention summary is now the five columns the brief asks for (data, purpose, retention, delete condition, access), with the real value |
 | R-23 | Auth / database | `lib/audit.ts` claimed a test asserted the audit log holds no plaintext, key or token. No such test existed — the claim was three years of good intentions in a docstring | medium | **fixed** — `test/moderation.test.ts` fills every free-text field a privileged action takes with an address and a phone number and asserts no `audit_log` column carries it |
@@ -169,6 +169,7 @@ that was not.
 | R-25 | Dependency / network | Client egress was mechanically audited; the *server's* was audited by reading. The "no egress at all" property is a fact about the compose file, not about the source — a developer outside Docker, or a compromised dependency, has a full route out | medium | **fixed** — `npm run audit:egress`: every outbound call site named with its reason, no host written into the source, no telemetry package in the lockfile |
 | R-26 | Container / network | `app` → wallet RPC is authenticated by network position alone (`--disable-rpc-login`) | low | **accepted** — the compensating controls (view key, no published port, `internal: true`) and the reason not to hand-write digest auth are in `docs/NETWORK.md` §Internal callers; roadmap OPS-8 |
 | R-27 | Backup | The backup policy covered the database well and said almost nothing about *secrets*: where the backup key's copy belongs, and what to do about the pepper, the worker token and the wallet password | low | **fixed** — `docs/BACKUPS.md` §The security backup policy, plus a lifecycle table for the one key with no envelope around it |
+| R-29 | Privacy | Three gaps in the metadata stripper as first written: a JPEG with bytes appended after its end-of-image marker made the walker give up and return the file **with its EXIF intact** (a trailer is exactly where a second copy of the block hides); the dispute-evidence digest hashed the file the seller chose while the buyer received the stripped one, so a legitimate commitment could not be matched afterwards; and a format the walker cannot clean — HEIC from any iPhone — was passed through silently, with nothing on the screen saying so | medium | **fixed** — the walker cuts at the end marker, `orderDigest` strips before it hashes, and `stripImageMetadata` reports whether it cleaned the file so the two screens can say when it did not; `test/images.test.ts` |
 | R-28 | Failure | Degraded behaviour was real in code (wallet down, notifications down, one sweep failing, disk low) and written down nowhere, so nobody could tell which failures are survivable by design | low | **fixed** — `docs/OBSERVABILITY.md` §Degraded mode, one row per component, plus a state per component on the health endpoint |
 
 ### What each pass looked at
@@ -197,18 +198,27 @@ that was not.
 
 ### What this round did not do
 
-- **No per-account storage quota.** The ceiling is global, because a per-account quota needs an
-  owner column on the blob tables — which is exactly the column that makes attachments
-  attributable (`docs/SELF_CRITIQUE.md`). The trade is stated there and unchanged.
-- **No metadata stripping for HEIC, AVIF, TIFF, raw, video, PDF or SVG.** Those pass through and
-  say so on the screen. HEIC in particular is what an iPhone produces by default, which makes
-  this the largest remaining privacy gap in the file path (roadmap UI-4).
+- **A per-account quota, but not a total.** It arrived the same day from the other direction:
+  ADR-0093 charges an upload in *bytes* against the account's own token bucket, which needs no
+  owner column and so keeps the property ADR-0043 and ADR-0057 protected. Between that, the
+  global row ceiling (R-20) and the free-space floor, what is still missing is a shorter default
+  lifetime for attachments — the remaining half of roadmap OPS-5.
+- **No metadata stripping for HEIC, AVIF, TIFF, raw, video, PDF or SVG.** Those pass through, and
+  now say so on the screen rather than silently (R-29). HEIC in particular is what an iPhone
+  produces by default, which makes this the largest remaining privacy gap in the file path
+  (roadmap UI-4).
 - **No PostgreSQL backup script.** `docs/BACKUPS.md` describes `pg_dump` and the same rules, but
   only the SQLite path has a script and a tested drill. A deployment on PostgreSQL is following
   prose, not running code (roadmap OPS-9).
 - **No advisory lock around boot-time migrations.** Two instances starting at once would both
   run `migrate()`. Harmless today (one host, one process) and wrong the moment the scale mode
   above is used (roadmap OPS-10).
-- **No fuzzing of the container walkers.** `src/shared/images.ts` parses hostile input in the
-  browser and is written to refuse rather than guess, with unit cases per format — but it has not
-  been fuzzed, and that is the obvious next step for it.
+- **No fuzzing of the container walker.** `src/shared/media.ts` parses hostile input in the
+  browser and is written to return the file unchanged rather than guess, with unit cases per
+  format — but it has not been fuzzed, and that is the obvious next step for it.
+
+One process note, since it is the more useful finding: two of these passes were run twice, in
+parallel, by two agents against the same brief, and both wrote a metadata stripper. The second
+one was deleted in the merge rather than kept beside the first, which is what
+`docs/CHANGE_REVIEW.md` §7 requires — but the cost was a day's duplicated work, and the cheap
+prevention is to claim a block in `docs/ROADMAP.md` or a commit before writing code for it.

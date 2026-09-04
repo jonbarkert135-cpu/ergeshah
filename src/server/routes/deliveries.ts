@@ -66,6 +66,12 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
       ? null
       : asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
     if (ciphertext) {
+      // Three ceilings, and they answer different questions: the byte budget stops one
+      // account being the reason the disk fills (ADR-0093), the free-space floor keeps the
+      // service alive when it is nearly full anyway (ADR-0057), and the row ceiling bounds
+      // the object *count*, which bytes do not — a million tiny blobs cost little disk and
+      // plenty of index, sweep and backup time.
+      await app.limit(request, "upload_bytes", ciphertext.length);
       await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
       await requireBlobHeadroom(db, config.maxBlobRows);
     }
@@ -154,9 +160,11 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     onlyKeys(body, ["id", "ciphertext"]);
     const id = asId(body.id, "id");
     const ciphertext = asBase64Url(body.ciphertext, "ciphertext", config.maxDeliveryBytes);
-    // Uploads are the only requests that turn somebody else's bytes into disk, and the
-    // rate limiter cannot see disk (docs/SELF_CRITIQUE.md, finding 1). Bytes first, then the
-    // object count: a million small blobs cost little disk and plenty of everything else.
+    // Uploads are the only requests that turn somebody else's bytes into disk, and until
+    // ADR-0093 the rate limiter could not see disk (docs/SELF_CRITIQUE.md, finding 1): now
+    // the account pays for the bytes, the floor still protects the service from all of them
+    // together, and the row ceiling bounds the count the bytes do not.
+    await app.limit(request, "upload_bytes", ciphertext.length);
     await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
     await requireBlobHeadroom(db, config.maxBlobRows);
     const now = Date.now();

@@ -1,4 +1,4 @@
-import { clear, confirmDialog, el, emptyState, formDialog, notice, toast } from "../ui.ts";
+import { clear, confirmDialog, el, emptyState, focusAnchor, formDialog, notice, say, toast } from "../ui.ts";
 import {
   conversations,
   deleteConversation,
@@ -72,6 +72,9 @@ export function renderChat(root: HTMLElement): void {
   drawPanel();
 
   function drawList() {
+    // Picking a conversation, or typing into the search box, rebuilds this whole column.
+    // Without an anchor the keyboard ends up on `<body>` after every keystroke.
+    const restore = focusAnchor(list);
     clear(list);
     // Search runs here, in the browser, over messages this device has already decrypted
     // (point 79). There is no server-side search of private messages and no route that
@@ -88,9 +91,6 @@ export function renderChat(root: HTMLElement): void {
     search.addEventListener("input", () => {
       query = search.value;
       drawList();
-      // Focus survives the redraw: retyping into a box that lost the cursor is not search.
-      search.focus();
-      search.setSelectionRange(search.value.length, search.value.length);
     });
     list.append(
       el(
@@ -112,6 +112,7 @@ export function renderChat(root: HTMLElement): void {
             : `${hits.length} on this device${hits.length === 50 ? " (first 50)" : ""}`,
         ),
       );
+      say(hits.length === 0 ? "Nothing on this device matches" : `${hits.length} matches on this device`);
       for (const hit of hits) {
         list.append(
           el(
@@ -127,6 +128,7 @@ export function renderChat(root: HTMLElement): void {
           ),
         );
       }
+      restore();
       return;
     }
 
@@ -153,9 +155,13 @@ export function renderChat(root: HTMLElement): void {
         ),
       );
     }
+    restore();
   }
 
   function drawPanel() {
+    // Deleting a message, dismissing a banner or sending redraws the panel; the composer
+    // and its caret are found again by name on the other side.
+    const restore = focusAnchor(panel);
     clear(panel);
     const conversation = conversations().find((item) => item.channel === selectedChannel);
     if (!conversation) {
@@ -309,6 +315,7 @@ export function renderChat(root: HTMLElement): void {
       status,
     );
     messages.scrollTop = messages.scrollHeight;
+    restore();
     // A read receipt is sent only if this account turned them on; `sendReadReceipt`
     // decides, and it sends at most one per batch of new messages.
     void sendReadReceipt(conversation).catch(() => {});

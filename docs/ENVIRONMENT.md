@@ -107,13 +107,16 @@ what each one protects.
 
 ### `RATE_LIMITS`
 
-Sixteen scopes: `register`, `login`, `account_attempt`, `recovery`, `sensitive`,
-`message_send`, `attachment`, `seller_application`, `listing_write`, `order_write`, `review`,
-`moderation`, `search`, `key_bundle`, `read`, `write`. Each has a `burst` (tokens available at once) and
+Eighteen scopes: `register`, `login`, `account_attempt`, `recovery`, `sensitive`,
+`message_send`, `send_tokens`, `attachment`, `upload_bytes`, `seller_application`,
+`listing_write`, `order_write`, `review`, `wallet_write`, `moderation`, `search`,
+`key_bundle`, `read`, `write`. Each has a `burst` (tokens available at once) and
 `perMinute` (refill rate). `key_bundle` is separate from `read` because claiming a prekey
 bundle *consumes* one of the target's one-time prekeys (ADR-0035). `attachment` is separate
-from `message_send` because an attachment is megabytes and there is no per-account quota to
-charge it against — the bucket *is* the quota (`docs/MODERATION.md`).
+from `message_send` because an attachment is megabytes, and it bounds how *often* one may be
+posted; `upload_bytes` bounds how much disk an account may fill, and its tokens are **bytes
+of ciphertext** rather than requests — 128 MiB of burst refilling at 2 MiB a minute
+(ADR-0093, `docs/STORAGE.md`).
 Override any subset:
 
 ```

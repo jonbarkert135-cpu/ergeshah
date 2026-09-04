@@ -6,6 +6,7 @@
  * operation, they are counted against the account rather than the address, and they can be
  * changed by an operator without changing the code.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { register, startTestServer, TestClient, type TestServer } from "./helpers.ts";
 import { DEFAULT_LIMITS, resolveLimits } from "../src/server/lib/rate_limit.ts";
@@ -223,5 +224,64 @@ describe("client data is canonicalised before it is trusted", () => {
     expect(asUsername("\uFF41\uFF4C\uFF49\uFF43\uFF45")).toBe("alice");
     expect(() => asUsername("alice smith")).toThrow();
     expect(() => asUsername("-alice")).toThrow();
+  });
+});
+
+/**
+ * ADR-0093: the same uploads, charged in bytes.
+ *
+ * The `attachment` bucket bounds how *often* a blob may be posted; this one bounds how much
+ * disk an account may turn into rows, which is what the operator pays for. It is still a
+ * rate-limit bucket — an HMAC of the account under a daily pepper — so nothing here links
+ * an account to a blob it uploaded.
+ */
+describe("uploads are charged in bytes, not only in requests", () => {
+  it("refuses the upload that would spend more than the account has left, and says when to retry", async () => {
+    const tight = await startTestServer({
+      // Room for two 4 kB blobs and not a third, refilling slowly enough to observe.
+      rateLimits: { ...DEFAULT_LIMITS, upload_bytes: { burst: 12_000, perMinute: 60 } },
+    });
+    try {
+      const user = await register(tight, "byte-budget");
+      const blob = Buffer.alloc(4096, 3).toString("base64url");
+      const id = () => Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
+
+      expect((await user.post("/api/attachments", { id: id(), ciphertext: blob })).status).toBe(200);
+      expect((await user.post("/api/attachments", { id: id(), ciphertext: blob })).status).toBe(200);
+
+      const refused = await user.post<{ error: string; retryAfterSeconds: number }>(
+        "/api/attachments",
+        { id: id(), ciphertext: blob },
+      );
+      expect(refused.status).toBe(429);
+      expect(refused.body.error).toBe("rate_limited");
+      expect(refused.body.retryAfterSeconds).toBeGreaterThan(0);
+
+      // A different account is unaffected, and reads are unaffected for both.
+      const bystander = await register(tight, "byte-bystander");
+      expect((await bystander.post("/api/attachments", { id: id(), ciphertext: blob })).status).toBe(200);
+      expect((await user.get("/api/market/listings")).status).toBe(200);
+    } finally {
+      await tight.close();
+    }
+  });
+
+  it("charges an order delivery from the same budget", async () => {
+    const tight = await startTestServer({
+      rateLimits: { ...DEFAULT_LIMITS, upload_bytes: { burst: 1_000, perMinute: 1 } },
+    });
+    try {
+      const seller = await register(tight, "byte-seller");
+      const refused = await seller.post("/api/attachments", {
+        id: Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url"),
+        ciphertext: Buffer.alloc(4096, 1).toString("base64url"),
+      });
+      expect(refused.status).toBe(429);
+      // The delivery route reaches the same bucket: one budget for every byte an account stores.
+      expect(readFileSync(new URL("../src/server/routes/deliveries.ts", import.meta.url), "utf8"))
+        .toContain('app.limit(request, "upload_bytes", ciphertext.length)');
+    } finally {
+      await tight.close();
+    }
   });
 });

@@ -3,9 +3,9 @@ import { clear, el, emptyState, errorState, formDialog, notice, price as formatP
 import { receiveMessages, sendDeliveryKey } from "../messaging.ts";
 import { persistVault, state } from "../state.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
+import { stripImageMetadata } from "../../shared/media.ts";
 import { fromBase64Url, toBase64Url } from "../../shared/encoding.ts";
 import { safeFileName } from "../../shared/uploads.ts";
-import { stripImageMetadata } from "../../shared/images.ts";
 
 interface Order {
   id: string;
@@ -63,10 +63,11 @@ const EVIDENCE_KINDS: Array<[value: string, label: string]> = [
  * two parties and, in a dispute, the moderator.
  */
 async function orderDigest(orderId: string, bytes: Uint8Array): Promise<string> {
-  // The digest covers the bytes that were *delivered*, which are the stripped ones — the
-  // stripper is idempotent, so a party checking a file they received computes the same value
-  // as the party who sent it.
-  const { bytes: exchanged } = stripImageMetadata(bytes);
+  // The digest covers the bytes that are *delivered*, which are the stripped ones (ADR-0092):
+  // `deliver` cleans a picture before it encrypts it, so a commitment over the original file
+  // would never match the file the counterparty holds. Stripping is idempotent, so the party
+  // checking a file they received computes the same value as the party who sent it.
+  const exchanged = stripImageMetadata(bytes);
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(orderId),
@@ -332,18 +333,9 @@ export function renderOrders(root: HTMLElement): void {
   }
 
   async function deliver(order: Order, plaintext: Uint8Array, name: string, kind: "file" | "text"): Promise<void> {
-    // A seller photographing the goods is the likeliest way a home address reaches a buyer,
-    // so a delivered picture loses its metadata here, before it is encrypted (point 88).
-    const image = stripImageMetadata(plaintext);
-    if (image.mayCarryMetadata) {
-      body.append(
-        notice(
-          "This file type still carries whatever metadata it came with — location and camera details are not removed from it. Convert it to JPEG or PNG first if that matters.",
-          "info",
-        ),
-      );
-    }
-    const { key, nonce, ciphertext } = encryptFile(order.id, image.bytes);
+    // A delivered photograph reaches the buyer with whatever the camera wrote into it, and
+    // encryption does not help there: the buyer holds the key (src/shared/media.ts).
+    const { key, nonce, ciphertext } = encryptFile(order.id, stripImageMetadata(plaintext));
     await api(`/api/market/orders/${order.id}/delivery`, {
       method: "POST",
       body: { ciphertext: toBase64Url(ciphertext) },

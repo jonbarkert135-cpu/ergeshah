@@ -142,6 +142,51 @@ DATABASE_URL=postgres://symvolon:STRONG_PASSWORD@db:5432/symvolon
 Same schema, same SQL, same migrations. Use PostgreSQL when you expect concurrent write
 load or want streaming backups; SQLite is genuinely fine for a small instance.
 
+### Least privilege (ADR-0095)
+
+Do not hand the application a superuser. `deploy/postgres-roles.sql` creates the two roles a
+deployment needs and nothing more:
+
+```bash
+psql "$ADMIN_URL" -v app_password="'…'" -v backup_password="'…'" -f deploy/postgres-roles.sql
+```
+
+- `symvolon_app` owns one schema, has no rights outside it, and is `NOSUPERUSER
+  NOCREATEDB NOCREATEROLE NOBYPASSRLS`. It owns its schema because it applies its own
+  migrations at boot.
+- `symvolon_backup` may `SELECT` and nothing else; it is what `pg_dump` connects as.
+- `PUBLIC` loses `CONNECT` on the database and everything on `public`, so a role that
+  appears later inherits no access by accident.
+
+The database listens on the internal Docker network only and is never published to the
+internet (`docs/NETWORK.md`).
+
+## Deployment profiles (ADR-0096)
+
+Two supported shapes, one architecture. The code is identical in both — the difference is
+which processes share a machine — so moving from one to the other is configuration, not a
+rewrite, and nothing below needs Kubernetes.
+
+| | **Single VPS** (the default) | **Scale mode** |
+| --- | --- | --- |
+| Orchestration | `deploy/docker-compose.yml` — app, proxy, optionally PostgreSQL and the Monero services | The same compose file split across hosts, or any orchestrator; no manifest in this repository is required |
+| Database | SQLite file on the app's volume, or PostgreSQL beside it | PostgreSQL on its own host, reachable only from the app's network, with the roles above |
+| Storage | rows in that database | rows in that database — blobs are not files, so "a storage node" is the database tier growing, not a new component (`docs/STORAGE.md`) |
+| Cache | none. Sessions, buckets and challenges are rows with expiries | still none: adding Redis would add a second store holding session and challenge material, and it buys nothing until the database is the bottleneck (ADR-0095) |
+| Workers | the housekeeping interval inside the app process; the payout worker on another host, always (ADR-0070) | the same, plus a second app instance if request volume needs one — the jobs are idempotent sweeps, and the durable queues are database tables |
+| Monero | `monerod` and a view-only `monero-wallet-rpc` on the internal network | the node on its own host; the spend key stays on the payout host and nowhere else |
+
+What does *not* change between them: the trust boundaries, the migrations, the audits, and
+the rule that the application makes no outbound requests (ADR-0081). A deployment that needs
+more than this is not a bigger version of this design; it is a different one, and it should
+be recorded as such.
+
+And what scale mode is *for*, said plainly because the question comes up: performance, fault
+isolation, and surviving the loss of one machine. It is not for spreading a deployment across
+jurisdictions to make an unlawful service harder to reach. This is a privacy product, not a way
+to hide illegal activity (`README.md`, `docs/MODERATION.md`), and a topology chosen for that
+purpose is outside what this documentation supports.
+
 ## Tor onion service
 
 Two reasons to run one: users who do not want to reveal their address to your proxy or to
@@ -330,29 +375,3 @@ message-encryption key, no vault key and no signing key on the server to rotate,
 none exists there — that is the whole architecture (`docs/ARCHITECTURE.md`). The worst a
 leaked server secret does is let someone forge rate-limit buckets or reach the database;
 neither yields a plaintext message.
-
-## Optional scale mode: one VPS first, more hosts only if the load asks (points 62, 63)
-
-One VPS is the supported deployment and the one this documentation walks through: two
-containers, SQLite by default, no Kubernetes, no managed service, no paid infrastructure
-(`docs/AUDIT.md` §The zero-cost audit). Nothing in the product requires more, and the
-single-host path is tested — `test/deployment.test.ts` reads the compose file this page
-describes.
-
-When one host stops being enough, these are the pieces that can move, in the order that buys
-the most for the least new surface. Each is a *scale* decision, and each keeps the security
-properties above or it does not happen:
-
-| Component | Move it when | What must stay true |
-| --- | --- | --- |
-| PostgreSQL | The database is the bottleneck, or you want it to survive the app host | No published port: a private network or an SSH tunnel, TLS on the connection, its own credentials. `docs/NETWORK.md` says why 5432 is never on the internet |
-| The payout worker | Always, if Monero payouts are enabled — this one is a security move, not a scale one (ADR-0070) | It pulls; nothing calls it. Its own bearer token, its own host, the only spend key |
-| `monerod` / wallet RPC | The node's sync or disk is competing with the application | Only `app` can reach the wallet; only the node has egress; the wallet stays view-only |
-| The reverse proxy | You need more than one application instance behind it | Sessions are database rows, not process memory, so a second app instance needs no sticky routing and no shared cache |
-| A second application instance | CPU on the app tier is the limit | The hourly housekeeping must run on **one** of them (they are idempotent, so a double run is harmless, but a doubled sweep is wasted work); both need the same secrets and the same database |
-
-What multi-node is **for**: performance, fault isolation, and being able to lose one machine
-without losing the service. What it is explicitly **not** for: spreading a deployment across
-jurisdictions to make an unlawful service harder to reach. This project is a privacy product,
-not a way to hide illegal activity (`README.md`, `docs/MODERATION.md`), and a scale topology
-chosen for that purpose is outside what this documentation supports.

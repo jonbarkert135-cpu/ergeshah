@@ -27,7 +27,8 @@ that needed its own error style or its own parser would be a defect, not a row.
 | Key directory and prekeys | `messaging.ts` | `routes/keys.ts` (6 routes) | `devices`, `one_time_prekeys`, `vaults` | Session required to publish; bundles readable by any account, rate-limited | `protocol.test.ts`, `verification.test.ts`, `trust.test.ts` | `docs/CRYPTO.md`, `docs/API.md` |
 | Messaging (X3DH + Double Ratchet) | `views/chat.ts`, `messaging.ts` | `routes/messages.ts` | `envelopes` | Sender authenticated; envelopes readable only by the addressed device | `messaging.test.ts`, `protocol.test.ts`, `delivery.test.ts`, `padding.test.ts` | `docs/CRYPTO.md`, `docs/METADATA.md` |
 | Safety numbers and key-change warnings | `verification.ts`, `views/chat.ts` | (client-side; keys come from the directory) | `devices` | n/a — a comparison the user performs | `verification.test.ts`, `trust.test.ts` | `docs/CRYPTO.md` §Safety numbers |
-| Attachments, with picture metadata stripped in the browser | `views/chat.ts`, `../shared/images.ts` | `routes/deliveries.ts` | `attachments` | Owner or addressee; size, rate and free-space limits | `attachments.test.ts`, `uploads.test.ts`, `images.test.ts`, `limits.test.ts` | `docs/API.md`, `docs/METADATA.md` §What a picture carries, ADR-0092 |
+| Attachments | `views/chat.ts` | `routes/deliveries.ts` | `attachments` | Owner or addressee; size, rate, per-account byte budget, object ceiling and free-space limits | `attachments.test.ts`, `uploads.test.ts`, `jobs.test.ts`, `limits.test.ts` | `docs/API.md`, `docs/STORAGE.md`, `docs/THREAT_MODEL.md` §Hostile uploads |
+| Image metadata stripping | `messaging.ts`, `views/orders.ts` (`shared/media.ts`) | — client-side by construction | — | Runs before encryption on both upload paths | `uploads.test.ts` | `docs/STORAGE.md` §Image metadata, ADR-0092 |
 | Marketplace: seller applications, listings | `views/market.ts` | `routes/market.ts` (12 routes) | `sellers`, `seller_applications`, `listings`, `listing_terms` | Seller role for writes, ownership per row | `market.test.ts`, `search.test.ts` | `docs/API.md`, `docs/PRIVACY.md` |
 | Orders, delivery, disputes | `views/orders.ts` | `routes/market.ts`, `routes/deliveries.ts` | `orders`, `order_events`, `deliveries` | Buyer or seller, and a state machine on the server | `market.test.ts`, `payments.test.ts` | `docs/PAYMENTS.md` |
 | Balances, escrow and payouts | `views/wallet.ts` | `routes/wallet.ts` (5 routes), `lib/ledger.ts` | `balances`, `ledger_entries`, `deposits`, `deposit_addresses`, `withdrawals` | Owner only for a balance; escrow moves with the order's own state machine; payouts above an account's limit need an admin, and the app holds no spend key | `wallet.test.ts`, `payments.test.ts` | `docs/PAYMENTS.md`, ADR-0066 |
@@ -60,8 +61,10 @@ Stated here rather than left for a reader to notice:
 
 - **Metrics are in memory** (`docs/SELF_CRITIQUE.md` finding 6): a restart loses them, and
   they are per-process. Acceptable for one VPS, wrong the day there are two.
-- **Storage accounting is per-write, not per-account** (roadmap OPS-5): the free-space floor
-  protects the disk; nothing yet caps how much of it one account can occupy.
+- **Storage accounting bounds the rate, not the total** (roadmap OPS-5): an account is now
+  charged in bytes for what it uploads (ADR-0093), so filling the disk costs it an allowance
+  — but an account that spends that allowance every day still accumulates blobs until they
+  expire. A shorter default lifetime for attachments is the remaining half.
 - **Attachments are fetched by id** (finding 4): the id is a capability, and a leaked id is a
   leaked file. A deliberate trade, recorded rather than hidden.
 - **The onion address and the deployment itself have never run outside a rehearsal**

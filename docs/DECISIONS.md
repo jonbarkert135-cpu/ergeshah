@@ -3066,46 +3066,141 @@ while this device has never contacted them shows nothing until the next send or 
 And because the record lives in the vault, it travels with the account through recovery and
 device linking, but a browser with a cleared vault starts again at trust on first use.
 
-## ADR-0092 — Picture metadata is stripped in the sender's browser, and only three formats are claimed
+## ADR-0092 — Image metadata is stripped in the browser, by dropping segments rather than re-encoding
 
 **Status:** accepted (2026-09-04)
 
-**Context.** Everything in this project protects a file from the *server*. Nothing protected it
-from the recipient: an attachment or a delivery reached the other party with its EXIF intact —
-GPS coordinates, camera body and serial number, editing software, and sometimes a thumbnail
-holding an older version of the image. For a seller photographing goods, that is a home
-address delivered with the order; for a conversation, it is a location history exchanged by
-people who chose this product specifically to avoid one. The server cannot fix it: it holds
-ciphertext, and the only place the plaintext exists is the two browsers.
+**Context.** Point 17: images must be cleaned of GPS coordinates, EXIF, camera model, serial
+numbers, embedded thumbnails and software tags. Attachments and deliveries are encrypted
+client-side, so the *operator* never sees any of that — but the person on the other end
+decrypts the file and gets everything the camera wrote into it. End-to-end encryption is not
+a defence against the recipient, and until now nothing removed the metadata at all.
 
-**Decision.** `src/shared/images.ts` walks the container and rewrites it without the segments
-that carry metadata — JPEG `APPn` (n ≥ 1) and comments, PNG `eXIf`/`tEXt`/`iTXt`/`zTXt`/`tIME`,
-WebP `EXIF`/`XMP ` with the `VP8X` flags corrected — and it runs on the sending side, before
-`encryptFile`. It is called inside `sendAttachment` and `deliver` rather than in the views, so
-a future screen cannot forget it, and inside `orderDigest`, so the evidence commitment covers
-the bytes the counterparty actually receives (ADR-0074). It is idempotent, which is what makes
-those two uses agree.
+**Decision.** `src/shared/media.ts` rewrites the container before the bytes are encrypted, on
+both upload paths (`sendAttachment` and the order delivery). JPEG loses APP1 (EXIF, XMP),
+APP3–APP13, APP15, COM and an APP2 that is a multi-picture index; PNG keeps only its critical
+chunks, the ancillary chunks a decoder needs to draw correctly, and the three animation
+chunks; WebP loses `EXIF` and `XMP ` and has its RIFF length rewritten. Anything else — and
+anything malformed — is returned byte for byte.
 
-Formats outside those three are passed through untouched and reported as `mayCarryMetadata`,
-and the screen says so. A container this walker cannot parse — truncated, unusual, or simply
-not what its magic bytes suggested — is also passed through rather than rewritten: a corrupted
-photograph is a worse outcome than a photograph with metadata in it, and the caller is told
-which one it got.
+**Rejected:** decoding and re-encoding through a canvas, which is the textbook answer (point
+16). It needs a browser API in code that is otherwise pure, loses a generation of quality on
+every JPEG, turns an animated GIF into a still, and removes nothing this does not — the
+threat is the metadata block, not the pixels. Doing it on the server, which cannot: the bytes
+arrive as ciphertext. Refusing formats we cannot parse, which would break sending a PDF to
+protect a photograph.
 
-**Rejected.** *Re-encoding through a canvas*, which strips everything by decoding and drawing:
-it needs a DOM in code that also runs in tests, loses image quality on every send, and turns a
-byte walk into a decode of hostile input inside the browser. *Stripping on the server*, which
-is impossible here by construction and would require breaking end-to-end encryption to become
-possible — the same trade this project refuses for malware scanning (`docs/THREAT_MODEL.md`).
-*Blocking formats we cannot clean*: refusing a HEIC would push people to send screenshots of
-photographs, which is worse for them and no better for us. *Keeping `APP2`* to preserve ICC
-colour: the same segment carries Apple's multi-picture data, which can hold a second copy of
-the image with its own EXIF.
+**Consequences.** A picture sent from a phone no longer carries where it was taken. The claim
+stops there and `docs/STORAGE.md` says so: faces, screens, street signs, filenames and
+anything steganographic survive, and stripping metadata is not anonymity. Files this code
+does not understand pass through unchanged, which is a deliberate false negative rather than
+a corrupted file.
 
-**Consequences.** A wide-gamut JPEG may render slightly differently after stripping, because
-its colour profile is gone. HEIC, HEIF, AVIF, TIFF, raw, video, PDF and SVG are unchanged and
-say so on the screen, which is a real gap and now a visible one rather than a silent one. The
-stripper is parsing code on the client, so it is written to refuse rather than guess, and
-`test/images.test.ts` asserts both halves of the property for every format: the metadata is
-gone, and the picture is byte-for-byte the same.
+## ADR-0093 — Uploads are charged in bytes, against a bucket that has no owner column
 
+**Status:** accepted (2026-09-04)
+
+**Context.** Point 14 asks for a per-user upload limit and an optional storage quota. Twice
+before (ADR-0043, ADR-0057) a per-account quota was refused for the same good reason: it
+needs an `owner` column on `attachments`, and that column is the social graph written down.
+The consequence was on the roadmap as OPS-5 — the `attachment` bucket limits *calls*, so an
+account inside the limit can still store roughly 900 MB an hour, and the free-space floor
+only decides who gets the outage.
+
+**Decision.** Charge the rate limiter in bytes. `consume()` takes a `cost`, and the new
+`upload_bytes` scope spends one token per byte of ciphertext on both blob routes: 128 MiB of
+burst, refilling at 2 MiB a minute. The bucket is what every other limit is — an HMAC of the
+account under a pepper that rotates daily, in `rate_limits` — so it charges an account
+without ever linking that account to a blob, and yesterday's usage cannot be joined to
+today's. Over the allowance the answer is `429` with `retryAfterSeconds`, not a silent
+truncation.
+
+**Rejected:** an owner column with a quota per account (the original objection stands, and
+this achieves the operational half without it); summing stored bytes per upload (a scan on
+the hot path, and it would not see the WAL or the backups); a hard cap that never refills,
+which turns a busy month into a permanent lockout.
+
+**Consequences.** A script filling the disk now pays for every byte, not every request, and
+an operator has one number to tune per deployment (`RATE_LIMITS`). The limit is per day-ish
+rather than a true quota: an account that uploads its allowance every day for a month still
+stores a month of blobs, bounded by `DELIVERY_TTL_MS`. That remainder is what stays on the
+roadmap as OPS-5 — a shorter default lifetime for attachments.
+
+## ADR-0094 — The zero-cost promise is a check, not a sentence in a README
+
+**Status:** accepted (2026-09-04)
+
+**Context.** Point 0 and point 99: the core software must cost nothing — no mandatory SaaS,
+API key, cloud database, object store, analytics, mail or CAPTCHA provider — and the project
+should be able to *print* that as a result. The promise was documented (`docs/AUDIT.md`) and
+enforced only by review, which is the same as not enforced.
+
+**Decision.** `npm run audit:cost`, folded into `npm run audit` so CI needs no change. Three
+greps with a threat model: a production dependency whose name is an SDK for somebody's
+hosted service, a URL in code (not in a comment) naming a host this deployment does not
+operate, and a configuration variable that would be a credential for one. It then prints the
+seven `MANDATORY …: 0` lines the brief asks for, and lists what an operator may optionally
+run on their own hardware — PostgreSQL, a Monero node, a reverse proxy — because that is
+infrastructure they chose, not a fee.
+
+**Rejected:** a hand-maintained list of allowed dependencies (it rots, and it says nothing
+about the code); scanning documentation for URLs, which would fail on every citation and
+teach people to delete citations.
+
+**Consequences.** Adding a dependency on a hosted service now fails the push rather than the
+conversation. A legitimate exception needs an `audit:allow` comment with a reason, which is
+visible in review — the same escape hatch the other audits use.
+
+## ADR-0095 — Compartmentalisation without a distributed system: one database, least privilege, no cache
+
+**Status:** accepted (2026-09-04)
+
+**Context.** Points 3–7 ask for compartmentalised domains, PostgreSQL in production,
+segmented data with separate schemas and roles, partitioning where it helps, and a cache for
+ephemeral state. This service is a modular monolith on one VPS by design (ADR-0012), and the
+question is which of those are engineering and which are cargo.
+
+**Decision.** Take the two that reduce blast radius on a single host and refuse the rest,
+with reasons. `deploy/postgres-roles.sql` creates a non-superuser application role that owns
+one schema and has no rights outside it, plus a read-only role for `pg_dump`; `PUBLIC` loses
+`CONNECT` and everything on `public`. Domain boundaries stay module boundaries, enforced by
+`test/architecture.test.ts` on every import rather than by a network hop.
+
+**Rejected:** a schema or a database per domain — the application would hold every one of
+those credentials in the same process, so it buys separation on paper and costs joins, two
+connection pools and a migration runner per schema; **partitioning** of `audit_log` or
+`security_events`, because retention already deletes what partitioning would drop and the
+tables are counters, not event streams (revisit when one exceeds tens of millions of rows);
+**Redis or any cache server**, because sessions, challenges, buckets and queues are rows with
+expiries today, and a cache would add a second store holding exactly the material point 7
+says must not persist there — with its own port, its own eviction semantics and its own
+`docker compose` service, for a database that is not the bottleneck.
+
+**Consequences.** A leaked `DATABASE_URL` is still access to all of the data, and this is
+stated rather than hidden: what least privilege buys is that it is not also `COPY … TO
+PROGRAM`, `pg_authid`, or the right to drop the schema. If the write load ever justifies a
+cache, it arrives as its own ADR with the persistence question answered first.
+
+## ADR-0096 — Two deployment profiles, one architecture, and Kubernetes in neither
+
+**Status:** accepted (2026-09-04)
+
+**Context.** Points 95 and 96: a simple mode for one operator on one VPS, a mode that can
+spread out under load, the same core architecture in both, and no orchestrator requirement.
+
+**Decision.** Both profiles are written down in `docs/DEPLOYMENT.md` as configuration of the
+same tree. Single VPS is `deploy/docker-compose.yml` — app, proxy, optionally PostgreSQL and
+the Monero services. Scale mode moves the database to its own host with the roles from
+ADR-0095, adds a second application instance if request volume needs one, and keeps the
+payout worker where it always was, on another host with the only spend key. Storage does not
+move, because blobs are rows: "a storage node" here is the database tier growing.
+
+**Rejected:** a Kubernetes manifest (an orchestrator is a dependency, a control plane and a
+new class of misconfiguration for a service that fits on one machine); an object-storage
+adapter behind an interface with one implementation, which is the abstraction this repository
+exists to avoid until a second implementation is real.
+
+**Consequences.** An operator can grow without a rewrite, and the trust boundaries are
+identical in both profiles, so the threat model does not fork. What is not offered is a
+horizontally scaled *database*, and a deployment that needs one is a different design that
+should be recorded as such.

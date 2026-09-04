@@ -6,6 +6,8 @@
   exposed ports, TLS checks, service isolation, backups, monitoring, intrusion detection.
 - [`../NETWORK.md`](../NETWORK.md) — the five tiers, what each may talk to, and why the
   database is not on the internet.
+- [`../STORAGE.md`](../STORAGE.md) — where uploaded bytes live (rows, never files), what is
+  checked on the way in, what metadata is stripped, and what a stolen volume yields.
 - [`../ENVIRONMENT.md`](../ENVIRONMENT.md) — every variable the server reads, its default
   and what it does. Nothing is read outside `config.ts`.
 - [`../BACKUPS.md`](../BACKUPS.md) — encrypted snapshots, the restore drill, and the
@@ -18,6 +20,7 @@
 
 **Code:** `deploy/docker-compose.yml`, `deploy/Caddyfile`, `deploy/tor/`,
 `deploy/github-ci.yml` (the CI definition a human copies to `.github/workflows/`),
+`deploy/postgres-roles.sql` (the least-privilege roles, ADR-0095),
 `scripts/backup.mjs`, `scripts/incident.mjs`, `src/server/config.ts`.
 
 **Kept honest by:** `test/deployment.test.ts` (every property these pages claim about the

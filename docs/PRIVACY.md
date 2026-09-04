@@ -76,6 +76,12 @@ no media type and no plaintext length — the id is the whole addressing scheme,
 192 random bits. The operator learns that a blob exists, its padded size, and when it was
 stored and fetched.
 
+An image is also cleaned before it is encrypted: EXIF, GPS coordinates, camera model and
+serial, embedded thumbnails, XMP and IPTC blocks are dropped in the browser (ADR-0092,
+`docs/STORAGE.md`). That one is not about the operator — the file is ciphertext to them — it
+is about the person receiving it, who holds the key. It reduces exposure; it does not make a
+photograph anonymous, and the room, the faces and the filename are still in it.
+
 **Typing indicators, read receipts and presence are not columns anywhere.** They are
 messages between two clients, off until a person turns them on, and the settings themselves
 live in the encrypted vault rather than in a table — a row saying "this account has read
