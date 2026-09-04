@@ -273,8 +273,18 @@ and the same requests are not silently reconsidered later.
 | Cracked-builder detection (RAMP pattern) | Detecting/blocking cracked pentest tooling (e.g. Cobalt Strike) by signature on the host. | Same host-IDS/AV class as above; not the app's threat surface. | отвергнуто |
 | Double-blockchain unlinkability (FreeMarketOne pattern) | A second ledger whose purpose is to decouple a participant from their own transactions so trades cannot be attributed to them. | Its stated goal — make marketplace participants untraceable / unlinkable to their deals — contradicts the contract above ("Not anonymous"). This is participant-untraceability infrastructure, not privacy. Architecturally also a cargo-cult: there is no blockchain here (one VPS, SQLite/Postgres). | отвергнуто |
 | Proof-of-burn identity (OpenBazaar pattern) | Burn-based pseudonymous identities intended to sever a trader's identity from their trading history. | Same goal and same reason as the row above: participant untraceability, which the contract explicitly disclaims. | отвергнуто |
+| Behavioural biometrics (keystroke dynamics, mouse trajectories) | Client-side capture of typing cadence and cursor movement on the login and order forms, sent to the server to classify humans versus bots. | The contract says the server learns as little as possible about the person behind a session; a timing-and-motion profile is a biometric identifier that survives a username change and would be collected from every honest user to catch a few scripts. It is exactly the class of signal the `fingerprint-surface` lint (ADR-0098) forbids the client from reading, and a script that replays a recorded human trace defeats it anyway. The bot problem it names is already answered without identifying anybody: proof of work on the unauthenticated endpoints (ADR-0039) and the address-and-account rate limits. | отвергнуто |
+| Device-fingerprint risk scoring with adaptive proof-of-work | A per-session risk score built from device type, browser, time zone, address history and behaviour, which raises the proof-of-work difficulty or demands another factor when the pattern changes. | The score is a device fingerprint by another name — the threat register above lists browser fingerprinting as something this application does not perform — and "pattern changed" is what an honest user looks like after buying a laptop or moving to Tor Browser, where every session shares one address. A step-up that only fires when the server has profiled the device profiles the device. Proof-of-work cost stays a single operator-set value (`POW_BITS`) that every attempt pays alike; raising it is a deployment decision, not a per-user verdict. | отвергнуто |
 
 Escrow, dispute-resolution, seller accountability (KYC), audit trails, and every mechanism
 that reduces what the *server* learns (E2EE, data minimisation, encryption at rest, sealed
 sender, no access logs, IDOR defence) are **in scope** and are built or on the roadmap; they
 are not part of this list.
+
+Two proposals that arrived alongside the rows above did not need a row because they describe
+what is already built or already decided. "Blind storage" — the server holding only ciphertext
+it cannot open, keys generated and kept on the client — is the design of the messenger,
+attachments, delivered files and the order channel, and the few columns the server does
+need are enumerated one by one, with their reason, in `docs/METADATA.md`. Blind signatures for unlinkable issuance were weighed and left
+unbuilt in ADR-0084, and zero-knowledge proofs as a general mechanism in ADR-0098; both stay
+where those decisions put them.
