@@ -21,7 +21,18 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -91,25 +102,39 @@ function decrypt(file, key) {
  * A consistent snapshot of a live database. `VACUUM INTO` is the supported way — `cp` on a
  * WAL database copies a file that no longer matches its write-ahead log.
  */
+/**
+ * A private place for a plaintext scratch file. `mkdtemp` creates the directory `0700`, so
+ * the snapshot inside it is unreadable to every other account on the host for the seconds it
+ * exists — a file created straight in `/tmp` is `0644` under the usual umask, and on a host
+ * with any other login that is the whole database, in the clear, copyable in a loop
+ * (SEC-2026-016). The caller removes the directory in a `finally`.
+ */
+function privateScratchDir() {
+  return mkdtempSync(join(tmpdir(), "symvolon-"));
+}
+
 function snapshot(sourcePath) {
-  const scratch = join(tmpdir(), `symvolon-snapshot-${randomBytes(6).toString("hex")}.sqlite`);
-  const db = new DatabaseSync(sourcePath, { readOnly: true });
+  const dir = privateScratchDir();
+  const scratch = join(dir, "snapshot.sqlite");
   try {
-    db.prepare("VACUUM INTO ?").run(scratch);
-  } finally {
-    db.close();
-  }
-  try {
+    const db = new DatabaseSync(sourcePath, { readOnly: true });
+    try {
+      db.prepare("VACUUM INTO ?").run(scratch);
+    } finally {
+      db.close();
+    }
+    chmodSync(scratch, 0o600);
     return readFileSync(scratch);
   } finally {
-    rmSync(scratch, { force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
 /** Opens a snapshot and asks SQLite whether it is intact, then counts what is inside. */
 function inspect(bytes) {
-  const scratch = join(tmpdir(), `symvolon-verify-${randomBytes(6).toString("hex")}.sqlite`);
-  writeFileSync(scratch, bytes);
+  const dir = privateScratchDir();
+  const scratch = join(dir, "verify.sqlite");
+  writeFileSync(scratch, bytes, { mode: 0o600 });
   const db = new DatabaseSync(scratch, { readOnly: true });
   try {
     const integrity = db.prepare("PRAGMA integrity_check").get();
@@ -124,7 +149,7 @@ function inspect(bytes) {
     return { tables: tables.length, migrations: Number(migrations.n), users: Number(users.n) };
   } finally {
     db.close();
-    rmSync(scratch, { force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -230,7 +255,10 @@ async function drill({ flags, positional }) {
   const chosen = given ?? backupsIn(directory).at(-1)?.path;
   if (!chosen) fail(`no backup to drill: nothing named symvolon-*.sqlite.enc in ${directory}`);
 
-  const scratch = join(tmpdir(), `symvolon-drill-${randomBytes(6).toString("hex")}.sqlite`);
+  // Inside a private directory: the copy is `0600`, but the `-wal` and `-shm` files the
+  // restored service creates next to it would take the default mode in a shared /tmp.
+  const dir = privateScratchDir();
+  const scratch = join(dir, "drill.sqlite");
   const bytes = decrypt(readFileSync(chosen), key);
   const summary = inspect(bytes);
   writeFileSync(scratch, bytes, { flag: "wx", mode: 0o600 });
@@ -285,7 +313,7 @@ async function drill({ flags, positional }) {
       new Promise((resolve) => server.once("exit", resolve)),
       new Promise((resolve) => setTimeout(resolve, 5_000)),
     ]);
-    for (const suffix of ["", "-wal", "-shm"]) rmSync(`${scratch}${suffix}`, { force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -296,7 +324,7 @@ function keygen() {
 const [command, ...rest] = process.argv.slice(2);
 const parsed = parseArgs(rest);
 const commands = { create, verify, restore, prune, drill, keygen };
-if (!command || !(command in commands)) {
+if (!command || !Object.hasOwn(commands, command)) {
   fail(`usage: backup.mjs <${Object.keys(commands).join("|")}> [...]  (see docs/BACKUPS.md)`);
 }
 await commands[command](parsed);

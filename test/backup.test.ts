@@ -72,6 +72,38 @@ describe("creating", () => {
   });
 });
 
+describe("scratch files", () => {
+  // SEC-2026-016: the plaintext snapshot used to be created straight in /tmp, 0644 under the
+  // usual umask — the whole database readable by any other account on the host for as long
+  // as it existed. Every scratch now lives in a mkdtemp directory (0700) and is 0600 itself.
+  it("keeps every plaintext scratch inside a private directory, and leaves none behind", () => {
+    const source = readFileSync(script, "utf8");
+    expect(source).not.toMatch(/join\(tmpdir\(\), `symvolon-(snapshot|verify|drill)/);
+    expect(source.match(/privateScratchDir\(\)/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(source).toMatch(/mkdtempSync\(join\(tmpdir\(\), "symvolon-"\)\)/);
+    expect(source).toMatch(/chmodSync\(scratch, 0o600\)/);
+    expect(source).toMatch(/writeFileSync\(scratch, bytes, \{ mode: 0o600 \}\)/);
+
+    // Empirically: run a create and a verify with TMPDIR pointed at an empty directory.
+    const scratchRoot = mkdtempSync(join(tmpdir(), "symvolon-scratch-probe-"));
+    try {
+      const out = join(workspace, "scratch-probe");
+      execFileSync(process.execPath, [script, "create", "--db", dbPath, "--key", keyPath, "--out", out], {
+        encoding: "utf8",
+        env: { ...process.env, TMPDIR: scratchRoot },
+      });
+      const [file] = readdirSync(out);
+      execFileSync(process.execPath, [script, "verify", join(out, file!), "--key", keyPath], {
+        encoding: "utf8",
+        env: { ...process.env, TMPDIR: scratchRoot },
+      });
+      expect(readdirSync(scratchRoot)).toEqual([]);
+    } finally {
+      rmSync(scratchRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("restoring", () => {
   it("round-trips: the restored database is the database", () => {
     const out = join(workspace, "roundtrip");
