@@ -108,15 +108,25 @@ export async function resolveSession(
     // One write a day per session, and it now carries a new token as well as the date.
     // The old hash is kept for the grace window so that a request already on the wire
     // does not come back 401.
+    // Compare-and-swap on the hash that was presented. A page load fires several requests
+    // at once, and the first one after midnight found them all rotating: each wrote its own
+    // new token, the last writer won, and whichever cookie the browser kept was — more often
+    // than not — a token no row held, so the session died after the grace window
+    // (SEC-2026-017). Now only the request that still matches the row's current hash
+    // rotates; the others keep using the token they have, which the grace clause above
+    // continues to accept.
     const rotated = randomToken(32);
-    await db.run(
+    const won = await db.get<{ id: string }>(
       `UPDATE sessions
           SET token_hash = ?, previous_token_hash = ?, rotated_at = ?, last_seen_day = ?
-        WHERE id = ?`,
-      [sha256(rotated), hash, now, today(now), row.session_id],
+        WHERE id = ? AND token_hash = ? AND last_seen_day = ?
+        RETURNING id`,
+      [sha256(rotated), hash, now, today(now), row.session_id, hash, row.last_seen_day],
     );
-    user.rotatedToken = rotated;
-    user.rotatedMaxAgeSeconds = Math.floor((row.expires_at - now) / 1000);
+    if (won) {
+      user.rotatedToken = rotated;
+      user.rotatedMaxAgeSeconds = Math.floor((row.expires_at - now) / 1000);
+    }
   }
   return user;
 }

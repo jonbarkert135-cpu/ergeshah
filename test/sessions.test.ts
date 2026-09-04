@@ -105,6 +105,30 @@ describe("rotation", () => {
     expect((await alice.get("/api/auth/me")).status).toBe(200);
   });
 
+  // SEC-2026-017: a page load fires several requests at once. Before the compare-and-swap,
+  // each of them rotated, the last write won, and the browser usually kept a token no row held.
+  it("rotates exactly once when several requests of a new day arrive together", async () => {
+    const alice = await register(server, "alice");
+    const original = alice.cookie("session")!;
+    await server.db.run("UPDATE sessions SET last_seen_day = ?", [
+      Math.floor(Date.now() / DAY_MS) - 1,
+    ]);
+    const now = Date.now();
+    const results = await Promise.all(
+      [1, 2, 3, 4].map(() => resolveSession(server.db, original, server.config.sessionIdleDays, now)),
+    );
+    const issued = results.map((user) => user?.rotatedToken).filter((token) => token !== undefined);
+    expect(issued, "one winner hands out one new token").toHaveLength(1);
+    // Every token anybody was given still works two minutes later — after the grace window,
+    // when only the row's own hash counts.
+    const later = now + 2 * 60_000;
+    for (const token of issued) {
+      expect(await resolveSession(server.db, token!, server.config.sessionIdleDays, later)).not.toBeNull();
+    }
+    // And the losers, who kept the original, are inside the grace window right now.
+    expect(await resolveSession(server.db, original, server.config.sessionIdleDays, now + 1_000)).not.toBeNull();
+  });
+
   it("accepts the previous token briefly, so a request already in flight does not fail", async () => {
     const alice = await register(server, "alice");
     const original = alice.cookie("session")!;
