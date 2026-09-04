@@ -3934,3 +3934,40 @@ losing a legitimate new device to a network blip; a peer whose account is gone a
 no key of theirs is accepted from then on. Reversible: delete `strangerInvite` and its call and
 the receive path is the pre-MD-6 one. `test/client.test.ts` has the third account refused and the
 peer's own first message on the same channel accepted.
+
+## ADR-0113 — Boot-time migrations take a PostgreSQL advisory lock, one transaction at a time
+
+**Status:** accepted (2026-09-04)
+
+**Context.** `migrate()` runs on every start so that a deployment is `docker compose up`. In
+scale mode two application instances start together and both run it. On PostgreSQL that lost
+one of them every time the test tried it: `CREATE TABLE IF NOT EXISTS schema_migrations` is not
+safe against a concurrent twin (both see no table, both create, one hits the `pg_type` unique
+index), and had that passed, the two would have applied the same file and the loser would have
+died on the ledger's primary key. The roadmap offered two remedies: a lock, or a
+`MIGRATE_ON_BOOT=false` switch for the second instance (OPS-10).
+
+**Decision.** The lock. Every transaction the runner opens — the bootstrap of the ledger table
+and each migration file — begins with `SELECT pg_advisory_xact_lock(<constant>)` on PostgreSQL,
+and a migration's transaction re-reads `schema_migrations` for its own name before applying, so
+a waiter that gets the lock after the other instance finished the file finds it recorded and
+skips it. The lock is transaction-scoped, so it is released by the commit or rollback that ends
+the file, never leaked, and the wait a second instance sees is bounded by one file rather than
+by the whole set — which keeps it under the pool's `statement_timeout`. The constant is
+arbitrary; it only has to be the same in every instance. SQLite gets no lock: it has one writer
+and `BEGIN IMMEDIATE` already queues a second transaction behind the first.
+
+**Rejected.** A `MIGRATE_ON_BOOT` switch: it moves the correctness of a deployment into an
+operator remembering to set a variable on exactly one instance, and a restart of the wrong one
+runs no migrations at all. A session-level `pg_advisory_lock` around the whole run: the pool
+hands each statement its own connection, so the unlock might not reach the connection that
+locked, and the wait for a full first-boot set could outlive the statement timeout. One
+transaction for the entire set: cleaner rollback, but it changes the documented behaviour that a
+half-finished deploy is visible file by file, and the per-file record is what the operator reads.
+
+**Consequences.** One extra statement per migration file per boot, on PostgreSQL only. A second
+instance's boot is delayed by however long the first spends on the file it is applying, then
+proceeds. `migrate()` now returns the files *this* call applied, not the files that were pending
+when it looked. Reversible: delete `serialised()` and the re-check, and the runner is the
+pre-OPS-10 one. `test/migrations.test.ts` runs two runners concurrently on PostgreSQL and
+asserts each file was applied once; on SQLite the test is skipped, with the reason on the line.

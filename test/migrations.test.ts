@@ -8,6 +8,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createSqliteDb } from "../src/server/db/sqlite.ts";
 import { migrate } from "../src/server/db/migrate.ts";
+import { createTestDatabase, TEST_DIALECT } from "./database.ts";
 
 async function freshDatabase() {
   const db = createSqliteDb(":memory:");
@@ -59,6 +60,23 @@ describe("migrations apply to an empty database", () => {
     expect(schemaAfterSecond).toEqual(schemaAfterFirst);
     await db.close();
   });
+
+  // Two instances booting together (OPS-10). SQLite has one writer and `:memory:` cannot be
+  // shared, so the race only exists — and is only tested — on PostgreSQL, where the pool hands
+  // each concurrent transaction its own connection.
+  it.skipIf(TEST_DIALECT !== "postgres")(
+    "applies each migration once when two instances run the runner at the same time",
+    async () => {
+      const { db, drop } = await createTestDatabase();
+      const [first, second] = await Promise.all([migrate(db), migrate(db)]);
+      expect([...first, ...second].sort()).toEqual([...new Set([...first, ...second])].sort());
+      expect(first.length + second.length).toBeGreaterThan(20);
+      expect(await migrate(db)).toEqual([]);
+      await db.close();
+      await drop();
+    },
+    30_000,
+  );
 
   it("records what it applied, so a half-finished deploy is visible", async () => {
     const { db, applied } = await freshDatabase();

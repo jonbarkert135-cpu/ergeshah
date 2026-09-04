@@ -173,7 +173,7 @@ rewrite, and nothing below needs Kubernetes.
 | Database | SQLite file on the app's volume, or PostgreSQL beside it | PostgreSQL on its own host, reachable only from the app's network, with the roles above |
 | Storage | rows in that database | rows in that database — blobs are not files, so "a storage node" is the database tier growing, not a new component (`docs/STORAGE.md`) |
 | Cache | none. Sessions, buckets and challenges are rows with expiries | still none: adding Redis would add a second store holding session and challenge material, and it buys nothing until the database is the bottleneck (ADR-0095) |
-| Workers | the housekeeping interval inside the app process; the payout worker on another host, always (ADR-0070) | the same, plus a second app instance if request volume needs one — the jobs are idempotent sweeps, and the durable queues are database tables |
+| Workers | the housekeeping interval inside the app process; the payout worker on another host, always (ADR-0070) | the same, plus a second app instance if request volume needs one — the jobs are idempotent sweeps, and the durable queues are database tables. Both instances run the migrations on boot; a PostgreSQL advisory lock inside the runner makes the second one wait and then find nothing to do (ADR-0113) |
 | Monero | `monerod` and a view-only `monero-wallet-rpc` on the internal network | the node on its own host; the spend key stays on the payout host and nowhere else |
 
 What does *not* change between them: the trust boundaries, the migrations, the audits, and

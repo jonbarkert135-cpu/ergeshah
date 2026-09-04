@@ -9,12 +9,32 @@ import type { Db } from "./index.ts";
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), "migrations");
 
+/**
+ * The advisory-lock key for the runner (OPS-10). Two application instances booting together
+ * — the scale mode in docs/DEPLOYMENT.md — both run `migrate()`, and without this both would
+ * apply the same file at once: the loser fails on the `schema_migrations` primary key and
+ * the boot dies. The lock is taken inside each transaction, so it is released with it,
+ * and the waiter re-reads the ledger before doing anything. Any constant works; this one is
+ * arbitrary and only has to be the same in every instance. PostgreSQL only: SQLite has one
+ * writer by construction, and `BEGIN IMMEDIATE` already queues the second.
+ */
+const MIGRATION_LOCK = 0x53_59_4d_56; // "SYMV"
+
+async function serialised(db: Db, fn: (tx: Db) => Promise<void>): Promise<void> {
+  await db.transaction(async (tx) => {
+    if (db.dialect === "postgres") await tx.run("SELECT pg_advisory_xact_lock(?)", [MIGRATION_LOCK]);
+    await fn(tx);
+  });
+}
+
 export async function migrate(db: Db): Promise<string[]> {
-  await db.run(
-    `CREATE TABLE IF NOT EXISTS schema_migrations (
-       name TEXT PRIMARY KEY,
-       applied_at BIGINT NOT NULL
-     )`,
+  await serialised(db, (tx) =>
+    tx.run(
+      `CREATE TABLE IF NOT EXISTS schema_migrations (
+         name TEXT PRIMARY KEY,
+         applied_at BIGINT NOT NULL
+       )`,
+    ),
   );
   const applied = new Set(
     (await db.all<{ name: string }>("SELECT name FROM schema_migrations")).map((row) => row.name),
@@ -25,17 +45,21 @@ export async function migrate(db: Db): Promise<string[]> {
     .sort()
     .filter((name) => !applied.has(name));
 
+  const ran: string[] = [];
   for (const name of pending) {
     const sql = readFileSync(join(MIGRATIONS_DIR, name), "utf8");
-    await db.transaction(async (tx) => {
+    await serialised(db, async (tx) => {
+      // Another instance may have applied it while this one waited for the lock.
+      if (await tx.get("SELECT 1 FROM schema_migrations WHERE name = ?", [name])) return;
       for (const statement of splitStatements(sql)) await tx.run(statement);
       await tx.run("INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)", [
         name,
         Date.now(),
       ]);
+      ran.push(name);
     });
   }
-  return pending;
+  return ran;
 }
 
 /**

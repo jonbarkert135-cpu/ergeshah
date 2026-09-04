@@ -211,10 +211,14 @@ wording.*
   the same encryption, retention and off-host key rules, but only the SQLite path has a script
   (`scripts/backup.mjs`) and a boot drill in CI. A deployment on PostgreSQL is following prose
   today, which is exactly the gap `backup:drill` exists to close for the other driver.
-- **OPS-10 — An advisory lock around boot-time migrations.** `migrate()` runs on every start.
-  With one process that is correct; with two application instances behind the proxy (the scale
-  mode in `docs/DEPLOYMENT.md`) both would run it at once. A `pg_advisory_lock` around the
-  runner, or an explicit `MIGRATE_ON_BOOT=false` for the second instance.
+- **OPS-10 — An advisory lock around boot-time migrations. _Closed._** `migrate()` runs on
+  every start, and two instances booting together (scale mode) did run it at once — on
+  PostgreSQL the loser died on `CREATE TABLE IF NOT EXISTS schema_migrations` with a
+  `pg_type` duplicate, or on the ledger's primary key one file later. Now every transaction the
+  runner opens takes `pg_advisory_xact_lock` first and re-reads the ledger before applying, so
+  the second instance waits for one file at a time and skips what the first one recorded
+  (ADR-0113). SQLite is unchanged: one writer, `BEGIN IMMEDIATE` already queues. The test runs
+  two runners concurrently on PostgreSQL and fails without the lock on every attempt.
 - **OPS-6 — The first real deployment.** Every step in `docs/DEPLOYMENT.md` has been
   rehearsed locally, including a restore drill on a production-mode instance
   (`npm run backup:drill`), but this service has never run on a VPS with a domain, a
