@@ -47,6 +47,58 @@ export function verificationState(conversation: Conversation): VerificationState
   return known.length === keys.length ? "verified" : "changed";
 }
 
+/**
+ * AUTH-6. Records the identity keys a peer is using and reports a change to the user.
+ *
+ * The attack this covers is not a substituted key in an already-verified conversation —
+ * `verificationState` has always caught that — but the case where nobody compared anything:
+ * a username is deleted, registered again by someone else, and the next message goes to a
+ * different person under a name the history says is trusted. Trust on first use is only
+ * honest if the *second* use is checked, so every key is recorded on sight and a key that
+ * arrives later is announced.
+ *
+ * The record stays in the vault. The alternative — a tombstone on the server, so a deleted
+ * username can never be taken again — would mean keeping a list of everyone who ever left,
+ * which is the collection this project refuses to make (ADR-0091).
+ *
+ * `directory` says whether `keys` is the peer's complete current key list from the key
+ * directory (the send path) or a single key from one envelope (the receive path). Only the
+ * complete list can distinguish a device added beside the old ones from every old key
+ * gone, and the difference matters: the second is what re-registration looks like.
+ */
+export function notePeerKeys(
+  conversation: Conversation,
+  keys: string[],
+  { directory = false }: { directory?: boolean } = {},
+): void {
+  // A vault written before this existed has sessions but no record. Seeding it from those
+  // sessions rather than announcing them keeps an upgrade quiet: those keys are not new,
+  // this device simply was not writing them down.
+  const known = (conversation.knownKeys ??= Object.fromEntries(
+    Object.keys(conversation.sessions).map((key) => [key, 0]),
+  ));
+  const first = Object.keys(known).length === 0;
+  const fresh = keys.filter((key) => known[key] === undefined);
+  const at = Date.now();
+  for (const key of fresh) known[key] = at;
+  if (first || fresh.length === 0) return;
+
+  // Every key we knew is gone from the directory: not a new device, a different set of
+  // devices. Said plainly, because a warning that hedges is a warning people click past.
+  const replaced = directory && !keys.some((key) => (known[key] as number) < at);
+  const previous = conversation.keyChange;
+  conversation.keyChange = {
+    at,
+    kind: replaced || previous?.kind === "replaced" ? "replaced" : "added",
+    keys: [...new Set([...(previous?.keys ?? []), ...fresh])],
+  };
+}
+
+export async function acknowledgeKeyChange(conversation: Conversation): Promise<void> {
+  delete conversation.keyChange;
+  await persistVault();
+}
+
 export async function markVerified(conversation: Conversation, key: string): Promise<void> {
   const verified = (conversation.verifiedKeys ??= {});
   verified[key] = Date.now();

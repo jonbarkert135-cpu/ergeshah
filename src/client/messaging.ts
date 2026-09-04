@@ -32,6 +32,7 @@ import {
   type SessionInvite,
 } from "../shared/crypto/session.ts";
 import { deserializeState, serializeState } from "../shared/crypto/ratchet.ts";
+import { notePeerKeys } from "./verification.ts";
 
 interface Bundle {
   deviceId: string;
@@ -255,6 +256,13 @@ async function sendPayload(
   const { bundles } = await api<{ bundles: Bundle[] }>(
     `/api/keys/bundle/${encodeURIComponent(conversation.peer)}`,
   );
+  // Before any new session is stored, so the record reflects what this conversation used
+  // until now rather than what it is about to use (AUTH-6).
+  notePeerKeys(
+    conversation,
+    bundles.map((bundle) => bundle.identityKey),
+    { directory: true },
+  );
   const at = Date.now();
   const hours = disappearHours(conversation);
   const expiresAt = hours === null ? undefined : at + hours * 3_600_000;
@@ -417,6 +425,7 @@ export async function receiveMessages(): Promise<number> {
         delivery?: DeliveryKey & { orderId: string };
         shipping?: { orderId: string; details: string };
       };
+      notePeerKeys(conversation, [opened.sessionKey]);
       conversation.sessions[opened.sessionKey] = serializeState(opened.state);
       if (conversation.peer === "unknown") conversation.peer = plaintext.from;
       handled.push(envelope.id);

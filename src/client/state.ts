@@ -63,6 +63,15 @@ export interface Conversation {
   sessions: Record<string, SerializedRatchetState>;
   /** Peer identity keys whose safety number the user compared, and when. */
   verifiedKeys?: Record<string, number>;
+  /**
+   * Every peer identity key this conversation has ever used, and when it was first seen
+   * (AUTH-6). Absent on vaults written before this existed; seeded from the live sessions
+   * on the next contact, which is why an old conversation does not announce a change that
+   * happened before anyone was recording.
+   */
+  knownKeys?: Record<string, number>;
+  /** An unacknowledged identity-key change, shown in the chat until dismissed (AUTH-6). */
+  keyChange?: { at: number; kind: "added" | "replaced"; keys: string[] };
   /** Disappearing messages for this conversation: hours, or null for "keep". */
   disappearHours?: number | null;
   /** The peer has told us they read everything up to this timestamp (point 77). */

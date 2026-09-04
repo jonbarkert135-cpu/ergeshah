@@ -43,9 +43,10 @@ wrapped master key (PR #7), and AUTH-7 PGP challenge–response as a second fact
   devices; scanning it needs either the browser's own `BarcodeDetector` (Chromium only) or
   a QR library, and rendering one needs an encoder. Neither is worth a dependency or 200
   lines of Reed–Solomon until someone asks for the camera flow.
-- **AUTH-6 — Identity-key change warnings.** A username that is deleted can be registered
-  again by someone else. The defence is a client that notices a peer's identity key
-  changed and says so, rather than a tombstone in the database.
+*Shipped: AUTH-6 identity-key change warnings (ADR-0091) — every peer key a conversation has
+used is recorded in the vault, a key that arrives later raises a banner, and a directory that
+answers with none of the keys the conversation knew is reported as a replacement rather than a
+new device. What it cannot do is notice a change while this device is not talking to that peer.*
 
 - **AUTH-8 — A round trip through real `gpg`.** Every PGP test here signs with OpenPGP.js and
   verifies with OpenPGP.js, which proves the flow and not the interoperability. Before the

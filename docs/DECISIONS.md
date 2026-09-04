@@ -3024,3 +3024,44 @@ device or from where, and a user who wants more than that is going to be disappo
 purpose. The counter also means the table cannot be used to prove *when* something happened,
 only that it did, on a day — which is the same trade every other long-lived row in this schema
 already makes.
+
+## ADR-0091 — A key change is announced by the client, not prevented by a tombstone
+
+**Status:** accepted (2026-09-04)
+
+**Context.** Usernames here are free, unattached to an email address or a phone number, and
+deletable by their owner in one screen (AUTH-4). So a name can be released and taken by
+somebody else, and the person who took it inherits a conversation thread, a history and a
+reputation the other party formed with the previous holder. Verification caught the loud
+version of this — a conversation with a *verified* device that gains an unverified one says
+so — but the common case has nobody comparing anything: first contact is trust on first
+use, and a substituted key in an unverified conversation was silently accepted.
+
+**Decision.** The client records every peer identity key it has ever used in a conversation
+(`Conversation.knownKeys` in the vault) and raises a banner when a key it has not seen
+appears. The send path passes the peer's complete bundle list from the directory, so it can
+tell two cases apart: a key **added** beside keys still in use — usually a second device —
+and every previously known key **replaced**, which is what a reinstall, a recovery, or a
+different person holding the username looks like from this side. The receive path sees one
+key per envelope and therefore may only ever say "added"; a finding of "replaced" is never
+downgraded by a later envelope. The banner offers the safety-number screen and a dismissal,
+and blocks nothing.
+
+A vault written before this existed has sessions but no record. The first call seeds the
+record from the live sessions instead of announcing them, so upgrading a client does not
+accuse every existing contact of a key change.
+
+**Rejected.** A tombstone on the server, so a deleted username can never be registered
+again: it means keeping a permanent list of everyone who ever had an account and left,
+which is precisely the collection this project refuses to make — and it protects the name
+rather than the conversation, while a key can be substituted without the name changing at
+all. Also rejected: refusing to send to a changed key (an availability lever the operator
+would eventually be asked to pull, and a rule that breaks reinstalls), and publishing the
+key history server-side (that history is a device-count and reinstall timeline of a user,
+sitting on the machine assumed to be hostile).
+
+**Consequences.** Someone who reinstalls will make their contacts see a "replaced" banner
+and, honestly, should. The signal is only as good as the record, so a peer who changes keys
+while this device has never contacted them shows nothing until the next send or receive.
+And because the record lives in the vault, it travels with the account through recovery and
+device linking, but a browser with a cleared vault starts again at trust on first use.

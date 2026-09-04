@@ -23,7 +23,12 @@ import { persistVault, state } from "../state.ts";
 import type { AttachmentRef, ChatMessage, Conversation } from "../state.ts";
 import { MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
 import { safeFileName } from "../../shared/uploads.ts";
-import { markVerified, peerDevices, verificationState } from "../verification.ts";
+import {
+  acknowledgeKeyChange,
+  markVerified,
+  peerDevices,
+  verificationState,
+} from "../verification.ts";
 import { qrSvg } from "../../shared/qr.ts";
 
 let selectedChannel: string | null = null;
@@ -276,6 +281,7 @@ export function renderChat(root: HTMLElement): void {
       el(
         "div",
         {},
+        keyChangeBanner(conversation),
         verification === "changed"
           ? notice(
               `A device in this conversation is not one you verified. That is either ${conversation.peer} adding a device, or someone else's key in its place — check the safety number before sending anything sensitive.`,
@@ -410,6 +416,40 @@ export function renderChat(root: HTMLElement): void {
     selectedChannel = null;
     drawList();
     drawPanel();
+  }
+
+  /**
+   * AUTH-6: the peer's identity keys changed, and this says so until someone acknowledges
+   * it. Two texts, because the two events are not equally alarming — a key added beside
+   * the old ones is usually a second device, while every old key gone is what an account
+   * taken over, reinstalled, or registered again by a stranger looks like from here. The
+   * banner explains the innocent reading first and still asks for the comparison, since a
+   * warning that only cries attack is one people learn to dismiss.
+   */
+  function keyChangeBanner(conversation: Conversation): HTMLElement | null {
+    const change = conversation.keyChange;
+    if (!change) return null;
+    const dismiss = el("button", { class: "ghost" }, "Dismiss");
+    dismiss.addEventListener("click", () => {
+      void acknowledgeKeyChange(conversation).then(() => drawPanel());
+    });
+    return el(
+      "div",
+      { class: change.kind === "replaced" ? "notice error" : "notice", role: "alert" },
+      change.kind === "replaced"
+        ? `Every device ${conversation.peer} was using has been replaced since your last message. That is what a reinstall or an account recovery looks like — and also what someone else registering this username would look like. Compare the safety number before you send anything sensitive.`
+        : `${conversation.peer} is using a device this conversation has not seen before. That is usually a new device of theirs; it is also what a substituted key looks like. Compare its safety number.`,
+      el(
+        "div",
+        { class: "row" },
+        el(
+          "button",
+          { class: "ghost", onclick: () => drawVerification(conversation) },
+          "Safety number",
+        ),
+        dismiss,
+      ),
+    );
   }
 
   /**

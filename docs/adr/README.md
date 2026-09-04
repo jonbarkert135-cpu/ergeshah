@@ -56,6 +56,7 @@ or if a record is missing a section.
 | [ADR-0088](../DECISIONS.md#adr-0088--replacing-a-security-key-takes-the-key-it-replaces) | Replacing a security key takes the key it replaces |
 | [ADR-0089](../DECISIONS.md#adr-0089--a-credential-rotation-revokes-credentials-not-only-sessions) | A credential rotation revokes credentials, not only sessions |
 | [ADR-0090](../DECISIONS.md#adr-0090--an-accounts-security-history-is-a-count-per-day-and-only-its-owner-reads-it) | An account's security history is a count per day, and only its owner reads it |
+| [ADR-0091](../DECISIONS.md#adr-0091--a-key-change-is-announced-by-the-client-not-prevented-by-a-tombstone) | A key change is announced by the client, not prevented by a tombstone |
 
 ### Database
 

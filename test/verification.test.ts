@@ -17,7 +17,7 @@ const jsQR = jsQRModule as unknown as (
   height: number,
 ) => { data: string } | null;
 import { encodeQr, qrSvg } from "../src/shared/qr.ts";
-import { verificationState } from "../src/client/verification.ts";
+import { notePeerKeys, verificationState } from "../src/client/verification.ts";
 import { safetyNumber } from "../src/shared/crypto/identity.ts";
 import { createDeviceIdentity } from "../src/shared/crypto/identity.ts";
 import { sodiumReady } from "../src/shared/crypto/sodium.ts";
@@ -104,5 +104,55 @@ describe("verification state", () => {
   it("ignores verification of a key that is no longer in use", () => {
     // A retired device does not keep the conversation looking verified.
     expect(verificationState(conversation(["key-b"], { "key-a": 1 }))).toBe("none");
+  });
+});
+
+describe("identity-key change warnings (AUTH-6)", () => {
+  it("says nothing on first contact, and records what it saw", () => {
+    const chat = conversation([]);
+    notePeerKeys(chat, ["key-a"], { directory: true });
+    expect(chat.keyChange).toBeUndefined();
+    expect(Object.keys(chat.knownKeys ?? {})).toEqual(["key-a"]);
+
+    // The same key again is not an event.
+    notePeerKeys(chat, ["key-a"], { directory: true });
+    expect(chat.keyChange).toBeUndefined();
+  });
+
+  it("warns about a key added beside the ones it knows", () => {
+    const chat = conversation(["key-a"]);
+    notePeerKeys(chat, ["key-a", "key-b"], { directory: true });
+    expect(chat.keyChange).toMatchObject({ kind: "added", keys: ["key-b"] });
+  });
+
+  it("calls it a replacement when every key it knew is gone", () => {
+    // A username deleted and registered by someone else looks exactly like this: the
+    // directory answers with a full set of keys, none of them the ones we spoke to.
+    const chat = conversation(["key-a", "key-b"]);
+    notePeerKeys(chat, ["key-c"], { directory: true });
+    expect(chat.keyChange?.kind).toBe("replaced");
+  });
+
+  it("does not claim a replacement from a single envelope", () => {
+    // One inbound message proves a key exists, not that the others are gone.
+    const chat = conversation(["key-a"]);
+    notePeerKeys(chat, ["key-c"]);
+    expect(chat.keyChange?.kind).toBe("added");
+
+    // …and the stronger finding, once the directory shows it, is not downgraded by the
+    // next envelope from an already-known key.
+    notePeerKeys(chat, ["key-d"], { directory: true });
+    expect(chat.keyChange?.kind).toBe("replaced");
+    notePeerKeys(chat, ["key-e"]);
+    expect(chat.keyChange).toMatchObject({ kind: "replaced", keys: ["key-c", "key-d", "key-e"] });
+  });
+
+  it("adopts an older vault's sessions without announcing them", () => {
+    // Upgrading to a client that keeps this record must not accuse every existing peer.
+    const chat = conversation(["key-a", "key-b"]);
+    expect(chat.knownKeys).toBeUndefined();
+    notePeerKeys(chat, ["key-a", "key-b"], { directory: true });
+    expect(chat.keyChange).toBeUndefined();
+    expect(Object.keys(chat.knownKeys ?? {}).sort()).toEqual(["key-a", "key-b"]);
   });
 });

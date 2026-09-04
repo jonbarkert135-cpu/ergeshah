@@ -244,13 +244,22 @@ a new device or a substituted key, and only the two humans can tell which. The r
 never reaches the server, and no message is blocked by it: this is a signal to the user,
 not an enforcement mechanism the operator could switch off.
 
+The same record covers the case where nobody compared anything (AUTH-6, ADR-0091). Every
+peer identity key a conversation has used is kept in the vault, so a key that appears later
+is announced even in a conversation that was never verified — and when the directory shows
+that *every* key the conversation knew is gone, the client says that rather than "a new
+device", because a released username taken by someone else looks exactly like this. Nothing
+about it reaches the server: the alternative, a tombstone that stops a deleted username
+from being registered again, is a permanent list of everyone who left.
+
 ## Known limitations
 
 1. **Traffic analysis is only partly addressed.** Headers are encrypted and lengths are
    bucketed, so a server no longer sees ratchet keys, counters, chain boundaries or exact
    sizes. It still sees *which device* an envelope is for, and *when* — the count and
-   timing of messages, and their bucket. Hiding those needs cover traffic and delayed
-   delivery, which is roadmap item MD-2 and is not implemented.
+   timing of messages, and their bucket. Delayed delivery and a jittered poll ship as MD-2
+   (ADR-0085); what remains unaddressed is constant-rate cover traffic, which is not
+   implemented.
 2. **Classical only.** No post-quantum component today; recorded ciphertext is exposed to
    a future quantum adversary ("harvest now, decrypt later"). Roadmap item PQ-1 is a
    hybrid X25519 + ML-KEM handshake, in the PQXDH style, once a reviewed WASM
