@@ -110,13 +110,25 @@ export async function releaseBond(
     throw conflict("a bond cannot be released while one of your orders is disputed");
   }
   return await db.transaction(async (tx) => {
-    // Re-read inside the transaction: two release requests racing must not both succeed.
+    // Re-read inside the transaction, then *take* the bond with a compare-and-swap before a
+    // single pico moves. A plain re-read is not enough: PostgreSQL runs these transactions
+    // under READ COMMITTED with no row lock, so two releases racing both read the same stake
+    // and both credit it — the seller would be paid twice for one bond (SEC-2026-008). The
+    // guarded UPDATE is the same idiom the ledger uses for balances (`ledger.ts`, `apply`):
+    // the loser of the race finds a row it no longer matches and stops here.
     const current = await tx.get<{ bond_pico: number }>(
       "SELECT bond_pico FROM sellers WHERE user_id = ?",
       [input.sellerUserId],
     );
     const amount = Number(current?.bond_pico ?? 0);
     if (amount === 0) throw conflict("there is no bond to release");
+    const taken = await tx.get<{ user_id: string }>(
+      `UPDATE sellers SET bond_pico = 0, bond_posted_at = NULL
+        WHERE user_id = ? AND bond_pico = ?
+        RETURNING user_id`,
+      [input.sellerUserId, amount],
+    );
+    if (!taken) throw conflict("there is no bond to release");
     await apply(
       tx,
       [
@@ -129,10 +141,6 @@ export async function releaseBond(
         },
       ],
       now,
-    );
-    await tx.run(
-      "UPDATE sellers SET bond_pico = 0, bond_posted_at = NULL WHERE user_id = ?",
-      [input.sellerUserId],
     );
     return await bondFor(tx, input.sellerUserId);
   });
@@ -155,14 +163,16 @@ export async function claimBond(
   const now = input.now ?? Date.now();
   if (input.amountPico <= 0) throw badRequest("a claim must be a positive amount");
   return await db.transaction(async (tx) => {
-    const current = await tx.get<{ bond_pico: number }>(
-      "SELECT bond_pico FROM sellers WHERE user_id = ?",
-      [input.sellerUserId],
+    // Debit the bond column first, guarded, so that two claims racing on PostgreSQL cannot
+    // both pass a read of the same balance (SEC-2026-008); the ledger movements below are
+    // guarded the same way and the transaction holds both or neither.
+    const debited = await tx.get<{ bond_pico: number }>(
+      `UPDATE sellers SET bond_pico = bond_pico - ?
+        WHERE user_id = ? AND bond_pico >= ?
+        RETURNING bond_pico`,
+      [input.amountPico, input.sellerUserId, input.amountPico],
     );
-    const available = Number(current?.bond_pico ?? 0);
-    if (available < input.amountPico) {
-      throw conflict("that is more than this seller's bond holds");
-    }
+    if (!debited) throw conflict("that is more than this seller's bond holds");
     await apply(
       tx,
       [
@@ -185,12 +195,7 @@ export async function claimBond(
       ],
       now,
     );
-    await tx.run("UPDATE sellers SET bond_pico = bond_pico - ? WHERE user_id = ?", [
-      input.amountPico,
-      input.sellerUserId,
-    ]);
-    const state = await bondFor(tx, input.sellerUserId);
-    return { paidPico: input.amountPico, bondPico: state.bondPico };
+    return { paidPico: input.amountPico, bondPico: Number(debited.bond_pico) };
   });
 }
 

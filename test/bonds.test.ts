@@ -8,6 +8,8 @@ import {
   type TestClient,
   type TestServer,
 } from "./helpers.ts";
+import type { Db } from "../src/server/db/index.ts";
+import { claimBond, releaseBond } from "../src/server/lib/bonds.ts";
 
 let server: TestServer;
 
@@ -234,5 +236,110 @@ describe("the seller bond (ADR-0086)", () => {
         })
       ).status,
     ).toBe(400);
+  });
+});
+
+/**
+ * SEC-2026-008. The test suite runs on SQLite, which serialises transactions behind one
+ * handle, so a genuine race cannot be staged here. What *can* be staged is what the race
+ * produces on PostgreSQL under READ COMMITTED: a transaction whose read of `bond_pico`
+ * is a snapshot from before a concurrent release committed. This wrapper hands the bond
+ * code exactly that stale read and the real database for everything else.
+ */
+function staleBondRead(db: Db, stale: number): Db {
+  const wrap = (inner: Db): Db => ({
+    dialect: inner.dialect,
+    all: (sql, params) => inner.all(sql, params),
+    get: async <T>(sql: string, params?: unknown[]) =>
+      sql.startsWith("SELECT bond_pico")
+        ? ({ bond_pico: stale, bond_posted_at: null } as unknown as T)
+        : inner.get<T>(sql, params),
+    run: (sql, params) => inner.run(sql, params),
+    transaction: (fn) => inner.transaction((tx) => fn(wrap(tx))),
+    close: () => inner.close(),
+  });
+  return wrap(db);
+}
+
+describe("the bond under a concurrent release (SEC-2026-008)", () => {
+  it("credits a bond once even when a second release read it before the first committed", async () => {
+    const vendor = await seller("racer");
+    await vendor.post("/api/market/seller/bond", { amountXmr: "1" });
+    await server.db.run("UPDATE sellers SET bond_posted_at = ? WHERE user_id IS NOT NULL", [
+      Date.now() - 30 * 86_400_000,
+    ]);
+    const { id } = (await server.db.get<{ id: string }>(
+      "SELECT id FROM users WHERE username = 'racer'",
+    ))!;
+    // Something else of the seller's is held too — a payout in flight, an order as a buyer —
+    // so that the ledger's own non-negative guard on `held_pico` is not what stops the
+    // second credit. That guard is for balances; the bond column needs its own.
+    await server.db.run("UPDATE balances SET held_pico = held_pico + ? WHERE account_id = ?", [
+      1_000_000_000_000,
+      id,
+    ]);
+
+    // The first release wins and commits.
+    const first = await releaseBond(server.db, { sellerUserId: id, cooloffMs: 0 });
+    expect(first.bondPico).toBe(0);
+
+    // The second one read the stake before that commit, and must not be paid for it.
+    await expect(
+      releaseBond(staleBondRead(server.db, 1_000_000_000_000), { sellerUserId: id, cooloffMs: 0 }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    const balance = await server.db.get<{ available_pico: number; held_pico: number }>(
+      "SELECT available_pico, held_pico FROM balances WHERE account_id = ?",
+      [id],
+    );
+    // 5 funded − 1 staked + 1 released = 5 spendable; the extra hold is untouched.
+    expect(Number(balance!.available_pico)).toBe(5_000_000_000_000);
+    expect(Number(balance!.held_pico)).toBe(1_000_000_000_000);
+    const releases = await server.db.all(
+      "SELECT id FROM ledger_entries WHERE account_id = ? AND kind = 'bond_release'",
+      [id],
+    );
+    expect(releases).toHaveLength(1);
+  });
+
+  it("refuses a claim that exceeds what the bond holds at the moment of the debit", async () => {
+    const vendor = await seller("claimed");
+    const buyer = await register(server, "harmed");
+    await fund(server, buyer, "2");
+    await vendor.post("/api/market/seller/bond", { amountXmr: "0.5" });
+    const listingId = await listingBy(vendor, "0.5");
+    const orderA = await completedOrder(buyer, vendor, listingId);
+    const orderB = await completedOrder(buyer, vendor, listingId);
+    const { id: sellerId } = (await server.db.get<{ id: string }>(
+      "SELECT id FROM users WHERE username = 'claimed'",
+    ))!;
+    const { id: buyerId } = (await server.db.get<{ id: string }>(
+      "SELECT id FROM users WHERE username = 'harmed'",
+    ))!;
+    await server.db.run("UPDATE balances SET held_pico = held_pico + ? WHERE account_id = ?", [
+      1_000_000_000_000,
+      sellerId,
+    ]);
+    const first = await claimBond(server.db, {
+      orderId: orderA,
+      sellerUserId: sellerId,
+      buyerUserId: buyerId,
+      amountPico: 500_000_000_000,
+    });
+    expect(first.bondPico).toBe(0);
+    // A second claim whose snapshot of the bond is stale must fail on the debit itself.
+    await expect(
+      claimBond(staleBondRead(server.db, 500_000_000_000), {
+        orderId: orderB,
+        sellerUserId: sellerId,
+        buyerUserId: buyerId,
+        amountPico: 500_000_000_000,
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    const paid = await server.db.all(
+      "SELECT id FROM ledger_entries WHERE account_id = ? AND kind = 'bond_compensation'",
+      [buyerId],
+    );
+    expect(paid).toHaveLength(1);
   });
 });
