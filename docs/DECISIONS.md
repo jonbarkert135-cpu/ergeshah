@@ -4012,3 +4012,50 @@ suites; the matrix records them in `scope` as prose for the reader, and does not
 because a placeholder id reaches no real object. Reversible: delete the file and the test and
 the sweep is what remains. Verified before commit: widening one admin route to staff failed
 naming the route; deleting one row failed naming the route.
+
+## ADR-0115 — PostgreSQL backups are `pg_dump` archives in the shared envelope, drilled in a throwaway database
+
+**Status:** accepted (2026-09-04)
+
+**Context.** `scripts/backup.mjs` gives a SQLite deployment an encrypted, versioned, verified
+snapshot, a retention window and a drill that boots the service on the restored copy, and
+`test/backup.test.ts` runs all of it on every commit. A PostgreSQL deployment had one sentence
+in `docs/BACKUPS.md`: use `pg_dump` and the same rules. A sentence is not a command an
+operator can run at 3am, and nothing checked that it worked (OPS-9).
+
+**Decision.** A second tool, `scripts/backup-postgres.mjs`, and one shared module,
+`scripts/backup-envelope.mjs`, holding what must not diverge: the key file, AES-256-GCM with
+the pinned tag length, the authenticated header, the private scratch directory, retention,
+and the half of the drill that starts a server and asks it `/healthz`. The header differs
+(`SYMVPG1` against `SYMVBK1`) and is the AAD, so a file handed to the wrong tool fails on the
+tag. The snapshot is `pg_dump --format=custom --no-owner --no-privileges`, piped — the custom
+format is the one `pg_restore --list` can read from a pipe, which is how `create` verifies
+the archive without ever writing it in the clear. Connection strings are read from a file
+or the environment and handed to the client tools as `PG*` variables, never as arguments.
+`restore` targets a database the operator created and refuses one that holds tables. `drill`
+takes the admin URL, creates `symvolon_drill_<random>`, restores into it, boots a real server
+with the archive's schema in `search_path`, fetches `/healthz` and the page, and drops the
+database in `finally`. Two details the shared drill fixed on the way: the loopback port is
+probed by binding and kept below Linux's ephemeral range (the old `20000 + random` overlapped
+it and a busy test run produced `EADDRINUSE`), and a drill failure is thrown, not
+`process.exit`ed, so the `finally` that drops the copy always runs — asserted by a test that
+drills with a `pg_restore` that always fails.
+
+**Rejected.** A logical dump written in Node against the `pg` driver, to avoid needing the
+client tools: a second, private implementation of what `pg_dump` already guarantees about
+consistency and types. `pg_basebackup` or WAL archiving: physical copies tie the backup to a
+server version and a data directory, and the retention rule ("an account deleted today is
+gone from every backup in 35 days") wants a file per day, not a stream. Folding PostgreSQL
+into `scripts/backup.mjs` behind a flag: two snapshot models in one file, and
+`test/backup.test.ts` counts that file's write sites on purpose. The `--dbname` URL argument:
+it puts the password in `ps`.
+
+**Consequences.** A PostgreSQL deployment has `backup:pg`, `backup:pg:verify`,
+`backup:pg:restore`, `backup:pg:prune`, `backup:pg:drill` with the same policy and cron line
+as SQLite. The host needs `pg_dump` and `pg_restore` at least as new as the server, and the
+CI `postgres` job installs them, which is a change to `deploy/github-ci.yml` a human has to
+copy over. `test/backup_postgres.test.ts` runs the round trip on PostgreSQL only and skips,
+saying why, without it. The drill needs a URL that may create databases, which the
+application role by design may not (ADR-0095): the operator keeps the admin URL in a file
+for the quarterly drill, as they already do for the roles script. Reversible: delete the
+tool and the test and the sentence in `docs/BACKUPS.md` is what remains.

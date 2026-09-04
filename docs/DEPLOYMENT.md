@@ -278,10 +278,12 @@ same configuration, `--stagenet` on both Monero containers, a top-up, an order, 
 
 ## Backups
 
-`scripts/backup.mjs` takes an encrypted, verified, versioned snapshot, and prunes old ones on
-a policy. Read **`docs/BACKUPS.md`** — it has the commands, the cron line and the retention
-policy (35 days, minimum 7 files, no permanent archive tier, so a backup set does not become
-a forever-copy of deleted accounts).
+`scripts/backup.mjs` (SQLite) and `scripts/backup-postgres.mjs` (PostgreSQL, `npm run
+backup:pg*`, ADR-0115) take an encrypted, verified, versioned snapshot, and prune old ones on
+a policy. Read **`docs/BACKUPS.md`** — it has the commands for both drivers, the cron line and
+the retention policy (35 days, minimum 7 files, no permanent archive tier, so a backup set
+does not become a forever-copy of deleted accounts). On PostgreSQL the host also needs
+`pg_dump` and `pg_restore` at least as new as the server.
 
 ```bash
 npm run backup:keygen > /etc/symvolon/backup.key   # once, offline
@@ -291,9 +293,10 @@ npm run backup:drill -- --out /var/backups/symvolon   # quarterly: does the serv
 ```
 
 The drill is the one that matters. `verify` proves a backup decrypts and that SQLite thinks
-it is intact; the drill restores the newest one to a temporary copy, starts a real server on
-it in production mode on a random port, waits for `/healthz` and asks for the page — then
-deletes the copy. The live database is not touched. Run it before you need it.
+it is intact (or that `pg_restore` can list it); the drill restores the newest one to a
+temporary copy — a file, or a throwaway database created on the admin URL — starts a real
+server on it in production mode on a random port, waits for `/healthz` and asks for the page,
+then deletes the copy. The live database is not touched. Run it before you need it.
 
 The database contains no plaintext messages, but it does contain password hashes, sealed
 vaults, marketplace records and public keys. The backup key is not part of the application's

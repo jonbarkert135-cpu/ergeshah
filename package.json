@@ -45,6 +45,11 @@
     "backup:prune": "node scripts/backup.mjs prune",
     "backup:keygen": "node scripts/backup.mjs keygen",
     "backup:drill": "node scripts/backup.mjs drill",
+    "backup:pg": "node scripts/backup-postgres.mjs create",
+    "backup:pg:verify": "node scripts/backup-postgres.mjs verify",
+    "backup:pg:restore": "node scripts/backup-postgres.mjs restore",
+    "backup:pg:prune": "node scripts/backup-postgres.mjs prune",
+    "backup:pg:drill": "node scripts/backup-postgres.mjs drill",
     "incident": "node scripts/incident.mjs"
   },
   "dependencies": {

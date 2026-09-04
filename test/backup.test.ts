@@ -15,6 +15,9 @@ import { migrate } from "../src/server/db/migrate.ts";
 import { createSqliteDb } from "../src/server/db/sqlite.ts";
 
 const script = new URL("../scripts/backup.mjs", import.meta.url).pathname;
+// The envelope (key handling, AES-256-GCM, the private scratch directory) is shared with the
+// PostgreSQL tool; the shape checks below read both files, since the script is the two together.
+const envelope = new URL("../scripts/backup-envelope.mjs", import.meta.url).pathname;
 let workspace = "";
 let keyPath = "";
 let dbPath = "";
@@ -78,9 +81,11 @@ describe("scratch files", () => {
   // as it existed. Every scratch now lives in a mkdtemp directory (0700) and is 0600 itself.
   it("keeps every plaintext scratch inside a private directory, and leaves none behind", () => {
     const source = readFileSync(script, "utf8");
+    const shared = readFileSync(envelope, "utf8");
     expect(source).not.toMatch(/join\(tmpdir\(\), `symvolon-(snapshot|verify|drill)/);
-    expect(source.match(/privateScratchDir\(\)/g)?.length).toBeGreaterThanOrEqual(4);
-    expect(source).toMatch(/mkdtempSync\(join\(tmpdir\(\), "symvolon-"\)\)/);
+    // Three callers (snapshot, verify, drill) and the one definition they share.
+    expect(source.match(/privateScratchDir\(\)/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(shared).toMatch(/mkdtempSync\(join\(tmpdir\(\), "symvolon-"\)\)/);
     expect(source).toMatch(/chmodSync\(scratch, 0o600\)/);
     expect(source).toMatch(/writeFileSync\(scratch, bytes, \{ mode: 0o600 \}\)/);
 

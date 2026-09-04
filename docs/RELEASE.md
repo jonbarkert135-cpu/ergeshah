@@ -175,7 +175,7 @@ Fourteen areas, each resting on evidence from *this* run:
 | STORAGE | `test/uploads.test.ts`, `test/attachments.test.ts`, `test/images.test.ts`, `test/jobs.test.ts` |
 | NETWORK | `audit:egress`, `audit:bundle`, `test/deployment.test.ts` |
 | CONTAINER | `test/deployment.test.ts`, and the baseline's container counts |
-| BACKUP | `test/backup.test.ts`, and `npm run backup:drill` for a real restore |
+| BACKUP | `test/backup.test.ts`, `test/backup_postgres.test.ts`, and `npm run backup:drill` / `backup:pg:drill` for a real restore |
 | DEPENDENCY | `audit:deps`, `audit:dependencies`, `audit:supply`, `audit:inventory` |
 | CLEAN-CLONE | `node scripts/clean-clone.mjs` |
 | COST | `audit:cost` — zero mandatory paid services, API keys or hosted dependencies |
@@ -236,5 +236,5 @@ Points 113–137 are mostly older work; this page exists so that nobody has to g
 | 133 privilege escalation | The same suite, plus `test/moderation.test.ts` and `test/idor.test.ts`: no route promotes its caller |
 | 134 break-glass | This page, ADR-0037, `scripts/incident.mjs`, and the static check above |
 | 135 database least privilege | `deploy/postgres-roles.sql` (ADR-0095) — a non-superuser application role, a read-only backup role, and the migration trade stated in the file |
-| 136 backup security gate | `docs/BACKUPS.md`, `test/backup.test.ts` |
+| 136 backup security gate | `docs/BACKUPS.md`, `test/backup.test.ts`, `test/backup_postgres.test.ts` (ADR-0115) |
 | 137 restore drill | `npm run backup:drill`, and the sequence above |

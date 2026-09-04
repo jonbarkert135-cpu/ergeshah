@@ -203,11 +203,17 @@ describe("an attacker with a backup (point 92)", () => {
     // a script, and a compromised server therefore cannot hand over the backup history.
     const config = read("src/server/config.ts");
     expect(config).not.toMatch(/BACKUP_KEY/);
-    const backup = read("scripts/backup.mjs");
-    expect(backup).toMatch(/BACKUP_KEY_FILE/);
-    expect(backup).toMatch(/aes-256-gcm/);
-    // A key on the command line is visible in `ps`; the script refuses to take one there.
-    expect(backup).toMatch(/--key/);
+    // Both backup tools take the key through the one shared envelope, from a file only.
+    const envelope = read("scripts/backup-envelope.mjs");
+    expect(envelope).toMatch(/BACKUP_KEY_FILE/);
+    expect(envelope).toMatch(/aes-256-gcm/);
+    // A key on the command line is visible in `ps`; the envelope refuses to take one there.
+    expect(envelope).toMatch(/--key <file>/);
+    for (const tool of ["scripts/backup.mjs", "scripts/backup-postgres.mjs"]) {
+      const source = read(tool);
+      expect(source, tool).toMatch(/from "\.\/backup-envelope\.mjs"/);
+      expect(source, tool).not.toMatch(/createCipheriv|createDecipheriv/);
+    }
     expect(read("docs/BACKUPS.md")).toMatch(/does not hold the backup key/);
   });
 

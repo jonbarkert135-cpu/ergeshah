@@ -89,6 +89,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # test/backup_postgres.test.ts runs pg_dump against the container above; the runner's
+      # preinstalled client is older than the server and pg_dump refuses that, so the test
+      # would skip itself (loudly) without this. Cannot be an npm script: it needs apt.
+      - name: PostgreSQL client tools, matching the server
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
       - name: Tests (PostgreSQL driver)
         run: npm run test:postgres
         env:

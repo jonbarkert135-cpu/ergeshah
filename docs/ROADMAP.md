@@ -211,10 +211,18 @@ wording.*
   (`docs/NETWORK.md` §Internal callers). Enabling `--rpc-login` means HTTP digest
   authentication written here and verified against nothing, so it waits for the stagenet pass
   (PAY-6) where it can be tested against a real `monero-wallet-rpc` rather than a fake.
-- **OPS-9 — A PostgreSQL backup script and drill.** `docs/BACKUPS.md` describes `pg_dump` with
-  the same encryption, retention and off-host key rules, but only the SQLite path has a script
-  (`scripts/backup.mjs`) and a boot drill in CI. A deployment on PostgreSQL is following prose
-  today, which is exactly the gap `backup:drill` exists to close for the other driver.
+- **OPS-9 — A PostgreSQL backup script and drill. _Closed._** `docs/BACKUPS.md` described
+  `pg_dump` with the same encryption, retention and off-host key rules, but only the SQLite
+  path had a script and a boot drill in CI; a deployment on PostgreSQL was following prose.
+  Now `scripts/backup-postgres.mjs` (`npm run backup:pg*`) wraps `pg_dump --format=custom` in
+  the envelope both tools share (`scripts/backup-envelope.mjs`, ADR-0115): the archive is piped,
+  never written in the clear; connection strings come from a file or the environment and reach
+  `pg_dump` as `PG*` variables, never as an argument; `create` lists the archive with
+  `pg_restore --list` before it reports; `restore` refuses a target that is not empty; `drill`
+  restores into a throwaway database on the admin URL, boots a real server with the archive's
+  own schema in `search_path`, and drops it. `test/backup_postgres.test.ts` runs the round trip
+  on PostgreSQL against a `symvolon`-schema source (as `deploy/postgres-roles.sql` lays it out);
+  the CI `postgres` job installs a client that matches the server (`deploy/github-ci.yml`).
 - **OPS-10 — An advisory lock around boot-time migrations. _Closed._** `migrate()` runs on
   every start, and two instances booting together (scale mode) did run it at once — on
   PostgreSQL the loser died on `CREATE TABLE IF NOT EXISTS schema_migrations` with a

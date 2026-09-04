@@ -27,7 +27,7 @@
 `deploy/github-ci.yml` (the CI definition a human copies to `.github/workflows/`),
 `deploy/postgres-roles.sql` (the least-privilege roles, ADR-0095),
 `deploy/security-baseline.json` (the recorded security surface, point 139),
-`scripts/backup.mjs`, `scripts/incident.mjs`, `scripts/release.mjs`, `scripts/clean-clone.mjs`,
+`scripts/backup.mjs`, `scripts/backup-postgres.mjs`, `scripts/incident.mjs`, `scripts/release.mjs`, `scripts/clean-clone.mjs`,
 `src/server/config.ts`.
 
 **Kept honest by:** `test/deployment.test.ts` (every property these pages claim about the

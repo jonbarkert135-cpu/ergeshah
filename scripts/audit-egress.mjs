@@ -38,7 +38,15 @@ const EGRESS_ALLOWED = new Map([
   ],
   [
     "scripts/backup.mjs",
-    "the restore drill fetches the throwaway server it just started on localhost; operator tool, never the running service",
+    "the SQLite backup tool; its drill's fetch lives in scripts/backup-envelope.mjs; operator tool, never the running service",
+  ],
+  [
+    "scripts/backup-envelope.mjs",
+    "the restore drill both backup tools share fetches the throwaway server it just started on localhost; operator tool, never the running service",
+  ],
+  [
+    "scripts/backup-postgres.mjs",
+    "the PostgreSQL backup tool: pg_dump/pg_restore reach the database the operator's URL file names; operator tool, never the running service",
   ],
   [
     "scripts/audit.mjs",

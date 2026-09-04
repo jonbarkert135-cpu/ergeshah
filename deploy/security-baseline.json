@@ -14,6 +14,8 @@
   ],
   "egressDestinations": [
     "scripts/audit.mjs",
+    "scripts/backup-envelope.mjs",
+    "scripts/backup-postgres.mjs",
     "scripts/backup.mjs",
     "scripts/payout-worker.mjs",
     "src/server/lib/monero.ts"

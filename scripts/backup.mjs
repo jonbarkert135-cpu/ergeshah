@@ -18,104 +18,37 @@
  * installed on the host at 3am, and an authentication tag that makes a truncated or edited
  * backup fail loudly instead of restoring quietly.
  */
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import {
+  backupsIn as backupsMatching,
+  decrypt as unseal,
+  driveDrillServer,
+  encrypt as seal,
+  fail,
+  parseArgs,
+  privateScratchDir,
+  pruneBackups,
+  readKey,
+  stamp,
+} from "./backup-envelope.mjs";
 
+// The header names the format; the envelope (key handling, AES-256-GCM, the pinned tag
+// length, the private scratch directory) lives in scripts/backup-envelope.mjs and is shared
+// with the PostgreSQL tool, so the two cannot drift.
 const MAGIC = Buffer.from("SYMVBK1\n");
-const NONCE_BYTES = 12;
-const TAG_BYTES = 16;
 const NAME_RE = /^symvolon-(\d{4}-\d{2}-\d{2}T\d{6}Z)(-\d+)?\.sqlite\.enc$/;
 
-function fail(message) {
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
-}
-
-/** Flags, kept deliberately dumb: `--name value` and bare positionals. */
-function parseArgs(argv) {
-  const flags = {};
-  const positional = [];
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (token.startsWith("--")) {
-      const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) flags[token.slice(2)] = true;
-      else {
-        flags[token.slice(2)] = next;
-        i += 1;
-      }
-    } else positional.push(token);
-  }
-  return { flags, positional };
-}
-
-/**
- * The key: 32 bytes, base64. Read from a file, never from a command line (a command line is
- * visible in `ps` and in shell history) and never from the application's own configuration —
- * the point of an encrypted backup is that the running service cannot decrypt its own.
- */
-function readKey(flags) {
-  const path = flags.key ?? process.env.BACKUP_KEY_FILE;
-  if (!path || path === true) fail("--key <file> (or BACKUP_KEY_FILE) is required");
-  const key = Buffer.from(readFileSync(path, "utf8").trim(), "base64");
-  if (key.length !== 32) fail(`${path}: expected 32 bytes of base64 (see: backup.mjs keygen)`);
-  return key;
-}
-
-function encrypt(plaintext, key) {
-  const nonce = randomBytes(NONCE_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", key, nonce, { authTagLength: TAG_BYTES });
-  // The header is authenticated: a backup from a future format cannot be silently misread.
-  cipher.setAAD(MAGIC);
-  const body = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-  return Buffer.concat([MAGIC, nonce, body, cipher.getAuthTag()]);
-}
-
-function decrypt(file, key) {
-  if (file.length < MAGIC.length + NONCE_BYTES + TAG_BYTES) fail("not a Symvolon backup: too short");
-  if (!file.subarray(0, MAGIC.length).equals(MAGIC)) fail("not a Symvolon backup: bad header");
-  const nonce = file.subarray(MAGIC.length, MAGIC.length + NONCE_BYTES);
-  const body = file.subarray(MAGIC.length + NONCE_BYTES, file.length - TAG_BYTES);
-  // The tag length is pinned rather than left to Node's default set (which also accepts
-  // 32-bit tags). The slice above already hands over exactly TAG_BYTES, so this is belt and
-  // braces — the cheap kind, flagged by Semgrep's gcm-no-tag-length on 2026-09-04.
-  const decipher = createDecipheriv("aes-256-gcm", key, nonce, { authTagLength: TAG_BYTES });
-  decipher.setAAD(MAGIC);
-  decipher.setAuthTag(file.subarray(file.length - TAG_BYTES));
-  // Throws if the key is wrong or a byte was changed. That is the feature.
-  return Buffer.concat([decipher.update(body), decipher.final()]);
-}
+const encrypt = (plaintext, key) => seal(plaintext, key, MAGIC);
+const decrypt = (file, key) => unseal(file, key, MAGIC);
+const backupsIn = (directory) => backupsMatching(directory, NAME_RE);
 
 /**
  * A consistent snapshot of a live database. `VACUUM INTO` is the supported way — `cp` on a
  * WAL database copies a file that no longer matches its write-ahead log.
  */
-/**
- * A private place for a plaintext scratch file. `mkdtemp` creates the directory `0700`, so
- * the snapshot inside it is unreadable to every other account on the host for the seconds it
- * exists — a file created straight in `/tmp` is `0644` under the usual umask, and on a host
- * with any other login that is the whole database, in the clear, copyable in a loop
- * (SEC-2026-016). The caller removes the directory in a `finally`.
- */
-function privateScratchDir() {
-  return mkdtempSync(join(tmpdir(), "symvolon-"));
-}
-
 function snapshot(sourcePath) {
   const dir = privateScratchDir();
   const scratch = join(dir, "snapshot.sqlite");
@@ -154,17 +87,6 @@ function inspect(bytes) {
     db.close();
     rmSync(dir, { recursive: true, force: true });
   }
-}
-
-function stamp(date = new Date()) {
-  return date.toISOString().replace(/[:-]/g, "").replace(/^(\d{4})(\d{2})(\d{2})T(\d{6}).*$/, "$1-$2-$3T$4Z");
-}
-
-function backupsIn(directory) {
-  return readdirSync(directory)
-    .filter((name) => NAME_RE.test(name))
-    .sort()
-    .map((name) => ({ name, path: join(directory, name) }));
 }
 
 function create({ flags }) {
@@ -213,29 +135,9 @@ function restore({ flags, positional }) {
   );
 }
 
-/**
- * Retention. Deletes backups older than `--days`, but never leaves fewer than `--keep` of
- * them: a retention policy that can empty the directory is a data-loss policy.
- */
-function prune({ flags }) {
-  const directory = flags.out ?? "backups";
-  const days = Number(flags.days ?? 35);
-  const keep = Number(flags.keep ?? 7);
-  if (!Number.isFinite(days) || days < 1) fail("--days must be a positive number");
-  const all = backupsIn(directory);
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const removable = all.slice(0, Math.max(0, all.length - keep));
-  let removed = 0;
-  for (const backup of removable) {
-    if (statSync(backup.path).mtimeMs >= cutoff) continue;
-    unlinkSync(backup.path);
-    removed += 1;
-  }
-  process.stdout.write(
-    `prune: ${removed} removed, ${all.length - removed} kept (older than ${days} days, ` +
-      `never fewer than ${keep})\n`,
-  );
-  return removed;
+/** Retention (docs/BACKUPS.md): older than `--days` goes, never fewer than `--keep` stay. */
+function prune(parsed) {
+  return pruneBackups(parsed, NAME_RE);
 }
 
 /**
@@ -266,56 +168,14 @@ async function drill({ flags, positional }) {
   const summary = inspect(bytes);
   writeFileSync(scratch, bytes, { flag: "wx", mode: 0o600 });
 
-  // A port, not a secret: the drill binds 127.0.0.1 and lives for a few seconds.
-  const port = 20000 + (randomBytes(2).readUInt16BE() % 20000);
-  const server = spawn(
-    process.execPath,
-    ["--experimental-strip-types", "--disable-warning=ExperimentalWarning", "src/server/main.ts"],
-    {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        NODE_ENV: "production",
-        SQLITE_PATH: scratch,
-        // The drill's own secret: never the production one, and gone when it exits.
-        RATE_LIMIT_PEPPER: randomBytes(36).toString("base64"),
-        BEHIND_TLS: "false",
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        ONION_HOSTNAME: "",
-      },
-    },
-  );
-  let output = "";
-  server.stdout.on("data", (chunk) => (output += chunk));
-  server.stderr.on("data", (chunk) => (output += chunk));
-
   try {
-    const base = `http://127.0.0.1:${port}`;
-    const deadline = Date.now() + 30_000;
-    let health = null;
-    while (Date.now() < deadline) {
-      if (server.exitCode !== null) break;
-      health = await fetch(`${base}/healthz`).catch(() => null);
-      if (health?.ok) break;
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    if (!health?.ok) fail(`drill FAILED: the service did not come up on the restored copy\n${output}`);
-    const page = await fetch(base);
-    if (!page.ok) fail(`drill FAILED: the restored service answered ${page.status} for the page`);
+    await driveDrillServer({ SQLITE_PATH: scratch });
     process.stdout.write(
       `drill: ${chosen}\n  restored to a temporary copy, service started in production mode, ` +
         `/healthz ok, page ok\n  ${summary.tables} tables, ${summary.migrations} migrations, ` +
         `${summary.users} accounts\n  the live database was not touched; the copy is deleted\n`,
     );
   } finally {
-    server.kill("SIGTERM");
-    // Wait for the process to let go before deleting: SQLite in WAL mode keeps two
-    // companion files, and removing them under a live handle leaves the litter behind.
-    await Promise.race([
-      new Promise((resolve) => server.once("exit", resolve)),
-      new Promise((resolve) => setTimeout(resolve, 5_000)),
-    ]);
     rmSync(dir, { recursive: true, force: true });
   }
 }
@@ -330,4 +190,10 @@ const commands = { create, verify, restore, prune, drill, keygen };
 if (!command || !Object.hasOwn(commands, command)) {
   fail(`usage: backup.mjs <${Object.keys(commands).join("|")}> [...]  (see docs/BACKUPS.md)`);
 }
-await commands[command](parsed);
+// A thrown error (a drill that did not come up, a database that refused) is reported the way
+// every other refusal is: one line on stderr, exit 1, no stack trace, after every `finally`.
+try {
+  await commands[command](parsed);
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
+}

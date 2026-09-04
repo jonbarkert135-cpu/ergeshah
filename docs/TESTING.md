@@ -45,6 +45,7 @@ about the system is worse than no test, and the cheapest way to lie is to test a
 | `security.test.ts` | **Security** | One suite per attack class in point 53: the attacks that cross two other suites, and the sweeps nobody could keep by hand (every unsafe route without a CSRF token, every table checked for a message plaintext) |
 | `cryptography.test.ts` | **Security** | Point 54, per kind: published vectors, negative, malformed input, replay, corrupted ciphertext, wrong key, wrong identity, nonce misuse, session reset |
 | `incident.test.ts` | **Security** | `scripts/incident.mjs` against a real database: a procedure that has never been run is a wish |
+| `backup.test.ts`, `backup_postgres.test.ts` | **Security** | The backup tools against a real database: encrypted output with no plaintext, a wrong key, a flipped byte, a restore that never overwrites, and the drill that boots a real server on the restored copy. The PostgreSQL one runs on PostgreSQL only, with a matching `pg_dump`, and skips loudly without |
 | `observability.test.ts` | **Security** | Health is administrator-only, and the document it returns is numbers, booleans and four fixed words — a field that names a route or an account fails here (point 85) |
 | `resources.test.ts` | **Security** | The ceilings a token bucket cannot enforce: concurrent connections, socket timeouts, body size, PostgreSQL statement and idle-transaction timeouts (point 86) |
 | `api.test.ts` | **Security** | The interface itself: the `/api/v1` prefix, `X-API-Version`, every error code documented, one error envelope everywhere, `Retry-After` on a 429, no database structure in a message, and no WebSocket anywhere (points 87–89) |
@@ -120,7 +121,11 @@ The nine cryptographic test kinds of point 54 are mapped in the header comment o
 
 - **PostgreSQL** now runs the whole suite in CI (the `postgres` job) and locally with the
   command at the top of this page. One assertion is skipped there — the query-plan check in
-  `test/search.test.ts`, which is about SQLite's planner — and nothing else is dialect-specific.
+  `test/search.test.ts`, which is about SQLite's planner — and two suites run on PostgreSQL
+  only: the migration lock (`test/migrations.test.ts`) and the PostgreSQL backup tool
+  (`test/backup_postgres.test.ts`, which also needs `pg_dump` at least as new as the server;
+  it skips, saying why, when that is missing — locally, or in CI before the `postgres` job's
+  client-install step has been copied into `.github/workflows/ci.yml`).
 - **The browser** is not driven end-to-end. The client is tested at the module level
   (`client.test.ts`) and by the shared crypto tests; there is no Playwright run, because a
   browser harness is a large dependency tree for the class of bug our CSP already forbids.

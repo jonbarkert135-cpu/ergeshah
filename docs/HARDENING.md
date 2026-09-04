@@ -152,9 +152,10 @@ Encrypted, verified, expiring — the commands and the retention policy are in
   copy somewhere the server cannot reach). A compromised server that can decrypt its own
   backup history has turned a backup into a second copy of the breach;
 - a backup you have never restored is a hypothesis. Once a quarter run
-  `npm run backup:drill -- --out /var/backups/symvolon`, which restores the newest backup to
-  a temporary copy and starts a real server on it, and note the date somewhere. It does not
-  touch the live database.
+  `npm run backup:drill -- --out /var/backups/symvolon` (SQLite) or
+  `npm run backup:pg:drill -- --out /var/backups/symvolon --admin-url-file …` (PostgreSQL),
+  which restores the newest backup to a temporary copy and starts a real server on it, and
+  note the date somewhere. It does not touch the live database.
 
 ## 8. Monitoring
 
