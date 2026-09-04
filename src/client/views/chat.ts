@@ -23,7 +23,7 @@ import { persistVault, state } from "../state.ts";
 import type { AttachmentRef, ChatMessage, Conversation } from "../state.ts";
 import { MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
 import { safeFileName } from "../../shared/uploads.ts";
-import { metadataUnhandled } from "../../shared/media.ts";
+import { METADATA_KEPT_NOTE, metadataUnhandled } from "../../shared/media.ts";
 import {
   acknowledgeKeyChange,
   markVerified,
@@ -231,12 +231,7 @@ export function renderChat(root: HTMLElement): void {
           // from a phone camera still carries the coordinates of the shot (ADR-0092).
           status.replaceChildren();
           if (unhandled) {
-            status.append(
-              notice(
-                "Sent. This file type keeps its own metadata — location and camera details are not removed from it. Send a JPEG or PNG if that matters.",
-                "info",
-              ),
-            );
+            status.append(notice(`Sent. ${METADATA_KEPT_NOTE} Send a JPEG or PNG if that matters.`, "info"));
           }
           drawPanel();
         })

@@ -259,8 +259,12 @@ verified state, and a warning when an unverified device appears.*
   metadata, and the screen says so. Closing it means either an ISO base media box walker (HEIC,
   AVIF, MP4 share the container, so one walker covers four formats) or a decode-and-re-encode
   path, which costs image quality and a DOM in shared code. The disclosure is honest today; the
-  gap is real. The chat screen already says when a file's format was not cleaned
-  (`metadataUnhandled`); the delivery screen does not, and should.
+  actual *stripping* of these formats is the gap that remains.
+  *Disclosure closed (2026-09-04): both upload paths now warn. The chat screen says after the
+  fact that a file's format was not cleaned; the delivery screen asks the seller to confirm
+  before the bytes leave the browser, since a delivery is a deliberate act with a Cancel. Both
+  read the same `metadataUnhandled` check and the same `METADATA_KEPT_NOTE` wording in
+  `src/shared/media.ts`, so the two screens cannot drift.*
 - **UI-2 — Offline queue** for messages composed without connectivity.
 *Shipped: UI-3 accessibility pass (ADR-0097) — focus is anchored across every redraw, form
 refusals name the field they are about and move the keyboard to it, results the page shows by

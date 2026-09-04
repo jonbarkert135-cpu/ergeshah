@@ -20,7 +20,7 @@
  * metadata is gone, and the image data is untouched.
  */
 import { describe, expect, it } from "vitest";
-import { metadataUnhandled, stripImageMetadata } from "../src/shared/media.ts";
+import { METADATA_KEPT_NOTE, metadataUnhandled, stripImageMetadata } from "../src/shared/media.ts";
 
 const ascii = (text: string): number[] => [...text].map((character) => character.charCodeAt(0));
 const bytes = (...parts: (number | number[])[]): Uint8Array =>
@@ -118,5 +118,22 @@ describe("the formats it does not clean", () => {
     for (const [name, file] of [["jpeg", jpegWithTrailer()], ["png", png], ["webp", webp], ["other", document]] as const) {
       expect(metadataUnhandled(file), name).toBe(false);
     }
+  });
+
+  // The chat attachment path and the marketplace delivery path both disclose an unhandled
+  // format, and both must say the same true thing. The wording lives in one exported constant
+  // so the two screens cannot drift (roadmap UI-4) — this asserts it exists, names what is
+  // *not* removed, and does not overclaim by calling the file anonymous or clean.
+  it("gives both upload paths one honest sentence for the formats it cannot clean", () => {
+    expect(METADATA_KEPT_NOTE).toMatch(/metadata/i);
+    expect(METADATA_KEPT_NOTE).toMatch(/location/i);
+    // Does not overclaim: the cleaned formats are never called anonymous, and this format is
+    // not called cleaned or stripped — it says what stays, which is the honest half.
+    expect(METADATA_KEPT_NOTE).not.toMatch(/anonymous|cleaned|stripped/i);
+    // The delivery screen shows this note exactly when the strip could not touch the file —
+    // the same gate the chat screen uses — so a HEIC warns and a JPEG stays silent.
+    const heic = bytes(0, 0, 0, 0x18, ascii("ftypheic"), ascii("mif1"));
+    expect(metadataUnhandled(heic) && METADATA_KEPT_NOTE.length > 0).toBe(true);
+    expect(metadataUnhandled(jpegWithTrailer())).toBe(false);
   });
 });

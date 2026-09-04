@@ -196,6 +196,16 @@ function stripWebp(bytes: Uint8Array): Uint8Array {
  * (`docs/STORAGE.md` §Image metadata, roadmap UI-4). Recognised by the file's own bytes, never
  * by a name or a type the user supplied.
  */
+/**
+ * The one sentence every screen uses to say what an unhandled format keeps. It lives here,
+ * beside the check that decides when to show it, so the chat attachment path and the
+ * marketplace delivery path cannot drift into two different half-true claims (roadmap UI-4).
+ * It states what is *not* removed, which is the fact the recipient — the party holding the
+ * key — needs, and stops there: it does not promise the cleaned formats are anonymous.
+ */
+export const METADATA_KEPT_NOTE =
+  "This file type keeps its own metadata — location and camera details are not removed from it.";
+
 export function metadataUnhandled(bytes: Uint8Array): boolean {
   if (bytes.length >= 12 && fourCc(bytes, 4) === "ftyp") return true;
   const tiffLittle = [0x49, 0x49, 0x2a, 0x00];

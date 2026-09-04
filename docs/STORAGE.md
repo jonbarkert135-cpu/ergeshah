@@ -103,6 +103,15 @@ What this does not do, in the words a user deserves: it **reduces exposure**. It
 make a photograph anonymous. Faces, screens, street signs, the room, the filename and the
 compression history all survive it.
 
+A format the stripper does not parse — HEIC and HEIF from an iPhone camera, AVIF, TIFF and
+raw, GIF, PDF, SVG — is passed through byte for byte, because corrupting a file someone is
+trying to send is the worse failure. Silence about that would be dishonest: a sender told
+nothing reasonably assumes the file was cleaned like the others. So both upload paths say so,
+from one sentence (`METADATA_KEPT_NOTE`) gated by one check (`metadataUnhandled`) in
+`src/shared/media.ts`. The chat attachment path says it after the send; the marketplace
+delivery path asks the seller to confirm before the bytes leave the browser, because a
+delivery is a deliberate act that can still be cancelled (roadmap UI-4).
+
 ## Integrity, and why there is no content hash column
 
 Every blob is sealed with XChaCha20-Poly1305, whose authentication tag *is* the integrity

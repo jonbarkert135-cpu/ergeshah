@@ -1,9 +1,9 @@
 import { api } from "../api.ts";
-import { clear, el, emptyState, errorState, focusAnchor, formDialog, notice, price as formatPrice, say, skeleton, table, toast } from "../ui.ts";
+import { clear, confirmDialog, el, emptyState, errorState, focusAnchor, formDialog, notice, price as formatPrice, say, skeleton, table, toast } from "../ui.ts";
 import { receiveMessages, sendDeliveryKey } from "../messaging.ts";
 import { persistVault, state } from "../state.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
-import { stripImageMetadata } from "../../shared/media.ts";
+import { METADATA_KEPT_NOTE, metadataUnhandled, stripImageMetadata } from "../../shared/media.ts";
 import { fromBase64Url, toBase64Url } from "../../shared/encoding.ts";
 import { safeFileName } from "../../shared/uploads.ts";
 
@@ -287,11 +287,31 @@ export function renderOrders(root: HTMLElement): void {
       if (!chosen) return;
       if (chosen.size > MAX_FILE_BYTES) {
         body.append(notice(`File is larger than ${MAX_FILE_BYTES / (1024 * 1024)} MB.`, "error"));
+        picker.value = "";
         return;
       }
-      void run(file, "Encrypting…", async () => {
-        await deliver(order, new Uint8Array(await chosen.arrayBuffer()), chosen.name.slice(0, 120), "file");
-      });
+      void (async () => {
+        const bytes = new Uint8Array(await chosen.arrayBuffer());
+        // A delivered file reaches the buyer with whatever its container carries, and
+        // encryption does not help there — the buyer holds the key (`src/shared/media.ts`).
+        // JPEG/PNG/WebP are cleaned before encryption; any other format is passed through, so
+        // the seller is told before the bytes leave the browser, not after (roadmap UI-4). The
+        // chat path warns after the fact; a delivery is a deliberate act with a Cancel, so here
+        // the disclosure comes first and can be acted on.
+        if (
+          metadataUnhandled(bytes) &&
+          !(await confirmDialog({
+            title: "Deliver this file as-is?",
+            body: `${METADATA_KEPT_NOTE} It reaches the buyer unchanged. Deliver a JPEG or PNG instead if that matters.`,
+            confirmLabel: "Deliver anyway",
+          }))
+        ) {
+          picker.value = "";
+          return;
+        }
+        await run(file, "Encrypting…", () => deliver(order, bytes, chosen.name.slice(0, 120), "file"));
+        picker.value = "";
+      })();
     });
     text.addEventListener("click", () => {
       void formDialog({
