@@ -3065,3 +3065,47 @@ and, honestly, should. The signal is only as good as the record, so a peer who c
 while this device has never contacted them shows nothing until the next send or receive.
 And because the record lives in the vault, it travels with the account through recovery and
 device linking, but a browser with a cleared vault starts again at trust on first use.
+
+## ADR-0092 — Picture metadata is stripped in the sender's browser, and only three formats are claimed
+
+**Status:** accepted (2026-09-04)
+
+**Context.** Everything in this project protects a file from the *server*. Nothing protected it
+from the recipient: an attachment or a delivery reached the other party with its EXIF intact —
+GPS coordinates, camera body and serial number, editing software, and sometimes a thumbnail
+holding an older version of the image. For a seller photographing goods, that is a home
+address delivered with the order; for a conversation, it is a location history exchanged by
+people who chose this product specifically to avoid one. The server cannot fix it: it holds
+ciphertext, and the only place the plaintext exists is the two browsers.
+
+**Decision.** `src/shared/images.ts` walks the container and rewrites it without the segments
+that carry metadata — JPEG `APPn` (n ≥ 1) and comments, PNG `eXIf`/`tEXt`/`iTXt`/`zTXt`/`tIME`,
+WebP `EXIF`/`XMP ` with the `VP8X` flags corrected — and it runs on the sending side, before
+`encryptFile`. It is called inside `sendAttachment` and `deliver` rather than in the views, so
+a future screen cannot forget it, and inside `orderDigest`, so the evidence commitment covers
+the bytes the counterparty actually receives (ADR-0074). It is idempotent, which is what makes
+those two uses agree.
+
+Formats outside those three are passed through untouched and reported as `mayCarryMetadata`,
+and the screen says so. A container this walker cannot parse — truncated, unusual, or simply
+not what its magic bytes suggested — is also passed through rather than rewritten: a corrupted
+photograph is a worse outcome than a photograph with metadata in it, and the caller is told
+which one it got.
+
+**Rejected.** *Re-encoding through a canvas*, which strips everything by decoding and drawing:
+it needs a DOM in code that also runs in tests, loses image quality on every send, and turns a
+byte walk into a decode of hostile input inside the browser. *Stripping on the server*, which
+is impossible here by construction and would require breaking end-to-end encryption to become
+possible — the same trade this project refuses for malware scanning (`docs/THREAT_MODEL.md`).
+*Blocking formats we cannot clean*: refusing a HEIC would push people to send screenshots of
+photographs, which is worse for them and no better for us. *Keeping `APP2`* to preserve ICC
+colour: the same segment carries Apple's multi-picture data, which can hold a second copy of
+the image with its own EXIF.
+
+**Consequences.** A wide-gamut JPEG may render slightly differently after stripping, because
+its colour profile is gone. HEIC, HEIF, AVIF, TIFF, raw, video, PDF and SVG are unchanged and
+say so on the screen, which is a real gap and now a visible one rather than a silent one. The
+stripper is parsing code on the client, so it is written to refuse rather than guess, and
+`test/images.test.ts` asserts both halves of the property for every format: the metadata is
+gone, and the picture is byte-for-byte the same.
+

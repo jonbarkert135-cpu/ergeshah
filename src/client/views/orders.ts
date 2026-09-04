@@ -5,6 +5,7 @@ import { persistVault, state } from "../state.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
 import { fromBase64Url, toBase64Url } from "../../shared/encoding.ts";
 import { safeFileName } from "../../shared/uploads.ts";
+import { stripImageMetadata } from "../../shared/images.ts";
 
 interface Order {
   id: string;
@@ -62,6 +63,10 @@ const EVIDENCE_KINDS: Array<[value: string, label: string]> = [
  * two parties and, in a dispute, the moderator.
  */
 async function orderDigest(orderId: string, bytes: Uint8Array): Promise<string> {
+  // The digest covers the bytes that were *delivered*, which are the stripped ones — the
+  // stripper is idempotent, so a party checking a file they received computes the same value
+  // as the party who sent it.
+  const { bytes: exchanged } = stripImageMetadata(bytes);
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(orderId),
@@ -69,7 +74,7 @@ async function orderDigest(orderId: string, bytes: Uint8Array): Promise<string> 
     false,
     ["sign"],
   );
-  const mac = await crypto.subtle.sign("HMAC", key, bytes as BufferSource);
+  const mac = await crypto.subtle.sign("HMAC", key, exchanged as BufferSource);
   return [...new Uint8Array(mac)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
@@ -327,7 +332,18 @@ export function renderOrders(root: HTMLElement): void {
   }
 
   async function deliver(order: Order, plaintext: Uint8Array, name: string, kind: "file" | "text"): Promise<void> {
-    const { key, nonce, ciphertext } = encryptFile(order.id, plaintext);
+    // A seller photographing the goods is the likeliest way a home address reaches a buyer,
+    // so a delivered picture loses its metadata here, before it is encrypted (point 88).
+    const image = stripImageMetadata(plaintext);
+    if (image.mayCarryMetadata) {
+      body.append(
+        notice(
+          "This file type still carries whatever metadata it came with — location and camera details are not removed from it. Convert it to JPEG or PNG first if that matters.",
+          "info",
+        ),
+      );
+    }
+    const { key, nonce, ciphertext } = encryptFile(order.id, image.bytes);
     await api(`/api/market/orders/${order.id}/delivery`, {
       method: "POST",
       body: { ciphertext: toBase64Url(ciphertext) },

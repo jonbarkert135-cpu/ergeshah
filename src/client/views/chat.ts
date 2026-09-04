@@ -214,8 +214,18 @@ export function renderChat(root: HTMLElement): void {
       void chosen
         .arrayBuffer()
         .then((buffer) => sendAttachment(conversation, new Uint8Array(buffer), chosen.name))
-        .then(() => {
+        .then((image) => {
+          // Metadata stripping is silent when it worked, and says so when it could not: a
+          // HEIC straight from a phone camera still carries the coordinates of the shot.
           status.replaceChildren();
+          if (image.mayCarryMetadata) {
+            status.append(
+              notice(
+                "Sent. This file type keeps its own metadata — location and camera details are not removed from it. Send a JPEG or PNG if that matters.",
+                "info",
+              ),
+            );
+          }
           drawPanel();
         })
         .catch((error: Error) => status.replaceChildren(notice(error.message, "error")))

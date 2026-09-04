@@ -197,6 +197,41 @@ describe("a file sent between two browsers", () => {
     return rows[0]!.ciphertext;
   }
 
+  /**
+   * Point 88, end to end: what leaves this browser is the picture without the metadata, and
+   * what the peer opens is the same bytes. The unit cases for every container are in
+   * `test/images.test.ts`; this one proves the strip is actually wired into the send path.
+   */
+  it("sends a photograph without the coordinates it was taken at", async () => {
+    const exif = [...'Exif\0\0II'].map((character) => character.charCodeAt(0));
+    const gps = [...'GPSLatitude 51.5074 Canon EOS 5D'].map((character) => character.charCodeAt(0));
+    const payload = [...exif, ...gps];
+    const photograph = new Uint8Array([
+      0xff, 0xd8, // SOI
+      0xff, 0xe1, ((payload.length + 2) >> 8) & 0xff, (payload.length + 2) & 0xff, ...payload, // APP1
+      0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x2a, 0x2b, // SOS + scan
+      0xff, 0xd9, // EOI
+    ]);
+
+    await actAs(alice);
+    const conversation = await startConversation("bob");
+    const stripped = await sendAttachment(conversation, photograph, "holiday.jpg");
+    expect(stripped.cleaned).toBe(true);
+    expect(stripped.removedBytes).toBeGreaterThan(payload.length);
+
+    await actAs(bob);
+    expect(await receiveMessages()).toBe(1);
+    const opened = await openAttachment(conversations()[0]!.messages[0]!.attachment!);
+    const received = Buffer.from(opened).toString("latin1");
+    expect(received).not.toContain("Exif");
+    expect(received).not.toContain("GPSLatitude");
+    expect(received).not.toContain("Canon EOS 5D");
+    // Still a JPEG, and still the same picture: the scan and the markers around it survive.
+    expect([...opened.subarray(0, 2)]).toEqual([0xff, 0xd8]);
+    expect([...opened.subarray(-2)]).toEqual([0xff, 0xd9]);
+    expect(received).toContain(Buffer.from([0xff, 0xda, 0x00, 0x08]).toString("latin1"));
+  });
+
   it("sanitises a name a peer chose before it can reach a download", async () => {
     await actAs(alice);
     const conversation = await startConversation("bob");

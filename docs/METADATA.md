@@ -143,6 +143,40 @@ If push is ever added, this is the shape it has to have, and anything less is a 
 
 Until all six hold, polling is the more private answer, and it is what ships.
 
+## What a picture carries (points 87, 88)
+
+Encryption hides a photograph from the server. It hides nothing from the person receiving it,
+and a photograph straight off a phone is the most talkative file in this product: the
+coordinates of the shot, the camera body and its serial number, the editing software, and a
+thumbnail that is occasionally an older crop of the same image. On a marketplace where a
+seller photographs the goods, that is a home address travelling with the advertisement.
+
+So metadata is removed in the sending browser, before anything is encrypted
+(`src/shared/images.ts`, ADR-0092). Nothing is decoded and no image library is involved: the
+container is walked and the segments that hold metadata are left out.
+
+| Format | What is removed | What is kept |
+| --- | --- | --- |
+| JPEG | Every `APPn` segment except `APP0`/JFIF — so EXIF, GPS, XMP and IPTC — comments, and anything appended after the end-of-image marker | The frame, the tables and the scan, byte for byte |
+| PNG | `eXIf`, `tEXt`, `iTXt`, `zTXt`, `tIME`, and bytes after `IEND` | Every other chunk, including `iCCP` and the APNG control chunks |
+| WebP | The `EXIF` and `XMP ` chunks, and the `VP8X` flags that announced them | The picture, the alpha and the animation |
+
+Three limits, stated because a caller told "cleaned" about a file that is not is worse off
+than one told nothing:
+
+- **Only those three formats.** A HEIC or HEIF from an iPhone, an AVIF, a raw file, a TIFF, a
+  video, a PDF and an SVG all pass through unchanged, and the screen says so when one is sent.
+- **Dropping `APP2` drops the ICC colour profile.** A wide-gamut photograph may render slightly
+  differently after stripping. That is the price of also dropping Apple's multi-picture
+  segment, which can carry a second copy of the image with its own EXIF.
+- **A file this walker cannot parse is sent as it is**, not rewritten and not corrupted — and
+  it is reported as still carrying its metadata.
+
+The delivery path and the dispute-evidence digest run the same function, so the digest a party
+commits to covers the bytes the counterparty actually receives (ADR-0074, ADR-0092).
+`test/images.test.ts` is the container-by-container proof; `test/attachments.test.ts` sends a
+JPEG with GPS in it through the real send path and opens it on the other side.
+
 ## What remains observable
 
 Nothing here hides traffic analysis. The operator, and a network observer, still see

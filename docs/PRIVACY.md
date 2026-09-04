@@ -175,16 +175,26 @@ an address without the address, and the key rotates daily.
 
 ## Retention summary
 
-| Data | Kept |
-| --- | --- |
-| Undelivered envelope | Until acknowledged, at most 30 days |
-| Delivered file (`deliveries`) | Until the buyer saves it, the order is completed or cancelled, or 30 days |
-| Delivered envelope | Deleted immediately |
-| Session | Until logout or 30 days |
-| Rate-limit bucket | 24 hours |
-| One-time prekey | Until claimed |
-| Account, listings, orders, reviews | Until deleted by the user or moderation |
-| Audit entry | Indefinitely (it exists to be reviewable) |
+Five columns, because "kept for 30 days" answers only half the question: what the data is
+*for* is what decides whether it should exist at all, and who can read it is what decides how
+bad it is that it does. Live values are in `docs/ENVIRONMENT.md`; the deletion machinery is in
+`docs/DELETION.md`.
+
+| Data | Purpose | Retention | Delete condition | Access |
+| --- | --- | --- | --- | --- |
+| Undelivered envelope | Deliver a message to a device that is offline | `ENVELOPE_TTL_MS` (30 days), less if the sender set a shorter lifetime | The recipient acknowledges it, or it expires | The addressed devices; the operator sees ciphertext |
+| Delivered envelope | — | None | Deleted at acknowledgement | Nobody |
+| Delivered file (`deliveries`) | Hand one encrypted file to one buyer | `DELIVERY_TTL_MS` (30 days) | The buyer saves it, the order ends, or it expires | The buyer, by order id; the operator sees ciphertext |
+| Message attachment (`attachments`) | Hand one encrypted file to a conversation | `DELIVERY_TTL_MS` (30 days) | Anyone holding the id deletes it, or it expires | Whoever holds the id; the key is in the conversation |
+| Session | Keep someone signed in | `SESSION_TTL_MS` (30 days), or `SESSION_IDLE_DAYS` (14) unused | Sign-out, expiry, password change, recovery | Its owner; staff have no route to it |
+| Rate-limit bucket | Refuse a flood | 24 hours | The sweep | Nobody: it holds a hash and a count |
+| One-time prekey | Start a session with forward secrecy | Until claimed | The claim, which deletes it | Public half only, one caller |
+| Security event | Show an account its own sign-in history | `SECURITY_EVENT_RETENTION_DAYS` | The sweep | Its owner only, as counts per day |
+| Notification | An inbox that describes nothing | `NOTIFICATION_RETENTION_MS` (90 days) | Read, or the sweep | Its owner |
+| Account, listings, orders, reviews | Be a marketplace | Until deleted | The owner deletes the account, or moderation removes the listing | The parties; moderation sees the public facts |
+| Audit entry | Make a staff action reviewable afterwards | `AUDIT_RETENTION_MS` (1 year) | The sweep | Administrators |
+| Search index (`listing_terms`) | Find a listing without scanning the table | Life of the listing | The listing is removed | Public, through search |
+| Search *queries* | — | Not stored | — | Nobody |
 
 ## Deleting an account
 

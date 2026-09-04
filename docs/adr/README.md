@@ -94,6 +94,7 @@ or if a record is missing a section.
 | [ADR-0044](../DECISIONS.md#adr-0044--search-happens-in-the-browser-and-push-does-not-happen-at-all) | Search happens in the browser, and push does not happen at all |
 | [ADR-0045](../DECISIONS.md#adr-0045--a-review-does-not-name-its-buyer) | A review does not name its buyer |
 | [ADR-0047](../DECISIONS.md#adr-0047--blocking-is-the-recipients-decision-and-the-server-is-not-told) | Blocking is the recipient's decision, and the server is not told |
+| [ADR-0092](../DECISIONS.md#adr-0092--picture-metadata-is-stripped-in-the-senders-browser-and-only-three-formats-are-claimed) | Picture metadata is stripped in the sender's browser, and only three formats are claimed |
 
 ### Security and abuse
 
