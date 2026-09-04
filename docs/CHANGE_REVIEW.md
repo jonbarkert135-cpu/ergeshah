@@ -18,6 +18,8 @@ any of these became true:
 | An error says more than it did | a driver message, a path, a table name, whether an account exists |
 | A privileged action stopped being audited | `recordAudit` missing from a staff route, or a refusal that is no longer recorded |
 | A limit got looser or disappeared | a bucket, a body cap, a timeout, a connection ceiling |
+| A counted column is read, decided on, then written | a `SELECT` followed by an `UPDATE` on a balance, bond, bucket, token or status — correct on SQLite, a race on PostgreSQL. It must be one guarded `UPDATE … WHERE <precondition> RETURNING` (ADR-0106) |
+| A security decision reads the raw request | `request.url`, a header, a body field where the routed pattern (`isApiRequest()`), a validator or a session should have been asked |
 | A dependency arrived | anything in `package.json` that `docs/DEPENDENCIES.md` does not justify |
 | A claim got stronger than the code | a document that now promises more than `docs/THREAT_MODEL.md` accepts |
 

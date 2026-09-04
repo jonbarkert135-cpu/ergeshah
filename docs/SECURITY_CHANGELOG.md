@@ -79,3 +79,71 @@ mentioned here.
 - **Regression test:** `test/security_pipeline.test.ts` — the rule detects a planted example
   and the tree is clean under it.
 - **Verification:** `npm run check && npm test && npm run audit`.
+
+## 2026-09-04 — full application-security audit: fifteen fixes (SEC-2026-007 … SEC-2026-021)
+
+One pass over every route, the money layer, sessions, the client's trust boundary, the backup
+tooling and the audit scripts, with every finding verified against the code before it was
+written down. The full narrative is `SECURITY-REPORT.md` at the repository root; the changed
+files are in `SECURITY-FIXES.md`. Per finding:
+
+- **SEC-2026-007 — percent-encoded API path skipped the freeze and the CSRF check.**
+  Component: `src/server/app.ts`, `src/server/security.ts`. Root cause: a security decision
+  derived from the raw request line rather than from the route the router matched. Remediation:
+  `isApiRequest()` over `request.routeOptions.url`, used by every hook. Test:
+  `test/security.test.ts` (three encodings, the freeze, the version header).
+- **SEC-2026-008 — the bond could be credited twice.** Component: `src/server/lib/bonds.ts`.
+  Root cause: read-then-write on a money column, safe on SQLite only. Remediation: guarded
+  `UPDATE … RETURNING` before the ledger moves (ADR-0106). Test: `test/bonds.test.ts`, staging
+  the stale READ COMMITTED snapshot.
+- **SEC-2026-009 — a seller could delete an account with open orders.** Component:
+  `src/server/routes/auth.ts`. Root cause: the pre-deletion check looked at the deleter's balance,
+  and the escrow is on the buyer's. Remediation: `409 orders_open` while party to an open order.
+  Test: `test/wallet.test.ts`.
+- **SEC-2026-010 — payouts could be split past the automatic ceiling.** Component:
+  `src/server/routes/wallet.ts`, migration 028. Root cause: an application check where a constraint
+  was needed. Remediation: partial unique index (ADR-0105). Test: `test/wallet.test.ts`.
+- **SEC-2026-011 — the rate limiter could be beaten by concurrency.** Component:
+  `src/server/lib/rate_limit.ts`. Root cause: as SEC-2026-008. Remediation: one conditional
+  `UPDATE` with the refill computed in SQL. Test: `test/limits.test.ts`.
+- **SEC-2026-012 — a moderator could decide about their own order.** Component:
+  `src/server/routes/bonds.ts`, `src/server/routes/market.ts`. Root cause: staff role granted
+  without a conflict-of-interest check; a precondition satisfiable by any account. Remediation:
+  parties are refused the claim and lose the staff role on their own orders; the report must be
+  the buyer's (ADR-0108). Test: `test/bonds.test.ts`.
+- **SEC-2026-013 — the bond was releasable while a buyer's report waited.** Component:
+  `src/server/lib/bonds.ts`. Root cause: the hold looked at `orders.status` only. Remediation:
+  open buyer reports hold the bond too. Test: `test/bonds.test.ts`.
+- **SEC-2026-014 — cookies had no `__Host-` prefix.** Component: `src/server/lib/cookies.ts` and
+  callers, `src/client/api.ts`. Root cause: cookie names shared with every sibling host.
+  Remediation: prefixed names on `Secure` responses (ADR-0107). Test: `test/hardening.test.ts`.
+  Operators: every browser signs in once more after this ships.
+- **SEC-2026-015 — a hostile peer could blank the Messages screen.** Component:
+  `src/client/incoming.ts` (new), `src/client/messaging.ts`, `src/client/views/chat.ts`,
+  `src/client/api.ts`, `src/client/ui.ts`. Root cause: an authenticated plaintext trusted for its
+  shape. Remediation: field-by-field validation before storage, ratchet committed first; the
+  server's 428 body and the `/\host` URL spelling checked on the same boundary. Test:
+  `test/abuse.test.ts`, `test/hardening.test.ts`.
+- **SEC-2026-016 — backups wrote the plaintext database to a shared `/tmp`.** Component:
+  `scripts/backup.mjs`. Root cause: scratch files with default permissions. Remediation:
+  `mkdtemp` directories, `0600` files. Test: `test/backup.test.ts`.
+- **SEC-2026-017 — daily session rotation raced with itself.** Component:
+  `src/server/lib/sessions.ts`. Remediation: compare-and-swap (ADR-0106). Test:
+  `test/sessions.test.ts`.
+- **SEC-2026-018 — numeric limits parsed with a bare `Number()`.** Component:
+  `src/server/config.ts`. Remediation: strict parsers for all fifteen. Test:
+  `test/environments.test.ts`.
+- **SEC-2026-019 — sixteen routes charged no bucket.** Component: `src/server/routes/*.ts`,
+  `src/server/lib/rate_limit.ts`. Remediation: the documented bucket on each, a `payout_worker`
+  bucket, a sweep over the route files. Test: `test/limits.test.ts`.
+- **SEC-2026-020 — a payout without a destination was parked in `sending`.** Component:
+  `src/server/lib/ledger.ts`. Remediation: `address IS NOT NULL` in the claim. Test:
+  `test/monero.test.ts`.
+- **SEC-2026-021 — the lockfile was invisible to the secret scanners.** Component:
+  `scripts/audit.mjs`. Remediation: URL-credential rules, lockfile scanned, supply check refuses
+  userinfo. Test: `test/audit.test.ts`.
+
+**Verification:** `npm run check`, `npm test` (the full suite, every new test shown to fail on
+the previous commit), `npm run audit`. Open after this pass: SEC-2026-022 (LOW, owner action —
+the CI workflow copy) and SEC-2026-024 (INFO, protocol change recorded for the roadmap);
+accepted: SEC-2026-023; not applicable: SEC-2026-025.

@@ -60,6 +60,7 @@ or if a record is missing a section.
 | [ADR-0091](../DECISIONS.md#adr-0091--a-key-change-is-announced-by-the-client-not-prevented-by-a-tombstone) | A key change is announced by the client, not prevented by a tombstone |
 | [ADR-0102](../DECISIONS.md#adr-0102--a-change-to-the-second-factor-ends-the-other-sessions) | A change to the second factor ends the other sessions |
 | [ADR-0104](../DECISIONS.md#adr-0104--the-first-administrator-is-claimed-by-one-row-not-by-an-empty-table) | The first administrator is claimed by one row, not by an empty table |
+| [ADR-0107](../DECISIONS.md#adr-0107--cookies-carry-the-host--prefix-wherever-the-browser-allows-it) | Cookies carry the `__Host-` prefix wherever the browser allows it |
 
 ### Database
 
@@ -116,6 +117,7 @@ or if a record is missing a section.
 | [ADR-0049](../DECISIONS.md#adr-0049--ceilings-the-rate-limiter-cannot-enforce) | Ceilings the rate limiter cannot enforce |
 | [ADR-0057](../DECISIONS.md#adr-0057--uploads-stop-before-the-disk-does-and-trust_proxy-names-the-proxy) | Uploads stop before the disk does, and `TRUST_PROXY` names the proxy |
 | [ADR-0093](../DECISIONS.md#adr-0093--uploads-are-charged-in-bytes-against-a-bucket-that-has-no-owner-column) | Uploads are charged in bytes, against a bucket that has no owner column |
+| [ADR-0106](../DECISIONS.md#adr-0106--money-bearing-columns-are-debited-with-a-guarded-update-never-read-then-written) | Money-bearing columns are debited with a guarded UPDATE, never read-then-written |
 
 ### Marketplace
 
@@ -176,3 +178,5 @@ or if a record is missing a section.
 | [ADR-0084](../DECISIONS.md#adr-0084--sealed-sender-single-use-tokens-instead-of-a-session-on-the-send-path) | Sealed sender: single-use tokens instead of a session on the send path |
 | [ADR-0085](../DECISIONS.md#adr-0085--timing-noise-a-jittered-poll-and-an-optional-delivery-delay) | Timing noise: a jittered poll and an optional delivery delay |
 | [ADR-0086](../DECISIONS.md#adr-0086--the-seller-bond-staked-by-the-seller-payable-to-a-harmed-buyer) | The seller bond: staked by the seller, payable to a harmed buyer |
+| [ADR-0105](../DECISIONS.md#adr-0105--one-payout-in-flight-per-account-is-a-partial-unique-index) | One payout in flight per account is a partial unique index |
+| [ADR-0108](../DECISIONS.md#adr-0108--staff-decide-only-about-orders-they-are-not-party-to-and-a-report-holds-the-bond) | Staff decide only about orders they are not party to, and a report holds the bond |

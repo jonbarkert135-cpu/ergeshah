@@ -33,6 +33,18 @@ no cookie, so the sender is absent from the data at rest as well as from the sch
 operator watching the running server still sees who mints tokens; unlinkable issuance needs
 a blind signature and is not planned.*
 
+- **MD-5 — A revocation epoch for sealed-sender tokens.** A token has no owner column by design,
+  so a suspension or an account deletion cannot select it, and an unspent stockpile posts
+  envelopes until `SEND_TOKEN_TTL_MS` runs out (SEC-2026-023, accepted). A per-batch epoch
+  that the token carries and that moderation can bump — without naming the account — would
+  shorten that tail to the batch's own life. Needs a design that keeps the epoch from becoming
+  the owner column by another name.
+- **MD-6 — Refuse an invite whose identity key is not in the peer's directory bundle.** A sender
+  chooses the channel id, so a third account that learns an order's channel can post an
+  invite into that conversation with a chosen display name (SEC-2026-024). The AUTH-6 key-change
+  banner is the mitigation today; pinning the invite to the directory changes ADR-0091's stance
+  that the directory is untrusted, and needs its own ADR.
+
 ## Accounts
 
 *Shipped: AUTH-2 password change (now a 32-byte rewrap), AUTH-4 self-service deletion

@@ -3647,3 +3647,117 @@ inside the noise of a scrypt hash. `test/authz_fuzz.test.ts` races two registrat
 fresh deployment and asserts exactly one administrator, and that a failed registration leaves
 the claim untaken. The mechanism register carries the row; the finding is SEC-2026-002 in
 `docs/SECURITY_FINDINGS.md`.
+
+## ADR-0105 — One payout in flight per account is a partial unique index
+
+**Status:** accepted, 2026-09-04 (finding SEC-2026-010). Applies ADR-0028 and ADR-0076.
+
+**Context.** Two routes queue a payout, `POST /api/wallet/withdrawals` and `POST /api/wallet/refund`,
+and both refuse a second one while the first is `queued`, `approval_required` or `sending`. The rule
+did two jobs: it kept the queue readable, and it made the automatic ceiling mean something — the
+rolling 24-hour sum in `queueWithdrawal` only sees payouts that have committed. It was a `SELECT`
+before the transaction. Under READ COMMITTED several requests arriving together each saw no
+pending row and each queued a payout under the ceiling, so a balance far above
+`AUTO_PAYOUT_MAX_XMR` could leave in pieces without an administrator's signature on any of them.
+
+**Decision.** Migration 028 adds `withdrawals_one_open_per_user`, a partial unique index on
+`user_id` where the status is one of the three in-flight values — the shape migration 007 gave
+orders and seller applications. The routes keep their `SELECT` for the friendly message and map
+the constraint violation to the same `409 payout_pending`.
+
+**Rejected.** Moving the ceiling's sum inside a serialisable transaction: the only one in the
+codebase, with retry handling, for a control the index gives for free. A per-account advisory
+lock: PostgreSQL-only, and the SQLite path would carry dead code.
+
+**Consequences.** One index, no new column. The concurrent case is now identical to the
+sequential one; `test/wallet.test.ts` drives the ledger layer directly and four concurrent
+requests through the route.
+
+## ADR-0106 — Money-bearing columns are debited with a guarded UPDATE, never read-then-written
+
+**Status:** accepted, 2026-09-04 (findings SEC-2026-008, SEC-2026-011, SEC-2026-017). Generalises
+the idiom of `ledger.apply` (ADR-0066) to every column that counts something.
+
+**Context.** `db.transaction` is serialised on SQLite (one handle, `BEGIN IMMEDIATE`) and is a
+plain `BEGIN` on a pooled client on PostgreSQL — READ COMMITTED, no row lock unless a statement
+takes one. Every "read a row, decide in JavaScript, write" block is therefore correct in the test
+suite and racy in the deployment the suite does not run against. The ledger's own balance moves
+were already immune because they are one conditional `UPDATE … RETURNING`. Three places were not:
+the bond column (`releaseBond`, `claimBond`), the rate-limit bucket (`consume`) and the daily
+session rotation (`resolveSession`). The first minted money; the second divided every quota by
+the attacker's concurrency; the third signed people out at random.
+
+**Decision.** A column that is decremented, spent or swapped is changed by exactly one statement
+whose `WHERE` restates the precondition and which returns the row it changed:
+`UPDATE sellers SET bond_pico = 0 … WHERE user_id = ? AND bond_pico = ? RETURNING …`,
+`UPDATE rate_limits SET tokens = <refilled> - ? WHERE bucket = ? AND <refilled> >= ? RETURNING …`,
+`UPDATE sessions SET token_hash = ? … WHERE id = ? AND token_hash = ? RETURNING …`. No row back
+means the caller lost the race and says so (`409`, `429`, or simply "no rotation this time").
+Reads before the statement are for messages, not decisions. The expression is written once in
+SQL that both dialects run (`CASE` rather than `MIN`/`LEAST`).
+
+**Rejected.** `SELECT … FOR UPDATE`: a dialect branch in every caller, and a lock the SQLite
+driver would have to pretend to take. A `CHECK (bond_pico >= 0)`: worth having, but SQLite cannot
+add a constraint to an existing table without a rebuild, and the guarded statement is the fix
+rather than the net.
+
+**Consequences.** The tests cannot stage the PostgreSQL race on SQLite; they stage its symptom
+instead — a database whose reads return a stale snapshot while writes go to the real table
+(`test/bonds.test.ts`, `test/limits.test.ts`) — and the concurrent rotation directly
+(`test/sessions.test.ts`). The rule for reviewers is in `docs/CHANGE_REVIEW.md`: a `SELECT`
+followed by a decision followed by an `UPDATE` on a counted column is a finding.
+
+## ADR-0107 — Cookies carry the `__Host-` prefix wherever the browser allows it
+
+**Status:** accepted, 2026-09-04 (finding SEC-2026-014). Narrows ADR-0038.
+
+**Context.** The session and CSRF cookies were named `session` and `csrf`. A cookie is matched by
+name alone when the browser sends it, so any host under the same registrable domain — a blog on a
+subdomain, a stale DNS record, a neighbour on shared hosting — could set
+`session=<attacker's token>; Domain=example.org` for this origin, and the victim's browser would
+present the attacker's session on every request: their keys, their vault, their orders landing in
+an account the attacker reads. No credential is stolen; the browser is simply told whose session
+it is in. The same host could pre-set the CSRF cookie and know the double-submit value.
+
+**Decision.** `cookieName()` in `lib/cookies.ts` prefixes both names with `__Host-` whenever the
+response is `Secure` — behind TLS and not on an onion host. A browser accepts a `__Host-` cookie
+only from a `Secure` response, with `Path=/` and no `Domain` attribute, which is exactly what a
+sibling host cannot produce. Reader and writer call the same function, and the browser client
+reads either spelling. Onion hosts keep the bare names: the prefix is not permitted over plain
+HTTP, and a circuit has no sibling hosts.
+
+**Rejected.** Reading both spellings on HTTPS during a transition: it would leave the planted
+bare cookie effective for exactly the users who had not yet signed in, which is the attack.
+Setting `Domain` explicitly: the opposite of the goal.
+
+**Consequences.** On a TLS deployment every browser is signed out once when this ships — the old
+bare cookie is no longer read. Stated in the release notes rather than hidden. `test/hardening.test.ts`
+asserts the names, the flags, and that a bare `session` cookie is not a session on HTTPS.
+
+## ADR-0108 — Staff decide only about orders they are not party to, and a report holds the bond
+
+**Status:** accepted, 2026-09-04 (findings SEC-2026-012, SEC-2026-013). Narrows ADR-0086.
+
+**Context.** The bond claim (`POST /api/market/moderation/orders/:id/bond-claim`) pays the buyer out
+of the seller's bond on a moderator's say-so. Nothing checked that the moderator was not the
+buyer, and the "somebody complained" precondition accepted a report from any account against any
+order id — so a moderator could buy, report their own order from their own account, and pay
+themselves. The same moderator carried the `moderator` actor role on orders they were party to
+and could settle their own dispute. Separately, a bond was held only while an order was `disputed`;
+a completed order cannot be disputed, so a seller could release the stake between the buyer's
+report and the moderator's claim — the one scenario the bond exists for.
+
+**Decision.** A moderator or administrator who is buyer or seller of an order acts on it as that
+party and nothing more: the claim route refuses them (`403`), the status route derives their
+transitions from the party role only. The qualifying report for a claim must be the buyer's own.
+A seller's bond cannot be released while a buyer's own report on one of their orders is `open`;
+`GET /api/market/seller/bond` reports the count as `openReports`. Only the buyer's report counts,
+so a stranger cannot freeze a seller's money by reporting an order id.
+
+**Rejected.** Requiring two moderators for every claim: correct for a large team, and a team of
+one could then never compensate anyone. Holding the bond for any open report on the seller (not
+only the buyer's): the griefing vector above.
+
+**Consequences.** Three tests in `test/bonds.test.ts`. A deployment with a single moderator who
+also buys on the platform needs a second staff account to decide about their own orders, which is
+the point.

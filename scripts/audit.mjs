@@ -427,6 +427,18 @@ function supply() {
       ? `  ${withInstallScripts.length} ship an install script (${withInstallScripts.join(", ")}) — none run: ignore-scripts=true`
       : "  no package ships an install script",
   );
+  // The workflow GitHub runs is a copy a human makes (AGENTS.md). A notice, not a failure:
+  // the copy cannot be made from here, and a red build over it would train people to ignore
+  // red builds. Until the two agree, the PostgreSQL job in the source is not running in CI
+  // (SEC-2026-022).
+  const live = join(root, ".github/workflows/ci.yml");
+  const source = join(root, "deploy/github-ci.yml");
+  if (existsSync(live) && existsSync(source) && readFileSync(live, "utf8") !== readFileSync(source, "utf8")) {
+    console.log(
+      "  NOTICE: .github/workflows/ci.yml differs from deploy/github-ci.yml — copy the source over it " +
+        "so that CI runs what the repository says it runs (SEC-2026-022)",
+    );
+  }
 }
 
 /**
