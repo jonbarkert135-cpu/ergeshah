@@ -546,6 +546,37 @@ describe("what the money layer refuses to be", () => {
     expect(still).toBeTruthy();
   });
 
+  // SEC-2026-009: the balance check above is the deleter's own. A seller has nothing held on
+  // an open order — the escrow is on the buyer's side — so a seller could delete their account
+  // while orders were open; the orders cascaded away with it and the buyers' held escrow had
+  // no order left to release or settle against.
+  it("refuses to delete an account that is party to an open order", async () => {
+    const { seller, listingId } = await sellerWithListing("vanisher", "1");
+    const buyer = await register(server, "stranded");
+    await fund(server, buyer, "2");
+    const order = await buyer.post<{ id: string }>("/api/market/orders", { listingId });
+    await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "accepted" });
+    const { authSecretFor } = await import("./helpers.ts");
+
+    const refused = await seller.post<{ error: string }>("/api/auth/delete", {
+      authSecret: authSecretFor("vanisher", "correct horse battery staple"),
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toBe("orders_open");
+    expect(await server.db.get("SELECT id FROM users WHERE username = 'vanisher'")).toBeTruthy();
+    expect(await server.db.get("SELECT id FROM orders WHERE id = ?", [order.body.id])).toBeTruthy();
+    // The buyer's escrow is still attached to an order somebody can finish.
+    const held = await balance(buyer);
+    expect(held.heldXmr).toBe("1");
+
+    // Once the order is over, the seller may leave — with an empty balance.
+    await seller.post(`/api/market/orders/${order.body.id}/status`, { status: "cancelled" });
+    const allowed = await seller.post("/api/auth/delete", {
+      authSecret: authSecretFor("vanisher", "correct horse battery staple"),
+    });
+    expect(allowed.status).toBe(200);
+  });
+
   it("tells an administrator what the platform owes, without naming anybody", async () => {
     const { seller, listingId } = await sellerWithListing("bookseller", "1");
     const buyer = await register(server, "bookbuyer");

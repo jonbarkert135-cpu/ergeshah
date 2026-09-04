@@ -281,6 +281,7 @@ fails if one is missing here, or if this table names one that no longer exists.
 | `refund_too_small` | 400 | The uncredited total is under `MIN_REFUND_XMR`, which is less than the network fee to return it is worth. It stays on the account, visible, until there is more of it |
 | `off_platform_offer` | 400 | A listing, or a seller application, carried a wallet address, an email address, another messenger or an offer to be paid outside the escrow (ADR-0069). The message names the rule, never the pattern that matched |
 | `balance_not_empty` | 409 | Account deletion, with money still on the balance or held in an open order. Withdraw first — deleting must not silently keep it |
+| `orders_open` | 409 | Account deletion while the account is buyer or seller of an order that has not finished. The other party's escrow is attached to that order; finish or cancel it first |
 | `unauthorized` | 401 | No session, or an expired one |
 | `forbidden` | 403 | Authenticated, but not allowed: a missing role, a failed CSRF check, or a suspended account |
 | `not_found` | 404 | No such route, or no such object *for this caller* — the two are deliberately indistinguishable |

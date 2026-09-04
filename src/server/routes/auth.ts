@@ -309,6 +309,23 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         "balance_not_empty",
       );
     }
+    // Other people's money next. The balance above is the deleter's own; on an open order
+    // the escrow is held on the *buyer's* account, so a seller with open orders has nothing
+    // held and would pass the check — and `orders` cascades from `users`, so the buyers'
+    // hold would be left with no order to settle or release it against (SEC-2026-009).
+    // Either side of an order that has not finished stays until it has.
+    const open = await db.get<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM orders
+        WHERE (buyer_user_id = ? OR seller_user_id = ?)
+          AND status IN ('placed', 'accepted', 'delivered', 'disputed')`,
+      [user.id, user.id],
+    );
+    if (Number(open?.count ?? 0) > 0) {
+      throw conflict(
+        "let your open orders finish (or cancel them) before deleting the account",
+        "orders_open",
+      );
+    }
 
     await db.transaction(async (tx) => {
       await tx.run("UPDATE audit_log SET actor_user_id = NULL WHERE actor_user_id = ?", [user.id]);
