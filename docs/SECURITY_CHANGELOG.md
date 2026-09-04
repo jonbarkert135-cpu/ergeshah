@@ -144,6 +144,5 @@ files are in `SECURITY-FIXES.md`. Per finding:
   userinfo. Test: `test/audit.test.ts`.
 
 **Verification:** `npm run check`, `npm test` (the full suite, every new test shown to fail on
-the previous commit), `npm run audit`. Open after this pass: SEC-2026-022 (LOW, owner action —
-the CI workflow copy) and SEC-2026-024 (INFO, protocol change recorded for the roadmap);
-accepted: SEC-2026-023; not applicable: SEC-2026-025.
+the previous commit), `npm run audit`. What remains open, accepted or not applicable after this
+pass is in the register, not here (point 178: nothing unfixed gets a description in the changelog).

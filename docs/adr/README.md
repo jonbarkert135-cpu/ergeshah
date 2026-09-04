@@ -60,7 +60,7 @@ or if a record is missing a section.
 | [ADR-0091](../DECISIONS.md#adr-0091--a-key-change-is-announced-by-the-client-not-prevented-by-a-tombstone) | A key change is announced by the client, not prevented by a tombstone |
 | [ADR-0102](../DECISIONS.md#adr-0102--a-change-to-the-second-factor-ends-the-other-sessions) | A change to the second factor ends the other sessions |
 | [ADR-0104](../DECISIONS.md#adr-0104--the-first-administrator-is-claimed-by-one-row-not-by-an-empty-table) | The first administrator is claimed by one row, not by an empty table |
-| [ADR-0107](../DECISIONS.md#adr-0107--cookies-carry-the-host--prefix-wherever-the-browser-allows-it) | Cookies carry the `__Host-` prefix wherever the browser allows it |
+| [ADR-0107](../DECISIONS.md#adr-0107--cookies-carry-the-__host--prefix-wherever-the-browser-allows-it) | Cookies carry the `__Host-` prefix wherever the browser allows it |
 
 ### Database
 
