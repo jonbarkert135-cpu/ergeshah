@@ -183,6 +183,7 @@ describe("what it refuses to be", () => {
       "devices:revoke",
       "suspend",
       "links:purge",
+      "send-tokens:revoke",
       "status",
     ]) {
       expect(doc, `${command} is not in the procedure`).toContain(`incident ${command}`);
@@ -220,5 +221,20 @@ describe("the freeze (ADR-0080)", () => {
 
   it("refuses to freeze without --yes", () => {
     expect(() => run(["lockdown:on"])).toThrow(/--yes/);
+  });
+});
+
+describe("revoking sealed-sender tokens (MD-5)", () => {
+  it("raises the global epoch and refuses to do it without --yes", async () => {
+    expect(() => run(["send-tokens:revoke"])).toThrow(/--yes/);
+    expect(await db.get<{ min_epoch: number }>("SELECT min_epoch FROM send_token_epoch WHERE id = 1"))
+      .toMatchObject({ min_epoch: 0 });
+
+    const out = run(["send-tokens:revoke", "--yes"]);
+    expect(out).toMatch(/epoch raised to 1/);
+    expect(await db.get<{ min_epoch: number }>("SELECT min_epoch FROM send_token_epoch WHERE id = 1"))
+      .toMatchObject({ min_epoch: 1 });
+    // It shows in the blast-radius view, and it names no account.
+    expect(run(["status"])).toMatch(/send-token epoch: *1/);
   });
 });

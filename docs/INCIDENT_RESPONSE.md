@@ -89,6 +89,16 @@ npm run incident sessions:revoke alice -- --yes
 npm run incident links:purge -- --yes      # pending device-link codes, if any are open
 ```
 
+Revoking sessions and devices does **not** reach a stolen stockpile of sealed-sender tokens:
+those carry no owner, so nothing can select one account's (ADR-0084). If a suspended account
+is still posting envelopes with them, raise the global revocation epoch — this invalidates
+*every* outstanding token at once, so use it as an incident control, not a per-account one;
+legitimate clients mint a fresh batch on their next send (ADR-0111):
+
+```bash
+npm run incident send-tokens:revoke -- --yes
+```
+
 ## 2a. The freeze: when you are not yet sure what happened
 
 Between "something is wrong" and "I know what to do" there is usually an hour, and during that

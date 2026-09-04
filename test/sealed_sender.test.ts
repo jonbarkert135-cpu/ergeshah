@@ -81,6 +81,33 @@ describe("sealed sender (ADR-0084)", () => {
     expect(forged.body.error).toBe("unauthorized");
   });
 
+  it("invalidates every outstanding token when the revocation epoch is raised (MD-5)", async () => {
+    const { revokeSendTokens, forgetSendTokenEpochCache } = await import("../src/server/lib/send_tokens.ts");
+    const deviceId = await deviceFor("ivan");
+    const sender = await register(server, "judy2");
+    const stockpiled = (await sender.post<{ tokens: string[] }>("/api/messages/tokens", {})).body.tokens[0] as string;
+
+    // The operator raises the floor (incident.mjs send-tokens:revoke does exactly this).
+    await revokeSendTokens(server.db);
+    forgetSendTokenEpochCache();
+
+    // The token minted under the old epoch is now dead — the same 401 as any other bad token,
+    // and it does not name the account it came from.
+    const revoked = await sealedSend(stockpiled, "ivan", deviceId);
+    expect(revoked.status).toBe(401);
+
+    // A freshly minted batch carries the new epoch and works, so a suspension does not break
+    // sending for everyone else.
+    const fresh = (await sender.post<{ tokens: string[] }>("/api/messages/tokens", {})).body.tokens[0] as string;
+    expect((await sealedSend(fresh, "ivan", deviceId)).status).toBe(200);
+
+    // The floor is one global row that holds no account — not a per-batch value.
+    const columns = await listColumns(server.db, "send_token_epoch");
+    expect([...columns].sort()).toEqual(["id", "min_epoch"]);
+    const rows = await server.db.all("SELECT id FROM send_token_epoch");
+    expect(rows.length).toBe(1);
+  });
+
   it("stores nothing that can be joined to the account that asked for the tokens", async () => {
     const sender = await register(server, "erin");
     await sender.post("/api/messages/tokens", {});

@@ -38,6 +38,7 @@ const DESTRUCTIVE = new Set([
   "suspend",
   "reinstate",
   "links:purge",
+  "send-tokens:revoke",
 ]);
 
 function fail(message) {
@@ -123,6 +124,7 @@ function status(db) {
     `open challenges:   ${count(db, "SELECT COUNT(*) AS n FROM auth_challenges")}`,
     // First line an operator wants when the service is answering 503 to every write.
     `lockdown:          ${count(db, "SELECT COUNT(*) AS n FROM lockdown") > 0 ? "ON — every write refused" : "off"}`,
+    `send-token epoch:  ${count(db, "SELECT min_epoch AS n FROM send_token_epoch WHERE id = 1")}`,
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -182,6 +184,7 @@ function main(argv) {
         "  suspend <username> --reason …   suspend an account (its sessions stop working)\n" +
         "  reinstate <username>            undo a suspension\n" +
         "  links:purge                     delete pending device-link authorisations\n" +
+        "  send-tokens:revoke              invalidate every outstanding sealed-sender token\n" +
         "  lockdown:on --note …            freeze every write; reads keep working\n" +
         "  lockdown:off                    thaw\n",
     );
@@ -261,6 +264,21 @@ function main(argv) {
       case "links:purge": {
         const gone = db.prepare("DELETE FROM device_links").run().changes;
         process.stdout.write(`deleted ${gone} pending device-link authorisation(s)\n`);
+        return;
+      }
+      case "send-tokens:revoke": {
+        // Raise the global sealed-sender epoch (MD-5, ADR-0111): one O(1) write makes every
+        // outstanding token unspendable on its next use. It names no account — a token has no
+        // owner — so this invalidates everyone's stockpile at once; clients refetch silently.
+        const row = db
+          .prepare("UPDATE send_token_epoch SET min_epoch = min_epoch + 1 WHERE id = 1 RETURNING min_epoch")
+          .get();
+        if (!row) fail("send_token_epoch has no row — is this database migrated to 029?");
+        audit(db, "platform.send_tokens_revoked", `epoch -> ${row.min_epoch}`);
+        process.stdout.write(
+          `sealed-sender epoch raised to ${row.min_epoch}: every outstanding token is now refused.\n` +
+            "dead tokens are swept as they expire; clients mint a fresh batch on their next send.\n",
+        );
         return;
       }
       default:

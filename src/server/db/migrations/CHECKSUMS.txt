@@ -26,3 +26,4 @@ sha256-XlOQi7xUbyXXan9UH6zT3SLLKC90eKhXLCratfQeLrs=  025_security_events.sql
 sha256-jPQE89Z/epbR8kGXAemToiXgkTYO4adi+Y0Zaq1Bd5Q=  026_canary.sql
 sha256-tdoNYITIDmmpDRRMJHN34WkoyOuV6jBStgn/dhr8KfM=  027_bootstrap_claims.sql
 sha256-Zk/rhP5UVfcW3fyUn/kdzFVhMmTfEjbXBMrZNNravdI=  028_one_open_payout.sql
+sha256-mPGpOVpshCcg2sthqD9m9jKQzcdK73biGHnNs4t1S7M=  029_send_token_epoch.sql

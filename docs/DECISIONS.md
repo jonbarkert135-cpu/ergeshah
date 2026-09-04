@@ -3838,3 +3838,44 @@ deliberate tradeoff — media expires before text — chosen for the disk it sav
 `docs/ENVIRONMENT.md` and the roadmap so an operator who wants the old behaviour sets
 `ATTACHMENT_TTL_MS=2592000000`. `test/attachments.test.ts` asserts the store's expiry is ~14 days
 and strictly shorter than a delivery's.
+
+## ADR-0111 — A global revocation epoch for sealed-sender tokens
+
+**Status:** accepted (2026-09-04). Closes roadmap MD-5, mitigates SEC-2026-023. Extends ADR-0084.
+
+**Context.** Sealed-sender tokens (ADR-0084) have no owner column: nothing stored can be joined
+to the account that minted them, which is the whole point. The cost, recorded as SEC-2026-023
+and accepted, is that revocation cannot be selective — a suspended account's unspent stockpile
+keeps posting envelopes until `SEND_TOKEN_TTL_MS` (7 days) runs out, because moderation cannot
+find those tokens to delete them. MD-5 asked for a revocation epoch that shortens that tail
+"without becoming the owner column by another name."
+
+**Decision.** Every token is minted under a single, global epoch and carries it in its own
+string as a `<epoch>.<random>` prefix; the stored hash is over the whole string, so the epoch
+cannot be forged upward and nothing about the epoch is written to the `send_tokens` table. One
+singleton row, `send_token_epoch.min_epoch`, is the floor. A spend is refused when the token's
+epoch is below the floor (checked before the table is touched, with the same 2-second cache and
+the same reasoning as lockdown). Raising the floor by one — `scripts/incident.mjs
+send-tokens:revoke`, a break-glass command beside the others — invalidates every outstanding
+token in one O(1) write; the dead rows are swept by housekeeping as they expire rather than
+deleted in a large write during an incident. Clients mint a fresh batch on their next send.
+
+**What keeps it from being an owner column.** The epoch is *global and coarse*: everyone minting
+between two bumps shares one value, so an operator who reads the epoch off a spent token learns
+nothing about which account or which batch it came from — exactly the property a per-batch epoch
+would destroy, and the same reason the token expiries carry per-token jitter. Bumping is a rare,
+deliberate incident action, never per-batch and never on a timer; the migration and this ADR say
+so, because a fine-grained epoch is precisely the owner-column-by-another-name MD-5 forbids.
+
+**Rejected.** A per-account or per-batch revocation: it needs the link the design refuses to
+store. `DELETE FROM send_tokens` on revocation: the same global effect, but an O(n) write over
+the whole table at the worst possible moment, and no monotonic record of how many times tokens
+were flushed. Storing the epoch as a column on `send_tokens`: it would be a coarse grouping key
+at rest, small but real, and the token can carry it for free instead.
+
+**Consequences.** An operator responding to abuse can cut a stockpile's tail from up to seven
+days to the moment they run one command, at the price of making every client refetch a batch —
+a blunt instrument, honestly a blunt one, and the only kind an ownerless token admits.
+Reversible: drop `send_token_epoch` and the floor reads as 0, restoring pre-MD-5 behaviour.
+`test/sealed_sender.test.ts` covers a revoked token failing, a fresh one working, and the floor
+being one ownerless row.
