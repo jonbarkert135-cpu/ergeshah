@@ -26,6 +26,8 @@ import {
   unlockBackup,
 } from "../src/client/state.ts";
 import { conversations, receiveMessages, sendMessage, startConversation } from "../src/client/messaging.ts";
+import { toBase64Url } from "../src/shared/encoding.ts";
+import { randomBytes } from "../src/shared/crypto/sodium.ts";
 
 /** Generated once libsodium is up, in `beforeEach`; one phrase for the whole file. */
 let recoveryPhrase = "";
@@ -84,5 +86,41 @@ describe("browser client against the real server", () => {
     await actAs(alice);
     expect(await receiveMessages()).toBe(1);
     expect(conversations()[0]!.messages.at(-1)?.text).toBe("hello alice");
+  });
+
+  it("refuses an invite into an existing conversation from a key that is not the peer's (SEC-2026-024)", async () => {
+    await fetch("/");
+    const alice: Persona = await signUp("alice", recoveryPhrase);
+    lock();
+    localStorage.clear();
+    await fetch("/");
+    const bob: Persona = await signUp("bob", recoveryPhrase);
+    lock();
+    localStorage.clear();
+    await fetch("/");
+    const mallory: Persona = await signUp("mallory", recoveryPhrase);
+
+    // An order conversation: both parties know the channel id before a word is sent, so bob's
+    // side names its peer with no session yet — the state a stranger's invite would exploit.
+    const channel = toBase64Url(randomBytes(24));
+    await actAs(bob);
+    await startConversation("alice", channel);
+
+    // mallory learnt the channel id and posts an invite into it.
+    await actAs(mallory);
+    await sendMessage(await startConversation("bob", channel), "it is me, alice");
+    await actAs(alice);
+    await sendMessage(await startConversation("bob", channel), "hello bob");
+
+    await actAs(bob);
+    expect(await receiveMessages()).toBe(1);
+    const incoming = conversations();
+    expect(incoming).toHaveLength(1);
+    expect(incoming[0]!.messages.map((message) => message.text)).toEqual(["hello bob"]);
+    // alice's key is the one the directory lists, so it is no key change; mallory's never
+    // got as far as a session, and the envelope is gone from the server rather than parked.
+    expect(incoming[0]!.keyChange).toBeUndefined();
+    expect(Object.keys(incoming[0]!.sessions)).toEqual([alice.vault!.identity.identity.publicKey]);
+    expect(await server.db.get("SELECT count(*) AS n FROM envelopes")).toEqual({ n: 0 });
   });
 });

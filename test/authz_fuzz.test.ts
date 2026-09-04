@@ -54,6 +54,7 @@ const OPEN_TO_STRANGERS: Array<{ url: string; why: string }> = [
   { url: "/api/market/categories", why: "browsing is public" },
   { url: "/api/market/sellers/:username", why: "a public seller profile" },
   { url: "/api/keys/bundle/:username", why: "a prekey bundle is how a stranger starts a conversation" },
+  { url: "/api/keys/identity/:username", why: "the same identity keys the bundle publishes, minus the prekey it would spend (ADR-0112)" },
 ];
 
 /** Registration, login and the other ways in cannot require the session they create. */

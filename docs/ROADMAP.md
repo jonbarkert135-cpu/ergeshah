@@ -42,11 +42,16 @@ a blind signature and is not planned.*
   per-batch, not on a timer — so it holds no account and is no grouping key. The tail is now an
   operator action rather than a seven-day wait; the price is that a bump is all-or-nothing, the
   only revocation an ownerless token admits.
-- **MD-6 — Refuse an invite whose identity key is not in the peer's directory bundle.** A sender
-  chooses the channel id, so a third account that learns an order's channel can post an
-  invite into that conversation with a chosen display name (SEC-2026-024). The AUTH-6 key-change
-  banner is the mitigation today; pinning the invite to the directory changes ADR-0091's stance
-  that the directory is untrusted, and needs its own ADR.
+- **MD-6 — Refuse an invite whose identity key is not in the peer's directory. _Closed._** A
+  sender chooses the channel id, so a third account that learned an order's channel could post an
+  invite into that conversation under a chosen display name (SEC-2026-024). Now a key the
+  conversation has never seen may open a session in it only if `GET /api/keys/identity/:username`
+  lists it for the conversation's peer; anything else is acknowledged and dropped (ADR-0112). The
+  new route publishes the identity keys the bundle already publishes, without spending a one-time
+  prekey or the tight `key_bundle` bucket. The directory stays untrusted in ADR-0091's sense: it
+  gained a veto a hostile server already had by dropping envelopes, and no new say over which key
+  is accepted for a peer this side has never talked to. An unreachable directory leaves the
+  envelope unacknowledged for the next poll rather than losing a legitimate new device.
 
 ## Accounts
 

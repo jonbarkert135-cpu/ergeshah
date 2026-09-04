@@ -183,3 +183,4 @@ or if a record is missing a section.
 | [ADR-0109](../DECISIONS.md#adr-0109--iso-base-media-metadata-is-stripped-in-place-by-zeroing-boxes-rather-than-moving-them) | ISO base media metadata is stripped in place, by zeroing boxes rather than moving them |
 | [ADR-0110](../DECISIONS.md#adr-0110--chat-attachments-expire-sooner-than-order-deliveries) | Chat attachments expire sooner than order deliveries |
 | [ADR-0111](../DECISIONS.md#adr-0111--a-global-revocation-epoch-for-sealed-sender-tokens) | A global revocation epoch for sealed-sender tokens |
+| [ADR-0112](../DECISIONS.md#adr-0112--an-invite-inside-an-existing-conversation-must-carry-a-key-the-directory-lists-for-the-peer) | An invite inside an existing conversation must carry a key the directory lists for the peer |

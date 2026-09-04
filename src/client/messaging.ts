@@ -34,7 +34,7 @@ import {
 } from "../shared/crypto/session.ts";
 import { deserializeState, serializeState } from "../shared/crypto/ratchet.ts";
 import { notePeerKeys } from "./verification.ts";
-import { parseIncoming, validAttachment } from "./incoming.ts";
+import { parseIncoming, strangerInvite, validAttachment } from "./incoming.ts";
 
 interface Bundle {
   deviceId: string;
@@ -416,9 +416,17 @@ export async function receiveMessages(): Promise<number> {
 
   let decrypted = 0;
   const handled: string[] = [];
+  const directory = new Map<string, string[] | null>();
   for (const envelope of envelopes) {
     try {
       const conversation = resolveConversation(envelope);
+      const stranger = await strangerInvite(conversation, envelope, directory);
+      // The directory could not be asked: leave the envelope where it is and decide next poll.
+      if (stranger === null) continue;
+      if (stranger) {
+        handled.push(envelope.id);
+        continue;
+      }
       const opened = decryptEnvelope(conversation, envelope);
       // The ratchet advanced, so the session is committed whatever the plaintext says:
       // dropping a message must never desynchronise the conversation.

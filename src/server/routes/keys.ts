@@ -121,6 +121,26 @@ export async function registerKeyRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  /**
+   * The identity keys of a user's active devices, and nothing else. The same public facts
+   * the bundle route publishes, minus the one-time prekey it would consume — so a client
+   * that only needs to ask "is this key one of theirs?" (an invite arriving inside an
+   * existing conversation, MD-6 / SEC-2026-024, ADR-0112) does not spend the peer's prekeys
+   * or the tight `key_bundle` bucket to find out.
+   */
+  app.get("/api/keys/identity/:username", async (request) => {
+    await app.authenticate(request);
+    await app.limit(request, "read");
+    const username = asUsername((request.params as { username: string }).username);
+    const rows = await db.all<{ identity_key: string }>(
+      `SELECT d.identity_key FROM devices d JOIN users u ON u.id = d.user_id
+        WHERE u.username = ? AND u.status = 'active' AND d.revoked_at IS NULL`,
+      [username],
+    );
+    if (rows.length === 0) throw notFound("no such user");
+    return { username, identityKeys: rows.map((row) => row.identity_key) };
+  });
+
   /** Claim a prekey bundle for every active device of a user. One-time keys are consumed. */
   app.get("/api/keys/bundle/:username", async (request) => {
     await app.authenticate(request);

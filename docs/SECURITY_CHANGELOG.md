@@ -146,3 +146,26 @@ files are in `SECURITY-FIXES.md`. Per finding:
 **Verification:** `npm run check`, `npm test` (the full suite, every new test shown to fail on
 the previous commit), `npm run audit`. What remains open, accepted or not applicable after this
 pass is in the register, not here (point 178: nothing unfixed gets a description in the changelog).
+
+## 2026-09-04 — an invite from a third account could land inside an existing conversation (SEC-2026-024)
+
+- **Component:** `src/client/incoming.ts` (`strangerInvite`), `src/client/messaging.ts` (receive
+  path), `src/server/routes/keys.ts` (one new read-only route).
+- **Issue:** the sender chooses an envelope's channel id, and an order conversation's channel id
+  is known to both parties. A third account that learned it could post an X3DH invite into the
+  conversation, and the recipient's client accepted the new session and showed the message under
+  whatever display name the plaintext carried. The AUTH-6 banner flagged the new key; nothing
+  refused it.
+- **Root cause:** trust on first use applied to every unknown key, including one arriving inside a
+  conversation whose peer was already known — the one situation where there is something to
+  check it against.
+- **Remediation:** before a key the conversation has never seen may open a session in it, the
+  client asks `GET /api/keys/identity/:username` whether the peer's directory lists that key; a
+  key it does not list is acknowledged and dropped. The route publishes only the identity keys the
+  bundle route already publishes, without consuming a one-time prekey, so the check costs the peer
+  nothing and stays under the ordinary `read` bucket. A directory that cannot be reached leaves
+  the envelope for the next poll (ADR-0112).
+- **Regression test:** `test/client.test.ts` — a third account posts into an order channel; the
+  recipient stores only the peer's message, opens no session with the stranger's key, raises no
+  key-change banner, and the server holds no parked envelope. Fails on the previous commit.
+- **Verification:** `npm run check`, `npm test`, `npm run audit`.

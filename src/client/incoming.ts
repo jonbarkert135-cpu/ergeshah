@@ -6,10 +6,13 @@
  * Everything that comes out of `decryptEnvelope` is stored in the vault and rendered by the
  * views, so a field of the wrong type is a persistent, remotely planted crash — one envelope
  * left the Messages screen blank until somebody cleared localStorage (SEC-2026-015). This
- * module is the boundary: `parseIncoming` for the payload, `validAttachment` for the one
- * nested object the views render directly.
+ * module is the boundary: `strangerInvite` for who may open a session at all, `parseIncoming`
+ * for the payload, `validAttachment` for the one nested object the views render directly.
  */
-import type { AttachmentRef, DeliveryKey } from "./state.ts";
+import { api, ApiError } from "./api.ts";
+import type { AttachmentRef, Conversation, DeliveryKey } from "./state.ts";
+import type { SessionInvite } from "../shared/crypto/session.ts";
+import { notePeerKeys } from "./verification.ts";
 import { MAX_FILE_BYTES } from "../shared/crypto/file.ts";
 import { safeFileName } from "../shared/uploads.ts";
 
@@ -92,4 +95,45 @@ export function validAttachment(value: unknown): value is AttachmentRef {
   }
   reference.name = safeFileName(reference.name);
   return true;
+}
+
+/**
+ * A sender chooses the channel id, so a third account that learns an order's channel can
+ * post an X3DH invite into that conversation under any display name (SEC-2026-024). Before
+ * a key this conversation has never seen may open a session in it, it has to be one of the
+ * peer's keys in the directory. This gives the directory a veto and nothing more — a hostile
+ * server could already drop the envelope — while a hostile *account* cannot make the
+ * directory list its key under somebody else's name (ADR-0112).
+ *
+ * Returns null when the directory could not be asked, so the caller can leave the envelope
+ * unacknowledged rather than lose a legitimate new device to a network blip. `directory`
+ * caches one answer per peer for the duration of a poll.
+ */
+export async function strangerInvite(
+  conversation: Conversation,
+  envelope: { invite: SessionInvite | null },
+  directory: Map<string, string[] | null>,
+): Promise<boolean | null> {
+  const key = envelope.invite?.identityKey;
+  if (!key || conversation.peer === "unknown") return false;
+  if (conversation.sessions[key] || conversation.knownKeys?.[key] !== undefined) return false;
+  if (!directory.has(conversation.peer)) directory.set(conversation.peer, await identityKeys(conversation.peer));
+  const listed = directory.get(conversation.peer)!;
+  if (listed === null) return null;
+  // The directory answered for the whole peer, so the record can tell "added" from
+  // "replaced" here too, which the receive path alone never could (ADR-0091).
+  notePeerKeys(conversation, listed, { directory: true });
+  return !listed.includes(key);
+}
+
+/** The peer's active identity keys; [] for a peer who no longer exists, null if unreachable. */
+async function identityKeys(peer: string): Promise<string[] | null> {
+  try {
+    const { identityKeys } = await api<{ identityKeys: string[] }>(
+      `/api/keys/identity/${encodeURIComponent(peer)}`,
+    );
+    return identityKeys;
+  } catch (error) {
+    return error instanceof ApiError && error.status === 404 ? [] : null;
+  }
 }

@@ -3879,3 +3879,58 @@ a blunt instrument, honestly a blunt one, and the only kind an ownerless token a
 Reversible: drop `send_token_epoch` and the floor reads as 0, restoring pre-MD-5 behaviour.
 `test/sealed_sender.test.ts` covers a revoked token failing, a fresh one working, and the floor
 being one ownerless row.
+
+## ADR-0112 — An invite inside an existing conversation must carry a key the directory lists for the peer
+
+**Status:** accepted (2026-09-04)
+
+**Context.** An envelope's channel id is chosen by whoever sends it, and an order conversation's
+channel id is known to both parties before a word is exchanged. So a third account that learned
+it — a leak from either party, a screenshot, a moderator — could post an X3DH invite into that
+conversation. The recipient's client accepted the new session, because every unknown key was
+trust on first use, and showed the line under whatever display name travelled inside the
+ciphertext (SEC-2026-024). The AUTH-6 banner (ADR-0091) announced the new key; nothing refused
+it. ADR-0091 also says the directory is untrusted, which is why this was not simply fixed on the
+spot: pinning an invite to the directory looks like trusting it.
+
+**Decision.** A key the conversation has never seen — not in its sessions, not in its
+`knownKeys` — may open a session in a conversation whose peer is already known only if the
+directory lists that key for the peer. The client asks `GET /api/keys/identity/:username`, a new
+read-only route that returns the identity keys of the user's active devices and nothing else;
+an unlisted key is acknowledged and dropped, without a session and without a banner. A
+conversation with no peer yet (a fresh channel) is unchanged: there is nothing to check a first
+contact against, and that remains trust on first use, as before.
+
+The route exists because the bundle route would be the wrong tool: every call to it consumes one
+one-time prekey per device of the target and sits under the tight `key_bundle` bucket
+(ADR-0035). A stranger posting invites into a channel would then make the recipient burn the
+honest peer's prekeys and trip the bucket on every poll. The identity route spends nothing and
+publishes no fact the bundle does not already publish.
+
+Why this does not make the directory trusted: the check gives the directory a *veto*. A hostile
+server that wants an envelope not to arrive can already drop it, so refusing the check is no new
+power; and accepting a listed key is precisely what the sender's side already does on every
+send. What the directory does not gain is any say over a key this side has already used — an
+established session is tried before any invite, unchanged. The party the check is aimed at is a
+hostile *account*, which cannot make the directory list its key under somebody else's username.
+
+Because the directory answers for the whole peer, the receive path now also feeds
+`notePeerKeys` with `directory: true`, so it can tell "added" from "replaced" — a limitation
+ADR-0091 recorded and this closes for free.
+
+**Rejected.** Signing the channel id into the invite: the attacker owns the sending client and
+can sign anything. Refusing every invite into a known conversation: breaks the peer's second
+device and every reinstall. Checking through the bundle route: burns the peer's prekeys, see
+above. Asking the recipient to confirm each new key by hand: a prompt people click through, and
+the banner already offers the safety-number screen to those who will compare.
+
+**Consequences.** The recipient's client makes one directory read per peer per poll, and only
+when an unknown key invites into a known conversation — that is, on a peer's new device, a
+reinstall, or an attack. The operator sees that read, which is a small correlation on the sealed
+sender path: it happens after an envelope arrived on the channel. The same read precedes every
+reply this side sends, so nothing is disclosed that a reply would not disclose seconds later. A
+directory that cannot be reached leaves the envelope unacknowledged for the next poll rather than
+losing a legitimate new device to a network blip; a peer whose account is gone answers 404, and
+no key of theirs is accepted from then on. Reversible: delete `strangerInvite` and its call and
+the receive path is the pre-MD-6 one. `test/client.test.ts` has the third account refused and the
+peer's own first message on the same channel accepted.

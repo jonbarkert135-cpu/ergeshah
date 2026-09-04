@@ -116,6 +116,7 @@ Challenges remain single-use: the row is deleted when it is answered, valid or n
 | `POST /api/keys/device` | session | `sensitive` | Publish a device: identity key, signed prekey, signature. Re-publishing the same identity key rotates its prekeys; an identity key that was **revoked** is refused for good (`409 device_revoked`) |
 | `POST /api/keys/one-time` | session | `write` | Top up one-time prekeys |
 | `GET /api/keys/status` | session | `read` | How many prekeys are left, which devices are active, each device's `signedPreKeyAgeDays` and `signedPreKeyStale` — the flag the browser acts on to rotate a week-old signed prekey mid-session (ADR-0078) |
+| `GET /api/keys/identity/:username` | session | `read` | The identity keys of a user's active devices and nothing else — the same public facts the bundle publishes, minus the one-time prekey it would consume. The receiving client asks it before a key it has never seen may open a session inside an existing conversation (MD-6, ADR-0112) |
 | `GET /api/keys/bundle/:username` | session | `key_bundle` | A prekey bundle for starting a session with someone (consumes one one-time key per device, which is why this read has its own tight bucket — ADR-0035) |
 | `POST /api/keys/revoke` | session | `sensitive` | Revoke a device |
 | `PUT /api/keys/vault`, `GET /api/keys/vault` | session | `sensitive` / `read` | The sealed vault: private keys encrypted under a key derived from the password. Opaque to the server |
