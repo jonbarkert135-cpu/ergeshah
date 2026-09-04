@@ -13,7 +13,11 @@
  * 1. **A check that did not run is never green.** A category with no evidence prints NOT RUN
  *    and the command exits non-zero. The clean-clone verification is the usual one: it takes
  *    minutes and a network, so it is opt-in (`--clean-clone`), and until it runs the gate
- *    says the commit is not production-ready.
+ *    says the commit is not production-ready. A check the network prevented prints
+ *    COULD NOT RUN — also not a pass, but not an accusation against the commit either.
+ *    Every audit runs on its own for the same reason: `npm run audit` is a chain of eleven
+ *    `&&`, so one unreachable registry used to leave nine audits unrun and reported as
+ *    failures of this commit. The gate runs them one by one and reports each separately.
  * 2. **The report carries real values.** 4 direct dependencies, 65 production packages, 2
  *    published ports — measured from the tree, not copied from a document.
  * 3. **The baseline is a ratchet.** A number that grew, a port that appeared, a header that
@@ -31,6 +35,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { scanSource } from "./audit.mjs";
 import { egressDestinations } from "./audit-egress.mjs";
+import { networkFailure } from "./clean-clone.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const BASELINE_FILE = "deploy/security-baseline.json";
@@ -302,21 +307,59 @@ export function staticChecks() {
 // The checklist (point 138) and the gate (point 140)
 // ---------------------------------------------------------------------------------------
 
-/** Each item of the release checklist, and the run that decides it. */
+/**
+ * The audits `npm run audit` chains, each run separately by the gate so that one unreachable
+ * registry cannot hide the other ten. `audit:baseline` is not here: it is `scripts/release.mjs
+ * baseline`, which the gate runs itself in-process.
+ */
+export const AUDITS = [
+  "deps",
+  "dependencies",
+  "bundle",
+  "secrets",
+  "history",
+  "migrations",
+  "supply",
+  "cost",
+  "egress",
+  "inventory",
+];
+
+/** Each item of the release checklist, and the runs that decide it. */
 export const CHECKLIST = [
-  ["tests green", "test", "npm test — every suite"],
-  ["migration status", "audit", "audit:migrations — ordered, unedited since release, checksummed"],
-  ["secrets clean", "audit", "audit:secrets and audit:history — working tree and every past commit"],
-  ["dependencies audited", "audit", "audit:deps, audit:dependencies, audit:supply, audit:inventory"],
-  ["containers hardened", "test", "test/deployment.test.ts, and containersWithoutHardening in the baseline"],
-  ["security headers active", "test", "test/hardening.test.ts, and securityHeaders in the baseline"],
-  ["database inaccessible externally", "test", "test/deployment.test.ts — no published database port, internal network"],
-  ["storage inaccessible directly", "test", "test/uploads.test.ts — blobs are rows, served only as JSON to their owner"],
-  ["debug disabled", "static", "no debug variable, no production source map"],
-  ["production environment valid", "test", "test/environments.test.ts, test/defaults.test.ts"],
-  ["no accidental external services", "audit", "audit:cost and audit:egress"],
-  ["no test credentials", "static", "no credential in a deployed file"],
-  ["no development routes", "static", "no dev, debug or fixture path in the route table"],
+  [["test"], "tests green", "npm test — every suite"],
+  [["audit:migrations"], "migration status", "audit:migrations — ordered, unedited since release, checksummed"],
+  [
+    ["audit:secrets", "audit:history"],
+    "secrets clean",
+    "audit:secrets and audit:history — working tree and every past commit",
+  ],
+  [
+    ["audit:deps", "audit:dependencies", "audit:supply", "audit:inventory"],
+    "dependencies audited",
+    "audit:deps, audit:dependencies, audit:supply, audit:inventory",
+  ],
+  [
+    ["test", "baseline"],
+    "containers hardened",
+    "test/deployment.test.ts, and containersWithoutHardening in the baseline",
+  ],
+  [["test", "baseline"], "security headers active", "test/hardening.test.ts, and securityHeaders in the baseline"],
+  [
+    ["test"],
+    "database inaccessible externally",
+    "test/deployment.test.ts — no published database port, internal network",
+  ],
+  [
+    ["test"],
+    "storage inaccessible directly",
+    "test/uploads.test.ts — blobs are rows, served only as JSON to their owner",
+  ],
+  [["static"], "debug disabled", "no debug variable, no production source map"],
+  [["test"], "production environment valid", "test/environments.test.ts, test/defaults.test.ts"],
+  [["audit:cost", "audit:egress"], "no accidental external services", "audit:cost and audit:egress"],
+  [["static"], "no test credentials", "no credential in a deployed file"],
+  [["static"], "no development routes", "no dev, debug or fixture path in the route table"],
 ];
 
 /**
@@ -324,30 +367,74 @@ export const CHECKLIST = [
  * evidence did not run prints NOT RUN, and NOT RUN is not a pass.
  */
 export const GATE = [
-  ["ARCHITECTURE", "test", "test/architecture.test.ts, test/features.test.ts, test/adr.test.ts"],
-  ["SECURITY", "test", "test/security.test.ts, test/hardening.test.ts, test/compromise.test.ts"],
-  ["PRIVACY", "test", "test/metadata.test.ts, test/logging.test.ts, test/observability.test.ts"],
-  ["AUTH", "test", "test/auth.test.ts, test/authorization.test.ts, test/sessions.test.ts, test/idor.test.ts"],
-  ["CRYPTO", "test", "test/cryptography.test.ts, test/protocol.test.ts, test/hkdf.test.ts, test/pgp.test.ts"],
-  ["DATABASE", "audit", "audit:migrations, test/migrations.test.ts, deploy/postgres-roles.sql (ADR-0095)"],
-  ["STORAGE", "test", "test/uploads.test.ts, test/attachments.test.ts, test/images.test.ts, test/jobs.test.ts"],
-  ["NETWORK", "audit", "audit:egress, audit:bundle, test/deployment.test.ts"],
-  ["CONTAINER", "test", "test/deployment.test.ts, and the baseline's container counts"],
-  ["BACKUP", "test", "test/backup.test.ts, and `npm run backup:drill` for a real restore"],
-  ["DEPENDENCY", "audit", "audit:deps, audit:dependencies, audit:supply, audit:inventory"],
-  ["CLEAN-CLONE", "clean-clone", "node scripts/clean-clone.mjs — fresh clone, npm ci, build, tests, audits"],
-  ["COST", "audit", "audit:cost — zero mandatory paid services, keys or hosted dependencies"],
-  ["REGRESSION", "baseline", `the security baseline in ${BASELINE_FILE}`],
+  [["test"], "ARCHITECTURE", "test/architecture.test.ts, test/features.test.ts, test/adr.test.ts"],
+  [["test"], "SECURITY", "test/security.test.ts, test/hardening.test.ts, test/compromise.test.ts"],
+  [["test"], "PRIVACY", "test/metadata.test.ts, test/logging.test.ts, test/observability.test.ts"],
+  [["test"], "AUTH", "test/auth.test.ts, test/authorization.test.ts, test/sessions.test.ts, test/idor.test.ts"],
+  [["test"], "CRYPTO", "test/cryptography.test.ts, test/protocol.test.ts, test/hkdf.test.ts, test/pgp.test.ts"],
+  [
+    ["audit:migrations", "test"],
+    "DATABASE",
+    "audit:migrations, test/migrations.test.ts, deploy/postgres-roles.sql (ADR-0095)",
+  ],
+  [["test"], "STORAGE", "test/uploads.test.ts, test/attachments.test.ts, test/images.test.ts, test/jobs.test.ts"],
+  [["audit:egress", "audit:bundle", "test"], "NETWORK", "audit:egress, audit:bundle, test/deployment.test.ts"],
+  [["test", "baseline"], "CONTAINER", "test/deployment.test.ts, and the baseline's container counts"],
+  [["test"], "BACKUP", "test/backup.test.ts, and `npm run backup:drill` for a real restore"],
+  [
+    ["audit:deps", "audit:dependencies", "audit:supply", "audit:inventory"],
+    "DEPENDENCY",
+    "audit:deps, audit:dependencies, audit:supply, audit:inventory",
+  ],
+  [["clean-clone"], "CLEAN-CLONE", "node scripts/clean-clone.mjs — fresh clone, npm ci, build, tests, audits"],
+  [["audit:cost"], "COST", "audit:cost — zero mandatory paid services, keys or hosted dependencies"],
+  [["baseline"], "REGRESSION", `the security baseline in ${BASELINE_FILE}`],
 ];
 
-function run(label, command, args) {
+/**
+ * One line's state, from the runs it rests on. The order matters: a real failure outranks a
+ * missing run, because a commit with one broken audit is not "unverified", it is broken.
+ *
+ * @param {string[]} keys
+ * @param {Map<string, string>} outcome
+ * @returns {"PASS"|"FAIL"|"COULD NOT RUN"|"NOT RUN"}
+ */
+export function resolve(keys, outcome) {
+  const states = keys.map((key) => outcome.get(key) ?? "missing");
+  if (states.includes("fail")) return "FAIL";
+  if (states.includes("unavailable")) return "COULD NOT RUN";
+  if (states.includes("missing")) return "NOT RUN";
+  return "PASS";
+}
+
+/**
+ * Run one command and say which of three things happened: it passed, it failed, or it could
+ * not run because the network would not answer. The third is why the audits are captured
+ * rather than streamed — the registry's 503 is in the output, and a gate that reads it can
+ * stop blaming the commit for an outage. `--keep-going` is not a flag: everything runs.
+ *
+ * @returns {"pass"|"fail"|"unavailable"}
+ */
+function run(label, command, args, { capture = false, unavailableStatus = null } = {}) {
   process.stdout.write(`\n=== ${label}: ${command} ${args.join(" ")}\n`);
   const started = Date.now();
-  const result = spawnSync(command, args, { cwd: root, stdio: "inherit", shell: false });
+  const result = spawnSync(command, args, {
+    cwd: root,
+    stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+    encoding: "utf8",
+    shell: false,
+  });
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  if (capture) process.stdout.write(output);
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  const ok = result.status === 0;
-  console.log(`=== ${label}: ${ok ? "ok" : "FAILED"} in ${seconds}s`);
-  return ok;
+  let state = "pass";
+  if (result.status !== 0) {
+    const network = unavailableStatus === null ? networkFailure(output) : result.status === unavailableStatus;
+    state = network ? "unavailable" : "fail";
+  }
+  const word = { pass: "ok", fail: "FAILED", unavailable: "COULD NOT RUN (network)" }[state];
+  console.log(`=== ${label}: ${word} in ${seconds}s`);
+  return state;
 }
 
 function baselineMode(update) {
@@ -389,7 +476,11 @@ function main() {
   const outcome = new Map();
   outcome.set("check", run("check", "npm", ["run", "check"]));
   outcome.set("test", run("test", "npm", ["test"]));
-  outcome.set("audit", run("audit", "npm", ["run", "audit"]));
+  // One at a time, and none of them stops the others: `npm run audit` is a chain of `&&`,
+  // and a chain reports the first failure as the fate of everything after it.
+  for (const audit of AUDITS) {
+    outcome.set(`audit:${audit}`, run(`audit:${audit}`, "npm", ["run", `audit:${audit}`], { capture: true }));
+  }
 
   console.log("");
   const statics = staticChecks();
@@ -399,33 +490,40 @@ function main() {
   outcome.set("static", statics.every((result) => result.ok));
 
   console.log("");
-  outcome.set("baseline", baselineMode(false));
+  outcome.set("baseline", baselineMode(false) ? "pass" : "fail");
 
   if (args.includes("--clean-clone")) {
-    outcome.set("clean-clone", run("clean-clone", process.execPath, ["scripts/clean-clone.mjs"]));
+    // Exit 2 from the clean-clone gate means it could not reach the network, which is not a
+    // finding about this commit — and not a pass either.
+    outcome.set(
+      "clean-clone",
+      run("clean-clone", process.execPath, ["scripts/clean-clone.mjs"], { unavailableStatus: 2 }),
+    );
   }
 
   console.log("\nrelease checklist (point 138)");
-  for (const [item, from, evidence] of CHECKLIST) {
-    const state = outcome.has(from) ? (outcome.get(from) ? "ok  " : "FAIL") : "NOT RUN";
-    console.log(`  ${state}  ${item} — ${evidence}`);
+  for (const [keys, item, evidence] of CHECKLIST) {
+    console.log(`  ${resolve(keys, outcome).padEnd(14)}${item} — ${evidence}`);
   }
 
   console.log("\nfinal release gate (point 140)");
   let failed = 0;
+  let unavailable = 0;
   let notRun = 0;
-  for (const [category, from, evidence] of GATE) {
-    const state = outcome.has(from) ? (outcome.get(from) ? "PASS" : "FAIL") : "NOT RUN";
+  for (const [keys, category, evidence] of GATE) {
+    const state = resolve(keys, outcome);
     if (state === "FAIL") failed += 1;
+    if (state === "COULD NOT RUN") unavailable += 1;
     if (state === "NOT RUN") notRun += 1;
-    console.log(`  ${state.padEnd(8)}${category.padEnd(14)}${evidence}`);
+    console.log(`  ${state.padEnd(14)}${category.padEnd(14)}${evidence}`);
   }
 
   console.log("");
-  if (failed || notRun) {
+  if (failed || unavailable || notRun) {
     console.error(
-      `NOT production-ready: ${failed} category failed, ${notRun} did not run. ` +
-        "A check that did not run is not a pass — run the missing one (--clean-clone) or fix the failure.",
+      `NOT production-ready: ${failed} category failed, ${unavailable} could not run (the network), ` +
+        `${notRun} did not run. Neither of the last two is a pass — re-run them (--clean-clone, or the ` +
+        "audit that needs the registry) and fix what actually failed.",
     );
     process.exit(1);
   }

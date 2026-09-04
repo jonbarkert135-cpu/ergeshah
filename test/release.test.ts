@@ -12,7 +12,8 @@ import { existsSync, readFileSync } from "node:fs";
 // @ts-expect-error - plain ESM scripts; two pure functions and three tables
 import { collect, INVENTORY_DOC, render } from "../scripts/audit.mjs";
 // @ts-expect-error - same
-import { BASELINE_FILE, CHECKLIST, compareBaseline, FIELDS, GATE, measure, staticChecks } from "../scripts/release.mjs";
+import * as release from "../scripts/release.mjs";
+const { AUDITS, BASELINE_FILE, CHECKLIST, compareBaseline, FIELDS, GATE, measure, resolve, staticChecks } = release;
 // @ts-expect-error - same
 import { STEPS } from "../scripts/clean-clone.mjs";
 
@@ -118,7 +119,7 @@ describe("the security baseline (point 139)", () => {
 
 describe("the release gate (points 138, 140)", () => {
   it("covers every area the final gate names", () => {
-    const areas = (GATE as Array<[string, string, string]>).map(([area]) => area);
+    const areas = (GATE as Array<[string[], string, string]>).map(([, area]) => area);
     expect(areas).toEqual([
       "ARCHITECTURE",
       "SECURITY",
@@ -139,7 +140,7 @@ describe("the release gate (points 138, 140)", () => {
 
   it("names evidence that exists: every suite and every npm script", () => {
     const missing: string[] = [];
-    for (const [label, , evidence] of [...GATE, ...CHECKLIST] as Array<[string, string, string]>) {
+    for (const [, label, evidence] of [...GATE, ...CHECKLIST] as Array<[string[], string, string]>) {
       for (const suite of evidence.match(/test\/[a-z_]+\.test\.ts/g) ?? []) {
         if (!existsSync(new URL(`../${suite}`, import.meta.url))) missing.push(`${label}: ${suite}`);
       }
@@ -154,10 +155,10 @@ describe("the release gate (points 138, 140)", () => {
     expect(pkg.scripts.release).toBe("node scripts/release.mjs");
     expect(pkg.scripts["verify:clean-clone"]).toBe("node scripts/clean-clone.mjs");
     const doc = read("docs/RELEASE.md");
-    for (const [item] of CHECKLIST as Array<[string, string, string]>) {
+    for (const [, item] of CHECKLIST as Array<[string[], string, string]>) {
       expect(doc, `docs/RELEASE.md does not mention "${item}"`).toContain(item);
     }
-    for (const [area] of GATE as Array<[string, string, string]>) {
+    for (const [, area] of GATE as Array<[string[], string, string]>) {
       expect(doc, `docs/RELEASE.md does not mention ${area}`).toContain(area);
     }
   });
@@ -167,6 +168,47 @@ describe("the release gate (points 138, 140)", () => {
       .filter((check) => !check.ok)
       .map((check) => `${check.name}: ${check.detail}`);
     expect(failed).toEqual([]);
+  });
+
+
+  it("runs every audit separately, so one unreachable registry cannot hide the other ten", () => {
+    // `npm run audit` is a chain of `&&`: the first failure stops it, and everything behind
+    // it never runs. The gate runs each one itself, which is only honest if it knows them all.
+    for (const audit of AUDITS as string[]) {
+      expect(pkg.scripts[`audit:${audit}`], `npm run audit:${audit} does not exist`).toBeDefined();
+      expect(pkg.scripts.audit, `audit:${audit} is not part of npm run audit`).toContain(`audit:${audit}`);
+    }
+    const composite = pkg.scripts.audit ?? "";
+    const chained = Object.keys(pkg.scripts).filter((name) => name.startsWith("audit:") && composite.includes(name));
+    // Everything the composite audit runs is covered, minus audit:baseline, which the gate
+    // performs in-process rather than as a child command.
+    expect(chained.sort()).toEqual([...(AUDITS as string[]).map((a) => `audit:${a}`), "audit:baseline"].sort());
+  });
+
+  it("rests each checklist item and each area on runs it actually performs", () => {
+    const performed = new Set(["check", "test", "static", "baseline", "clean-clone", ...(AUDITS as string[]).map((a) => `audit:${a}`)]);
+    const unknown: string[] = [];
+    for (const [keys, label] of [...GATE, ...CHECKLIST] as Array<[string[], string, string]>) {
+      expect(keys.length, `${label} rests on nothing`).toBeGreaterThan(0);
+      for (const key of keys) if (!performed.has(key)) unknown.push(`${label}: ${key}`);
+    }
+    expect(unknown, "the gate names a run nothing performs").toEqual([]);
+  });
+
+  it("counts a failure as a failure, an outage as COULD NOT RUN, and a missing run as NOT RUN", () => {
+    const outcome = new Map<string, string>([
+      ["test", "pass"],
+      ["audit:cost", "fail"],
+      ["audit:deps", "unavailable"],
+    ]);
+    expect(resolve(["test"], outcome)).toBe("PASS");
+    expect(resolve(["audit:cost"], outcome)).toBe("FAIL");
+    expect(resolve(["audit:deps"], outcome)).toBe("COULD NOT RUN");
+    expect(resolve(["clean-clone"], outcome)).toBe("NOT RUN");
+    // A real failure outranks an outage: a commit with a broken audit is broken, not unverified.
+    expect(resolve(["audit:deps", "audit:cost"], outcome)).toBe("FAIL");
+    // And an outage outranks a pass, so a green sibling can never carry an unrun check.
+    expect(resolve(["test", "audit:deps"], outcome)).toBe("COULD NOT RUN");
   });
 
   it("has a static check for the things point 134 forbids", () => {
@@ -192,6 +234,15 @@ describe("the clean-clone gate (point 109)", () => {
     // to talk to a remote.
     const literalHost = /["'`](?:https?|ssh|git):\/\/(?!localhost|127\.0\.0\.1)[a-z0-9-]+\.[a-z]/i;
     expect(literalHost.test(script)).toBe(false);
+  });
+
+  it("separates a network outage from a finding, in its exit code", () => {
+    const script = read("scripts/clean-clone.mjs");
+    // Exit 2 is "not verified": the registry or the remote did not answer. The gate reads it
+    // and prints COULD NOT RUN, which is not a pass and not an accusation either.
+    expect(script).toContain("NOT VERIFIED");
+    expect(script).toMatch(/process\.exit\((?:failed\.network|cloneNetwork) \? 2 : 1\)/);
+    expect(read("scripts/release.mjs")).toContain("unavailableStatus: 2");
   });
 
   it("is not counted as passed when it did not run", () => {

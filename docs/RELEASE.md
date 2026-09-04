@@ -18,7 +18,13 @@ Three rules it is built around, because they are the three ways a release gate l
 1. **A check that did not run is never green.** A category without evidence prints `NOT RUN`,
    and the command exits non-zero. The clean-clone verification is the usual absentee: it
    needs minutes and a network, so it is opt-in, and until it has run this commit is not
-   production-ready.
+   production-ready. A check the network prevented prints `COULD NOT RUN` — also not a pass,
+   but not a finding against the commit either. The two are worth separating: `audit:deps`
+   asks the public registry for advisories, and a registry that answers 503 says nothing
+   about this code. For the same reason the gate runs the eleven audits one at a time
+   instead of `npm run audit`: that script is a chain of `&&`, so one unreachable host used
+   to leave ten audits unrun and printed as failures. `scripts/clean-clone.mjs` exits 0
+   verified, 1 a finding, 2 not verified (the network).
 2. **The report carries measured values**, not remembered ones — 4 direct dependencies, 65
    packages in the production tree, 2 published ports, 13 response headers.
 3. **The baseline is a ratchet.** A number that grew, a port that appeared, a header that
@@ -97,7 +103,7 @@ answered by reading.
 | tests green | `npm test` — every suite under `test/` |
 | migration status | `audit:migrations` — ordered, checksummed, unedited since release |
 | secrets clean | `audit:secrets` (working tree) and `audit:history` (every blob in every commit) |
-| dependencies audited | `audit:deps`, `audit:dependencies`, `audit:supply`, `audit:inventory` |
+| dependencies audited | `audit:deps`, `audit:dependencies`, `audit:supply`, `audit:inventory` — each run separately, each reported separately |
 | containers hardened | `test/deployment.test.ts`, and `containersWithoutHardening` in the baseline |
 | security headers active | `test/hardening.test.ts`, and `securityHeaders` in the baseline |
 | database inaccessible externally | `test/deployment.test.ts` — no published database port, internal network with no gateway |

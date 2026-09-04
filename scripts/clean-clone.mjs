@@ -19,6 +19,8 @@
  *   node scripts/clean-clone.mjs <url-or-path>   clone something else (a fork, a mirror, HEAD)
  *   node scripts/clean-clone.mjs --keep          leave the directory for inspection
  *
+ * Exit codes: 0 verified, 1 a finding about this commit, 2 not verified (the network).
+ *
  * The remote is read from git rather than written here: a host name in the source is
  * something `audit:cost` and `audit:egress` refuse, and rightly.
  */
@@ -44,8 +46,12 @@ export const STEPS = [
   ["audits", ["npm", ["run", "audit"]]],
 ];
 
-/** A registry that answers 503 is a network fault, not a finding. Say which one it was. */
-function networkFailure(output) {
+/**
+ * A registry that answers 503 is a network fault, not a finding. Say which one it was — and
+ * exit 2 rather than 1, so `scripts/release.mjs` can print COULD NOT RUN instead of FAIL.
+ * Neither is a pass; the difference is whether the commit is accused of something.
+ */
+export function networkFailure(output) {
   return /E503|ETIMEDOUT|ENOTFOUND|ECONNRESET|network|registry\.npmjs\.org/i.test(output);
 }
 
@@ -74,12 +80,13 @@ function main() {
     console.error(`  FAILED  git clone in ${cloneSeconds}s`);
     console.error((clone.stderr ?? "").trim().split("\n").slice(-10).join("\n"));
     if (!keep) rmSync(directory, { recursive: true, force: true });
+    const cloneNetwork = networkFailure(`${clone.stderr}`);
     console.error(
-      networkFailure(`${clone.stderr}`)
+      cloneNetwork
         ? "\nCLEAN-CLONE RESULT: NOT VERIFIED — the clone itself failed on the network, which is not a finding about the code."
         : "\nCLEAN-CLONE RESULT: FAILED at git clone.",
     );
-    process.exit(1);
+    process.exit(cloneNetwork ? 2 : 1);
   }
   const cloned = execFileSync("git", ["rev-parse", "HEAD"], { cwd: directory, encoding: "utf8" }).trim();
   console.log(`  ok      git clone in ${cloneSeconds}s -> ${cloned}`);
@@ -107,14 +114,14 @@ function main() {
 
   console.log("");
   if (failed) {
+    const passed = `${results.filter((step) => step.ok).length}/${STEPS.length} steps passed on ${cloned}.`;
     console.error(
-      `CLEAN-CLONE RESULT: FAILED at ${failed.label}` +
-        (failed.network
-          ? " — the output looks like a network failure (the registry, not this commit). Re-run before treating it as a finding."
-          : "") +
-        `\n${results.filter((step) => step.ok).length}/${STEPS.length} steps passed on ${cloned}.`,
+      failed.network
+        ? `CLEAN-CLONE RESULT: NOT VERIFIED at ${failed.label} — the output looks like a network failure ` +
+            `(the registry, not this commit). This is not a pass: re-run it when the network answers.\n${passed}`
+        : `CLEAN-CLONE RESULT: FAILED at ${failed.label}.\n${passed}`,
     );
-    process.exit(1);
+    process.exit(failed.network ? 2 : 1);
   }
   console.log(
     `CLEAN-CLONE RESULT: PASSED — ${STEPS.length} steps on ${cloned}, from an empty directory ` +
