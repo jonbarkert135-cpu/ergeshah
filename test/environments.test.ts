@@ -123,3 +123,54 @@ describe("the test environment is isolated by construction", () => {
     }
   });
 });
+
+/**
+ * SEC-2026-018: `SESSION_TTL_MS=30d` used to boot. `Number("30d")` is `NaN`, `NaN <= now` is
+ * false, and a `NaN` idle limit is never exceeded — the ceiling a limit configures, silently
+ * off, or (on SQLite) every sign-in failing with a 409 that blames the database. Every numeric
+ * limit now goes through the strict parsers, and the typo stops the boot with its own name.
+ */
+describe("a numeric limit is a number or the boot fails", () => {
+  const limits = [
+    "PORT",
+    "SESSION_TTL_MS",
+    "SESSION_IDLE_DAYS",
+    "ENVELOPE_TTL_MS",
+    "MAX_ENVELOPE_BYTES",
+    "SEND_TOKEN_TTL_MS",
+    "SEND_TOKEN_BATCH",
+    "MAX_DELIVERY_DELAY_SECONDS",
+    "BOND_COOLOFF_DAYS",
+    "MAX_DELIVERY_BYTES",
+    "DELIVERY_TTL_MS",
+    "AUDIT_RETENTION_MS",
+    "NOTIFICATION_RETENTION_MS",
+    "STORAGE_FLOOR_BYTES",
+    "MAX_BLOB_ROWS",
+  ];
+
+  it("refuses a typo, a fraction and a negative number, naming the variable", () => {
+    for (const name of limits) {
+      for (const bad of ["30d", "two weeks", "1.5", "-1", "1e3x"]) {
+        expect(
+          () => withEnv({ NODE_ENV: "test", [name]: bad }, () => loadConfig({ dialect: TEST_DIALECT })),
+          `${name}=${bad}`,
+        ).toThrow(new RegExp(name));
+      }
+    }
+  });
+
+  it("keeps the documented off switches and the defaults", () => {
+    const config = withEnv(
+      { NODE_ENV: "test", STORAGE_FLOOR_BYTES: "0", MAX_BLOB_ROWS: "0", BOND_COOLOFF_DAYS: "0", SESSION_TTL_MS: undefined },
+      () => loadConfig({ dialect: TEST_DIALECT }),
+    );
+    expect(config.storageFloorBytes).toBe(0);
+    expect(config.maxBlobRows).toBe(0);
+    expect(config.bondCooloffMs).toBe(0);
+    expect(config.sessionTtlMs).toBe(30 * 24 * 60 * 60 * 1000);
+    expect(() => withEnv({ NODE_ENV: "test", SESSION_TTL_MS: "0" }, () => loadConfig({ dialect: TEST_DIALECT }))).toThrow(
+      /SESSION_TTL_MS/,
+    );
+  });
+});

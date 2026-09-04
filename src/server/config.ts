@@ -266,6 +266,16 @@ export function positiveInteger(name: string, value: string | undefined, fallbac
   return parsed;
 }
 
+/** The same, for a limit whose documented off switch is `0`. */
+export function nonNegativeInteger(name: string, value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a whole number of at least 0`);
+  }
+  return parsed;
+}
+
 /**
  * The commission, in basis points, validated at boot. A typo here is money: `5000` instead
  * of `500` is a 50% marketplace, and nothing downstream would question it. Anything above
@@ -378,34 +388,42 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
   return {
     env,
     host: process.env.HOST ?? "127.0.0.1",
-    port: Number(process.env.PORT ?? 8080),
+    port: positiveInteger("PORT", process.env.PORT, 8080),
     dialect: (process.env.DB_DIALECT as Dialect) ?? (process.env.DATABASE_URL ? "postgres" : "sqlite"),
     sqlitePath: process.env.SQLITE_PATH ?? "data/symvolon.sqlite",
     postgresUrl: secretFromEnv("DATABASE_URL") ?? null,
     bucketPepper: requiredSecret("RATE_LIMIT_PEPPER", env),
     trustProxy: trustProxy(process.env.TRUST_PROXY),
-    sessionTtlMs: Number(process.env.SESSION_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
-    sessionIdleDays: Number(process.env.SESSION_IDLE_DAYS ?? 14),
+    sessionTtlMs: positiveInteger("SESSION_TTL_MS", process.env.SESSION_TTL_MS, 30 * 24 * 60 * 60 * 1000),
+    sessionIdleDays: positiveInteger("SESSION_IDLE_DAYS", process.env.SESSION_IDLE_DAYS, 14),
     powBits: powBits(process.env.POW_BITS),
-    envelopeTtlMs: Number(process.env.ENVELOPE_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
-    maxEnvelopeBytes: Number(process.env.MAX_ENVELOPE_BYTES ?? 64 * 1024),
-    sendTokenTtlMs: Number(process.env.SEND_TOKEN_TTL_MS ?? 7 * 24 * 60 * 60 * 1000),
-    sendTokenBatch: Number(process.env.SEND_TOKEN_BATCH ?? 32),
-    maxDeliveryDelaySeconds: Number(process.env.MAX_DELIVERY_DELAY_SECONDS ?? 120),
+    envelopeTtlMs: positiveInteger("ENVELOPE_TTL_MS", process.env.ENVELOPE_TTL_MS, 30 * 24 * 60 * 60 * 1000),
+    maxEnvelopeBytes: positiveInteger("MAX_ENVELOPE_BYTES", process.env.MAX_ENVELOPE_BYTES, 64 * 1024),
+    sendTokenTtlMs: positiveInteger("SEND_TOKEN_TTL_MS", process.env.SEND_TOKEN_TTL_MS, 7 * 24 * 60 * 60 * 1000),
+    sendTokenBatch: positiveInteger("SEND_TOKEN_BATCH", process.env.SEND_TOKEN_BATCH, 32),
+    maxDeliveryDelaySeconds: nonNegativeInteger(
+      "MAX_DELIVERY_DELAY_SECONDS",
+      process.env.MAX_DELIVERY_DELAY_SECONDS,
+      120,
+    ),
     bondMinPico: picoFromEnv("BOND_MIN_XMR", process.env.BOND_MIN_XMR, "0.1"),
-    bondCooloffMs: Number(process.env.BOND_COOLOFF_DAYS ?? 7) * 86_400_000,
-    maxDeliveryBytes: Number(process.env.MAX_DELIVERY_BYTES ?? 5 * 1024 * 1024),
-    deliveryTtlMs: Number(process.env.DELIVERY_TTL_MS ?? 30 * 24 * 60 * 60 * 1000),
-    auditRetentionMs: Number(process.env.AUDIT_RETENTION_MS ?? 365 * 24 * 60 * 60 * 1000),
-    notificationRetentionMs: Number(process.env.NOTIFICATION_RETENTION_MS ?? 90 * 24 * 60 * 60 * 1000),
+    bondCooloffMs: nonNegativeInteger("BOND_COOLOFF_DAYS", process.env.BOND_COOLOFF_DAYS, 7) * 86_400_000,
+    maxDeliveryBytes: positiveInteger("MAX_DELIVERY_BYTES", process.env.MAX_DELIVERY_BYTES, 5 * 1024 * 1024),
+    deliveryTtlMs: positiveInteger("DELIVERY_TTL_MS", process.env.DELIVERY_TTL_MS, 30 * 24 * 60 * 60 * 1000),
+    auditRetentionMs: positiveInteger("AUDIT_RETENTION_MS", process.env.AUDIT_RETENTION_MS, 365 * 24 * 60 * 60 * 1000),
+    notificationRetentionMs: positiveInteger(
+      "NOTIFICATION_RETENTION_MS",
+      process.env.NOTIFICATION_RETENTION_MS,
+      90 * 24 * 60 * 60 * 1000,
+    ),
     maxConnections: positiveInteger("MAX_CONNECTIONS", process.env.MAX_CONNECTIONS, 512),
     dbStatementTimeoutMs: positiveInteger(
       "DB_STATEMENT_TIMEOUT_MS",
       process.env.DB_STATEMENT_TIMEOUT_MS,
       5_000,
     ),
-    storageFloorBytes: Number(process.env.STORAGE_FLOOR_BYTES ?? 512 * 1024 * 1024),
-    maxBlobRows: Number(process.env.MAX_BLOB_ROWS ?? 200_000),
+    storageFloorBytes: nonNegativeInteger("STORAGE_FLOOR_BYTES", process.env.STORAGE_FLOOR_BYTES, 512 * 1024 * 1024),
+    maxBlobRows: nonNegativeInteger("MAX_BLOB_ROWS", process.env.MAX_BLOB_ROWS, 200_000),
     rateLimits: resolveLimits(process.env.RATE_LIMITS),
     orderFeeBps: feeBasisPoints(process.env.ORDER_FEE_BPS),
     minWithdrawalPico: picoFromEnv("MIN_WITHDRAWAL_XMR", process.env.MIN_WITHDRAWAL_XMR, "0.02"),
