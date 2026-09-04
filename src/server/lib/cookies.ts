@@ -42,6 +42,25 @@ export interface CookieOptions {
   path?: string;
 }
 
+/** The two cookies this server sets, by their base names. */
+export const SESSION_COOKIE = "session";
+export const CSRF_COOKIE = "csrf";
+
+/**
+ * On HTTPS the cookies carry the `__Host-` prefix (RFC 6265bis §4.1.3.2): a browser accepts
+ * such a cookie only from a `Secure` response, with `Path=/` and *no* `Domain` attribute, so
+ * nothing on a sibling host (`blog.example.org`, a stale subdomain, a neighbour on shared
+ * hosting) can plant a `session` or `csrf` cookie for this origin — which, without the
+ * prefix, is a session-fixation / forced-login primitive that needs no credential at all
+ * (SEC-2026-014). On plain HTTP the prefix is not allowed, so an onion service (reached over
+ * HTTP inside the Tor circuit) keeps the bare names; there, the host is the circuit and has
+ * no siblings. The choice is per request and deterministic, and the reader and the writer
+ * make it with the same function.
+ */
+export function cookieName(base: string, secure: boolean): string {
+  return secure ? `__Host-${base}` : base;
+}
+
 export function serializeCookie(name: string, value: string, options: CookieOptions): string {
   const parts = [`${name}=${encodeURIComponent(value)}`, `Path=${options.path ?? "/"}`];
   if (options.httpOnly) parts.push("HttpOnly");

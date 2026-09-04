@@ -3,7 +3,7 @@ import type { Config } from "./config.ts";
 import type { Db } from "./db/index.ts";
 import { isLockedDown } from "./lib/lockdown.ts";
 import { HttpError, unauthorized, forbidden, isConstraintViolation, lockedDown } from "./lib/errors.ts";
-import { parseCookies, serializeCookie } from "./lib/cookies.ts";
+import { cookieName, CSRF_COOKIE, parseCookies, serializeCookie, SESSION_COOKIE } from "./lib/cookies.ts";
 import { resolveSession, type SessionUser } from "./lib/sessions.ts";
 import { requireProofOfWork } from "./lib/pow.ts";
 import { consume, type LimitName } from "./lib/rate_limit.ts";
@@ -29,8 +29,6 @@ import { registerCanaryRoutes } from "./routes/canary.ts";
 import { recordRequest } from "./lib/metrics.ts";
 import { walletRpc, type WalletRpc } from "./lib/monero.ts";
 
-const SESSION_COOKIE = "session";
-const CSRF_COOKIE = "csrf";
 
 /**
  * The API version, in the path and in a response header (point 88).
@@ -129,7 +127,7 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
       if (request.sessionUser.status !== "active") throw forbidden("account suspended");
       return request.sessionUser;
     }
-    const token = parseCookies(request.headers.cookie)[SESSION_COOKIE];
+    const token = parseCookies(request.headers.cookie)[cookieName(SESSION_COOKIE, cookiesAreSecure(config, request))];
     if (!token) throw unauthorized();
     const user = await resolveSession(db, token, config.sessionIdleDays);
     if (!user) throw unauthorized("session expired");
@@ -193,13 +191,13 @@ export async function buildApp(config: Config, db: Db): Promise<FastifyInstance>
           "and nothing has been lost. Your balance and your orders are still readable.",
       );
     }
-    enforceCsrf(request, reply);
+    enforceCsrf(config, request, reply);
     // Resolve the session once, before the handler runs, and without deciding anything:
     // routes still call `authenticate`, and public routes still work without a session.
     // The point is that the rate limiter can key on the account even on a public route —
     // otherwise every logged-in user browsing an onion service shares one bucket.
     if (!request.sessionUser) {
-      const token = parseCookies(request.headers.cookie)[SESSION_COOKIE];
+      const token = parseCookies(request.headers.cookie)[cookieName(SESSION_COOKIE, cookiesAreSecure(config, request))];
       if (token) {
         const user = await resolveSession(db, token, config.sessionIdleDays);
         if (user && user.status === "active") request.sessionUser = user;
@@ -347,9 +345,10 @@ export function sessionCookie(
   token: string,
   maxAgeSeconds: number,
 ): string {
-  return serializeCookie(SESSION_COOKIE, token, {
+  const secure = cookiesAreSecure(config, request);
+  return serializeCookie(cookieName(SESSION_COOKIE, secure), token, {
     httpOnly: true,
-    secure: cookiesAreSecure(config, request),
+    secure,
     sameSite: "Strict",
     maxAgeSeconds,
   });
@@ -361,9 +360,10 @@ export function csrfCookie(
   token: string,
   maxAgeSeconds: number,
 ): string {
-  return serializeCookie(CSRF_COOKIE, token, {
+  const secure = cookiesAreSecure(config, request);
+  return serializeCookie(cookieName(CSRF_COOKIE, secure), token, {
     httpOnly: false,
-    secure: cookiesAreSecure(config, request),
+    secure,
     sameSite: "Strict",
     maxAgeSeconds,
   });

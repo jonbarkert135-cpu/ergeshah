@@ -9,7 +9,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Config } from "./config.ts";
 import { forbidden } from "./lib/errors.ts";
 import { API_VERSION, cookiesAreSecure, isApiRequest, isOnionHost } from "./app.ts";
-import { parseCookies, serializeCookie } from "./lib/cookies.ts";
+import { CSRF_COOKIE, cookieName, parseCookies, serializeCookie, SESSION_COOKIE } from "./lib/cookies.ts";
 import { constantTimeEqual, randomToken } from "./lib/ids.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -68,12 +68,13 @@ export function registerSecurity(app: FastifyInstance, config: Config): void {
   // is compared only against the header of the same browser.
   app.addHook("onRequest", async (request, reply) => {
     if (!SAFE_METHODS.has(request.method)) return;
-    if (parseCookies(request.headers.cookie)["csrf"]) return;
+    const secure = cookiesAreSecure(config, request);
+    if (parseCookies(request.headers.cookie)[cookieName(CSRF_COOKIE, secure)]) return;
     reply.header(
       "set-cookie",
-      serializeCookie("csrf", randomToken(24), {
+      serializeCookie(cookieName(CSRF_COOKIE, secure), randomToken(24), {
         httpOnly: false,
-        secure: cookiesAreSecure(config, request),
+        secure,
         sameSite: "Strict",
         maxAgeSeconds: 12 * 60 * 60,
       }),
@@ -117,7 +118,7 @@ export function registerSecurity(app: FastifyInstance, config: Config): void {
  * CSRF defence, three independent layers: SameSite=Strict on the session cookie, an
  * Origin/Host check, and a double-submit token that a cross-origin page cannot read.
  */
-export function enforceCsrf(request: FastifyRequest, _reply: FastifyReply): void {
+export function enforceCsrf(config: Config, request: FastifyRequest, _reply: FastifyReply): void {
   if (SAFE_METHODS.has(request.method)) return;
 
   const origin = request.headers.origin;
@@ -137,8 +138,11 @@ export function enforceCsrf(request: FastifyRequest, _reply: FastifyReply): void
   // point of it — and a request with no ambient authority is not what CSRF protects
   // against. A cross-site page cannot read the token out of another origin's vault, so
   // there is nothing here for it to ride. The Origin check above still applied.
-  if (typeof request.headers["x-send-token"] === "string" && !cookies["session"]) return;
-  const cookieToken = cookies["csrf"];
+  const secure = cookiesAreSecure(config, request);
+  if (typeof request.headers["x-send-token"] === "string" && !cookies[cookieName(SESSION_COOKIE, secure)]) {
+    return;
+  }
+  const cookieToken = cookies[cookieName(CSRF_COOKIE, secure)];
   const headerToken = request.headers["x-csrf-token"];
   // Constant-time, like every other secret comparison on the server (`lib/ids.ts`). The
   // double-submit token is not a password and the attack is awkward, but a `!==` on a secret

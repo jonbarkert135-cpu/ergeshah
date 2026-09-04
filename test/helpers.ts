@@ -90,7 +90,7 @@ export class TestClient {
     const cookie = [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
     if (cookie) headers.cookie = cookie;
     if (method !== "GET") {
-      const csrf = options.csrf === undefined ? this.cookies.get("csrf") : options.csrf;
+      const csrf = options.csrf === undefined ? this.cookie("csrf") : options.csrf;
       if (csrf) headers["x-csrf-token"] = csrf;
       headers.origin = options.origin ?? "http://localhost";
       headers.host = "localhost";
@@ -147,8 +147,14 @@ export class TestClient {
     return this.request<T>("DELETE", url);
   }
 
+  /** By base name: on a TLS server the jar holds `__Host-session`, not `session` (SEC-2026-014). */
   cookie(name: string): string | undefined {
-    return this.cookies.get(name);
+    return this.cookies.get(name) ?? this.cookies.get(`__Host-${name}`);
+  }
+
+  /** The exact names in the jar, for tests about the names themselves. */
+  cookieNames(): string[] {
+    return [...this.cookies.keys()];
   }
 }
 

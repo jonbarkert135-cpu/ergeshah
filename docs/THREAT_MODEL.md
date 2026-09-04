@@ -59,7 +59,7 @@ to be a residual risk.
 | --- | --- |
 | SQL injection | Every query parameterised; no string interpolation of values anywhere |
 | XSS | No `innerHTML` in the client; DOM built from text nodes; strict CSP with no inline script |
-| CSRF | SameSite=Strict cookies + Origin/Host check + double-submit token |
+| CSRF | SameSite=Strict cookies + Origin/Host check + double-submit token; on HTTPS both cookies carry the `__Host-` prefix so a sibling host cannot plant or fix them (SEC-2026-014) |
 | SSRF | The server makes no outbound HTTP requests at all, and the application container is on an internal Docker network with no gateway, so there is nowhere for one to go. This was stated here before it was true — the container used to sit on the public-facing network as well; `test/deployment.test.ts` now fails if it does again (docs/NETWORK.md) |
 | Path traversal | Static assets are read from an explicit allowlist at boot; no path is derived from a request |
 | IDOR | Every object lookup is scoped by owner; covered by tests for devices, envelopes, listings, orders and vaults |

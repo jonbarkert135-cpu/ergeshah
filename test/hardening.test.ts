@@ -64,6 +64,61 @@ describe("security headers", () => {
     expect(csrf).toContain("SameSite=Strict");
   });
 
+  // SEC-2026-014: without the `__Host-` prefix, any sibling host under the registrable domain
+  // can set a `session` cookie for this origin and log the victim into the attacker's account.
+  it("names its cookies __Host- on HTTPS, so a related host cannot plant them", async () => {
+    const tls = await startTestServer({ behindTls: true });
+    try {
+      const first = await tls.app.inject({ method: "GET", url: "/", headers: { host: "example.com" } });
+      const minted = [first.headers["set-cookie"] ?? []].flat().map(String);
+      expect(minted.some((c) => c.startsWith("__Host-csrf=") && c.includes("Secure") && !/Domain=/i.test(c))).toBe(true);
+
+      const alice = await register(tls, "prefixed");
+      expect(alice.cookieNames()).toContain("__Host-session");
+      expect(alice.cookieNames()).not.toContain("session");
+      expect((await alice.get("/api/auth/me")).status).toBe(200);
+
+      // A bare `session` cookie — the only kind a sibling host can set — is not a session here.
+      const planted = await tls.app.inject({
+        method: "GET",
+        url: "/api/auth/me",
+        headers: { host: "example.com", cookie: `session=${alice.cookie("session")}` },
+      });
+      expect(planted.statusCode).toBe(401);
+      // Nor is a bare `csrf` cookie a CSRF token.
+      const forged = await tls.app.inject({
+        method: "POST",
+        url: "/api/auth/logout",
+        headers: {
+          host: "example.com",
+          origin: "https://example.com",
+          cookie: `__Host-session=${alice.cookie("session")}; csrf=abc`,
+          "x-csrf-token": "abc",
+        },
+      });
+      expect(forged.statusCode).toBe(403);
+      // Logging out clears the prefixed names.
+      const out = await alice.post("/api/auth/logout", {});
+      expect(out.status).toBe(200);
+      expect(alice.cookieNames()).not.toContain("__Host-session");
+    } finally {
+      await tls.close();
+    }
+    // An onion service is plain HTTP inside the circuit: no prefix, no Secure, and no siblings.
+    const onion = await startTestServer({ behindTls: true });
+    try {
+      const response = await onion.app.inject({
+        method: "GET",
+        url: "/",
+        headers: { host: `${"a".repeat(56)}.onion` },
+      });
+      const cookies = [response.headers["set-cookie"] ?? []].flat().map(String);
+      expect(cookies.some((c) => c.startsWith("csrf=") && !c.includes("Secure"))).toBe(true);
+    } finally {
+      await onion.close();
+    }
+  });
+
   it("does not upgrade requests on an onion host, and does on clearnet", async () => {
     const onion = await server.app.inject({
       method: "GET",
