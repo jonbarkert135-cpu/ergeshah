@@ -313,6 +313,133 @@ export function announce(container: HTMLElement): void {
   heading.focus({ preventScroll: false });
 }
 
+/**
+ * A slot a view writes its outcome into. `role="status"` rather than a bare `<div>`: a
+ * message that appears after a submit — "that password is too short", "nothing matches
+ * that" — is on screen for a sighted reader and silence for everyone else, and the
+ * refusal is exactly the thing that needed saying. Polite, so it waits for a gap rather
+ * than interrupting.
+ */
+export function statusRegion(className?: string): HTMLElement {
+  return el("div", { role: "status", "aria-live": "polite", ...(className ? { class: className } : {}) });
+}
+
+/**
+ * A refusal, delivered where it can be acted on: the message goes into the view's status
+ * region, the control is marked invalid, and focus moves to it. The alternative — a
+ * sentence somewhere on the page while the keyboard stays on a disabled submit button — is
+ * how a form becomes impossible to finish without a mouse and a pair of eyes.
+ *
+ * The invalid mark is removed as soon as the reader changes the value, because a field
+ * that stays flagged while the person is fixing it is lying.
+ */
+export function refuse(control: HTMLElement, region: HTMLElement, message: string): void {
+  region.replaceChildren(notice(message, "error"));
+  control.setAttribute("aria-invalid", "true");
+  control.addEventListener("input", () => control.removeAttribute("aria-invalid"), { once: true });
+  control.focus();
+}
+
+let spoken: HTMLElement | null = null;
+
+/**
+ * Says something without showing it. For facts the page conveys by changing shape — a
+ * result count, a list that just got longer — where putting a sentence on screen would be
+ * noise for a reader who can already see the change happen.
+ *
+ * The text is cleared and set on a later tick because a live region that is handed the
+ * same string twice announces it once, and "6 results" after "6 results" is a different
+ * search with the same answer.
+ */
+export function say(message: string): void {
+  if (!spoken) {
+    spoken = el("div", { class: "sr-only", role: "status", "aria-live": "polite" });
+    document.body.append(spoken);
+  }
+  const host = spoken;
+  host.textContent = "";
+  window.setTimeout(() => {
+    host.textContent = message;
+  }, 60);
+}
+
+const FOCUSABLE = "a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1'])";
+
+/**
+ * What identifies a control across a redraw. Not the node — that one is about to be
+ * thrown away — but what a person would call it: its explicit key, its id, its label, or
+ * the words on it.
+ */
+export function focusKey(node: {
+  tagName: string;
+  getAttribute(name: string): string | null;
+  textContent: string | null;
+}): string {
+  const named =
+    node.getAttribute("data-focus") ??
+    node.getAttribute("id") ??
+    node.getAttribute("aria-label") ??
+    node.getAttribute("name") ??
+    (node.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  return `${node.tagName.toLowerCase()}:${named}`;
+}
+
+/**
+ * Which of the surviving twins to focus. Rows are rebuilt with the same labels — six
+ * "Accept" buttons in an order table — so position among equals is the only thing that
+ * distinguishes them, and a list that got shorter still has a nearest survivor.
+ */
+export function nearestIndex(count: number, index: number): number {
+  if (count <= 0) return -1;
+  return Math.min(Math.max(index, 0), count - 1);
+}
+
+/**
+ * Keeps the keyboard where it was across a rebuild.
+ *
+ * These views redraw a whole region after an action — a filter chip, a status change, a
+ * deletion — which destroys the element the user was standing on and drops focus to
+ * `<body>`. For a mouse that is invisible; for a keyboard it is being thrown to the top of
+ * the page after every click, and for a screen reader it is silence.
+ *
+ * Called *before* the rebuild, it returns the function that puts focus back. The control
+ * is found again by name rather than by node, so a redrawn twin counts as the same
+ * control, and a caret in a text box keeps its position. If nothing matching survived —
+ * the row was deleted — focus lands on the region's heading, which is a place to be rather
+ * than nowhere.
+ */
+export function focusAnchor(container: HTMLElement): () => void {
+  const active = document.activeElement as HTMLElement | null;
+  if (!active || active === document.body || !container.contains(active)) return () => {};
+  const key = focusKey(active);
+  const twins = () =>
+    Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((node) => focusKey(node) === key);
+  const index = twins().indexOf(active);
+  const caret = "selectionStart" in active ? (active as HTMLInputElement).selectionStart : null;
+  return () => {
+    const survivors = twins();
+    const target = survivors[nearestIndex(survivors.length, index)];
+    if (!target) {
+      // Nothing by that name survived: land on the region itself, or its heading if it has
+      // one. Either is a place a reader can orient from; `<body>` is not.
+      const landing = container.querySelector("h1, h2, h3") ?? container;
+      if (landing instanceof HTMLElement) {
+        landing.setAttribute("tabindex", "-1");
+        landing.focus({ preventScroll: true });
+      }
+      return;
+    }
+    target.focus({ preventScroll: true });
+    if (caret !== null && "setSelectionRange" in target) {
+      try {
+        (target as HTMLInputElement).setSelectionRange(caret, caret);
+      } catch {
+        // A number or search input can refuse a selection range; the focus is the point.
+      }
+    }
+  };
+}
+
 export function input(
   name: string,
   attrs: Record<string, string> = {},

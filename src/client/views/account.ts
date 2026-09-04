@@ -5,7 +5,7 @@
  * (`views/security.ts`) instead, so there is one screen to check rather than two.
  */
 import { api } from "../api.ts";
-import { clear, confirmDialog, el, field, skeleton, toast } from "../ui.ts";
+import { clear, confirmDialog, el, field, focusAnchor, skeleton, toast } from "../ui.ts";
 import { deleteAccount, privacySettings, setPrivacy } from "../state.ts";
 import { blockedPeers, setBlocked } from "../messaging.ts";
 import { authoriseDevice, parseDeviceCode, type ParsedDeviceCode } from "../linking.ts";
@@ -17,6 +17,10 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
   void load();
 
   async function load() {
+    // A revoke, a rotation, an approval redraws this whole screen, and the control that
+    // asked for it is rebuilt as its own twin. The keyboard follows it rather than falling
+    // back to the top of the page.
+    const restore = focusAnchor(body);
     clear(body).append(skeleton("line", 5));
     const me = await api<{ username: string; role: string; memberSince: string | null }>(
       "/api/auth/me",
@@ -81,6 +85,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
     body.append(el("h2", {}, "Metadata you emit"), privacyCard());
     body.append(el("h2", {}, "Link a device"), linkCard());
     body.append(el("h2", {}, "Delete account"), deleteCard());
+    restore();
   }
 
   /**
@@ -196,8 +201,14 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
 
   /** Read a code from a new device, check its fingerprint, then vouch for its keys. */
   function linkCard(): HTMLElement {
-    const codeBox = el("textarea", { rows: "4", class: "mono", placeholder: "symvolon-link.v1…" });
-    const label = el("input", { placeholder: "Label, e.g. laptop", maxlength: "40" });
+    const codeBox = el("textarea", {
+      rows: "4",
+      class: "mono",
+      placeholder: "symvolon-link.v1…",
+      // A placeholder is not a name: it is gone the moment somebody types into the box.
+      "aria-label": "Device code from the other browser",
+    });
+    const label = el("input", { placeholder: "Label, e.g. laptop", maxlength: "40", "aria-label": "Label for this device" });
     const message = el("div", { class: "muted" });
     const authorise = el("button", {}, "Authorise this device");
     let parsed: ParsedDeviceCode | null = null;
@@ -261,7 +272,7 @@ export function renderAccount(root: HTMLElement, onSignedOut: () => void): void 
   }
 
   function deleteCard(): HTMLElement {
-    const password = el("input", { type: "password", placeholder: "Password" });
+    const password = el("input", { type: "password", placeholder: "Password", "aria-label": "Your password" });
     const message = el("div", { class: "muted" });
     const button = el("button", { class: "danger" }, "Delete my account");
 

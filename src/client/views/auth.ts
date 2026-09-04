@@ -1,5 +1,5 @@
 import { api, ApiError } from "../api.ts";
-import { clear, el, field, input, notice } from "../ui.ts";
+import { clear, el, field, input, notice, refuse, statusRegion } from "../ui.ts";
 import {
   adoptLinkedIdentity,
   deriveKeys,
@@ -25,20 +25,20 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
   root.append(container);
   draw();
 
-  function draw(message?: HTMLElement) {
+  function draw() {
     clear(container);
     if (mode === "link") {
-      drawLink(message);
+      drawLink();
       return;
     }
     if (mode === "recover") {
-      drawRecover(message);
+      drawRecover();
       return;
     }
     const username = input("username", { autocomplete: "username", minlength: "3", maxlength: "32" });
     const password = input("password", { type: "password", autocomplete: "current-password", minlength: "12" });
     const submit = el("button", { class: "primary", type: "submit" }, mode === "login" ? "Unlock" : "Create account");
-    const status = el("div", {});
+    const status = statusRegion();
 
     const form = el(
       "form",
@@ -63,7 +63,6 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
       ),
       status,
     );
-    if (message) status.append(message);
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -75,7 +74,10 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
           .catch((error: unknown) => {
             submit.disabled = false;
             const text = error instanceof ApiError ? error.message : (error as Error).message;
-            draw(notice(text, "error"));
+            // Not a redraw: rebuilding the form would throw away the username that was
+            // just typed and drop focus to the top of the page. The message goes to the
+            // live region and the keyboard goes back to the field to retry.
+            refuse(password, status, text);
           });
       }, 30);
     });
@@ -86,10 +88,10 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
    * Linking screen. This browser makes its own keys and shows a code; a device that is
    * already signed in reads the code and vouches for the keys. We poll until it does.
    */
-  function drawLink(message?: HTMLElement) {
+  function drawLink() {
     const { code, fingerprint, secret, identity } = newDeviceCode();
     const password = input("device password", { type: "password", minlength: "12" });
-    const status = el("div", {});
+    const status = statusRegion();
     let polling = false;
 
     const codeBox = el("textarea", { readonly: "", rows: "4", class: "mono" });
@@ -99,7 +101,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
     start.addEventListener("click", () => {
       if (polling) return;
       if (password.value.length < 12) {
-        status.replaceChildren(notice("Use at least 12 characters for this device.", "error"));
+        refuse(password, status, "Use at least 12 characters for this device.");
         return;
       }
       polling = true;
@@ -144,7 +146,6 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
       ),
       status,
     );
-    if (message) status.append(message);
     container.append(card);
   }
 
@@ -195,7 +196,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
       spellcheck: "false",
     });
     const submit = el("button", { class: "primary" }, "Sign in");
-    const message = el("div", {});
+    const message = statusRegion();
 
     submit.addEventListener("click", () => {
       submit.setAttribute("disabled", "");
@@ -206,8 +207,8 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
       )
         .then((account) => finishLogin(keys, account))
         .catch((error: Error) => {
-          message.append(notice(error.message, "error"));
           submit.removeAttribute("disabled");
+          refuse(signature, message, error.message);
         });
     });
 
@@ -266,7 +267,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
     let phrase = generatePhrase(length);
     render();
 
-    function render(message?: HTMLElement) {
+    function render() {
       clear(container);
       const words = phrase.split(" ");
       const grid = el("div", { class: "phrase" });
@@ -279,7 +280,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
 
       const positions = pickPositions(words.length);
       const answers = positions.map(() => input("word", { autocomplete: "off", spellcheck: "false" }));
-      const status = el("div", {});
+      const status = statusRegion();
       const finish = el("button", { class: "primary" }, "I have written it down — create the account");
 
       finish.addEventListener("click", () => {
@@ -287,7 +288,8 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
           (position, index) => answers[index]!.value.trim().toLowerCase() !== words[position - 1],
         );
         if (wrong.length > 0) {
-          status.replaceChildren(notice(`Words ${wrong.join(", ")} do not match. Check the list above.`, "error"));
+          const first = positions.indexOf(wrong[0]!);
+          refuse(answers[first]!, status, `Words ${wrong.join(", ")} do not match. Check the list above.`);
           return;
         }
         finish.disabled = true;
@@ -297,7 +299,10 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
             .catch((error: unknown) => {
               finish.disabled = false;
               const text = error instanceof ApiError ? error.message : (error as Error).message;
-              render(notice(text, "error"));
+              // Re-rendering here would draw a *different* set of confirmation words and
+              // clear the answers, which punishes a network error like a wrong one.
+              status.replaceChildren(notice(text, "error"));
+              finish.focus();
             });
         }, 30);
       });
@@ -347,8 +352,7 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
           status,
         ),
       );
-      if (message) status.append(message);
-    }
+      }
   }
 
   async function createAccount(username: string, password: string, phrase: string): Promise<void> {
@@ -378,17 +382,17 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
   }
 
   /** Recovery: phrase in, new password out, every old session gone. */
-  function drawRecover(message?: HTMLElement) {
+  function drawRecover() {
     const username = input("username", { autocomplete: "username" });
     const phrase = el("textarea", { rows: "3", class: "mono", placeholder: "twelve or twenty-four words" });
     const password = input("new password", { type: "password", minlength: "12" });
-    const status = el("div", {});
+    const status = statusRegion();
     const submit = el("button", { class: "primary" }, "Recover the account");
 
     submit.addEventListener("click", () => {
       const words = (phrase as HTMLTextAreaElement).value;
       if (password.value.length < 12) {
-        status.replaceChildren(notice("The new password needs at least 12 characters.", "error"));
+        refuse(password, status, "The new password needs at least 12 characters.");
         return;
       }
       submit.disabled = true;
@@ -419,7 +423,9 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
           .catch((error: unknown) => {
             submit.disabled = false;
             const text = error instanceof ApiError ? error.message : (error as Error).message;
-            drawRecover(notice(text, "error"));
+            // The phrase is twenty-four words someone has just typed. Redrawing the screen
+            // to show an error would delete them.
+            refuse(phrase, status, text);
           });
       }, 30);
     });
@@ -441,7 +447,6 @@ export function renderAuth(root: HTMLElement, onReady: () => void): void {
         status,
       ),
     );
-    if (message) status.append(message);
   }
 }
 

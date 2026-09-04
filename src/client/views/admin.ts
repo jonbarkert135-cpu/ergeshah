@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, emptyState, errorState, formDialog, notice, price as formatPrice, skeleton, table } from "../ui.ts";
+import { clear, el, emptyState, errorState, focusAnchor, formDialog, notice, price as formatPrice, skeleton, table } from "../ui.ts";
 
 interface Queue {
   reports: Array<{
@@ -74,6 +74,10 @@ export function renderModeration(root: HTMLElement): void {
   void load();
 
   async function load() {
+    // A revoke, a rotation, an approval redraws this whole screen, and the control that
+    // asked for it is rebuilt as its own twin. The keyboard follows it rather than falling
+    // back to the top of the page.
+    const restore = focusAnchor(body);
     clear(body).append(skeleton("line", 4));
     let queue: Queue;
     let audit: {
@@ -92,6 +96,7 @@ export function renderModeration(root: HTMLElement): void {
       ]);
     } catch {
       clear(body).append(errorState("The moderation queue did not load.", () => void load()));
+      restore();
       return;
     }
     clear(body);
@@ -199,6 +204,7 @@ export function renderModeration(root: HTMLElement): void {
         { caption: "Administrative actions, newest first" },
       ),
     );
+    restore();
   }
 
   /**

@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, emptyState, errorState, formDialog, notice, price as formatPrice, skeleton, table, toast } from "../ui.ts";
+import { clear, el, emptyState, errorState, focusAnchor, formDialog, notice, price as formatPrice, say, skeleton, table, toast } from "../ui.ts";
 import { receiveMessages, sendDeliveryKey } from "../messaging.ts";
 import { persistVault, state } from "../state.ts";
 import { decryptFile, encryptFile, MAX_FILE_BYTES } from "../../shared/crypto/file.ts";
@@ -116,6 +116,9 @@ export function renderOrders(root: HTMLElement): void {
   }
 
   async function load() {
+    // Captured before the rebuild: an action button is replaced by the same button on the
+    // redrawn row, and the keyboard should still be standing on it.
+    const restore = focusAnchor(body);
     clear(body).append(skeleton("line", 4));
     // Delivery keys arrive as ordinary encrypted messages, so collect any waiting ones
     // before drawing: otherwise a buyer would see "delivered" with no way to open it.
@@ -125,6 +128,7 @@ export function renderOrders(root: HTMLElement): void {
       ({ orders } = await api<{ orders: Order[] }>(`/api/market/orders?role=${role}`));
     } catch {
       clear(body).append(errorState("Your orders did not load.", () => void load()));
+      restore();
       return;
     }
     clear(body);
@@ -134,6 +138,8 @@ export function renderOrders(root: HTMLElement): void {
           ? emptyState("No orders yet", "Anything you order from the marketplace appears here, with its encrypted channel.")
           : emptyState("Nothing sold yet", "Orders placed against your listings appear here, newest first."),
       );
+      say(role === "buyer" ? "No orders" : "Nothing sold yet");
+      restore();
       return;
     }
     body.append(
@@ -150,6 +156,8 @@ export function renderOrders(root: HTMLElement): void {
         { caption: `Orders as ${role}` },
       ),
     );
+    say(`${orders.length} orders as ${role}`);
+    restore();
   }
 
   function actionsFor(order: Order): HTMLElement {

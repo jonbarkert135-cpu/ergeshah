@@ -110,9 +110,21 @@ Not a pass at the end; a property of the helpers every view is built from.
   test failed: `--text-faint` was 3.65–4.35 and the light theme's `--danger` 3.66. Both were
   fixed by adding palette steps, not by weakening the rule.
 - **Visible focus** everywhere (`:focus-visible`, 2 px ring in a token colour); a focused
-  heading shows no ring because it is a landing point, not a control. Toasts are a
-  `role="status"` live region; nothing else is live — the whole app used to be, which reads
-  every render aloud.
+  heading shows no ring because it is a landing point, not a control.
+- **Focus survives a redraw** (UI-3, ADR-0097). Views rebuild whole regions after an
+  action; `focusAnchor(container)` is called before the rebuild and returns the function
+  that puts the keyboard back on the same control — matched by name, with its caret, and
+  landing on the nearest survivor when a row is gone. Without it every click sends a
+  keyboard user to the top of the page.
+- **Outcomes are heard.** A view writes its result into `statusRegion()` (`role="status"`,
+  polite), never a plain `<div>`; `refuse(control, region, message)` adds the invalid mark
+  and moves focus to the field that has to change; `say()` speaks what the page shows by
+  changing shape — a result count, a list that grew — without putting a sentence on screen.
+  Toasts are live for the same reason; nothing is `assertive`, and the whole app is not
+  live, which used to read every render aloud.
+- **Checked by test, not by memory.** `test/accessibility.test.ts` fails on a control
+  without a name, an outcome written into a silent `<div>`, a positive `tabindex`, or a
+  redrawing view that does not anchor focus.
 
 ## Mobile first (point 41)
 

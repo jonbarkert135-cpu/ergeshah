@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, emptyState, errorState, field, formDialog, input, notice, price as formatPrice, skeletonCards, toast, withBusy } from "../ui.ts";
+import { clear, el, emptyState, errorState, field, focusAnchor, formDialog, input, notice, price as formatPrice, say, skeletonCards, statusRegion, toast, withBusy } from "../ui.ts";
 import { state } from "../state.ts";
 import { sendShippingDetails, startConversation } from "../messaging.ts";
 
@@ -21,7 +21,7 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
   clear(root);
   const results = el("div", { class: "grid" });
   const search = input("q", { type: "search", placeholder: "Search listings…", "aria-label": "Search listings" });
-  const status = el("div", {});
+  const status = statusRegion();
 
   // A form, so Enter and a phone keyboard's search key submit without a key handler.
   const toolbar = el(
@@ -66,6 +66,8 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
   void load();
 
   async function loadCategories() {
+    // The chip that was clicked is about to be replaced by its own redrawn twin.
+    const restore = focusAnchor(categories);
     try {
       const { categories: rows } = await api<{
         categories: Array<{ category: string; listings: number }>;
@@ -90,6 +92,7 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
         });
         categories.append(chip);
       }
+      restore();
     } catch {
       // A missing category list is a missing convenience, not a broken page.
       clear(categories);
@@ -113,6 +116,15 @@ export function renderMarket(root: HTMLElement, navigate: (route: string) => voi
       cursor = nextCursor;
       morerow.hidden = nextCursor === null;
       if (!after) clear(results);
+      // The result count is visible as a changed grid and silent otherwise, so it is said
+      // rather than written: a sighted reader does not need a sentence to count cards.
+      say(
+        listings.length === 0
+          ? "No listings match that"
+          : after
+            ? `${listings.length} more listings`
+            : `${listings.length} listings${nextCursor ? ", more available" : ""}`,
+      );
       if (listings.length === 0 && !after) {
         status.append(
           term
@@ -284,7 +296,7 @@ const KIND_LABELS: Record<string, string> = {
 
 export function renderSell(root: HTMLElement): void {
   clear(root);
-  const status = el("div", {});
+  const status = statusRegion();
   root.append(el("h1", {}, "Sell on Symvolon"), status);
   void load();
 

@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { clear, el, emptyState, errorState, skeleton, toast, withBusy } from "../ui.ts";
+import { clear, el, emptyState, errorState, focusAnchor, say, skeleton, statusRegion, toast, withBusy } from "../ui.ts";
 
 interface Notification {
   id: string;
@@ -51,7 +51,7 @@ function target(item: Notification): string | null {
 export function renderNotifications(root: HTMLElement): void {
   clear(root);
   const list = el("div", { class: "stack" });
-  const status = el("div", {});
+  const status = statusRegion();
   const markAll = el("button", { type: "button", class: "ghost" }, "Mark all as read");
   const more = el("button", { type: "button", class: "ghost" }, "Show more");
   const moreRow = el("div", { class: "row center" }, more);
@@ -84,6 +84,7 @@ export function renderNotifications(root: HTMLElement): void {
   void load();
 
   async function load(after: string | null = null): Promise<void> {
+    const restore = focusAnchor(list);
     clear(status);
     moreRow.hidden = true;
     if (!after) clear(list).append(skeleton("line", 4));
@@ -100,6 +101,8 @@ export function renderNotifications(root: HTMLElement): void {
         return;
       }
       for (const item of inbox.notifications) list.append(row(item));
+      say(after ? `${inbox.notifications.length} more` : `${inbox.notifications.length} notifications, ${inbox.unread} unread`);
+      restore();
     } catch {
       clear(list).append(errorState("The inbox did not load.", () => void load(after)));
     }

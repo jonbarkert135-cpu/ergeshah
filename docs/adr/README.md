@@ -129,6 +129,7 @@ or if a record is missing a section.
 | [ADR-0020](../DECISIONS.md#adr-0020--a-180-line-qr-encoder-instead-of-a-dependency-and-verification-per-device) | A 180-line QR encoder instead of a dependency, and verification per device |
 | [ADR-0027](../DECISIONS.md#adr-0027--a-design-system-and-the-megabyte-that-was-in-front-of-it) | A design system, and the megabyte that was in front of it |
 | [ADR-0031](../DECISIONS.md#adr-0031--accessibility-and-the-small-screen-as-properties-of-the-helpers) | Accessibility and the small screen as properties of the helpers |
+| [ADR-0097](../DECISIONS.md#adr-0097--focus-is-state-and-it-survives-a-redraw) | Focus is state, and it survives a redraw |
 
 ### Process and governance
 

@@ -214,4 +214,8 @@ verified state, and a warning when an unverified device appears.*
   gap is real. The chat screen already says when a file's format was not cleaned
   (`metadataUnhandled`); the delivery screen does not, and should.
 - **UI-2 — Offline queue** for messages composed without connectivity.
-- **UI-3 — Accessibility pass** (keyboard traps, focus management, screen-reader labels).
+*Shipped: UI-3 accessibility pass (ADR-0097) — focus is anchored across every redraw, form
+refusals name the field they are about and move the keyboard to it, results the page shows by
+changing shape are said out loud, and the rules are enforced by `test/accessibility.test.ts`
+rather than by remembering them. What a test still cannot judge — reading order, whether a
+label says something useful — stays the browser pass in `docs/DESIGN.md`.*

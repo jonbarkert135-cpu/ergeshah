@@ -5,10 +5,13 @@ import {
   emptyState,
   errorState,
   field,
+  focusAnchor,
   input,
   notice,
   price,
+  say,
   skeleton,
+  statusRegion,
   table,
   toast,
   withBusy,
@@ -58,7 +61,7 @@ interface Withdrawal {
 export function renderWallet(root: HTMLElement): void {
   clear(root);
   const summary = el("div", { class: "stack" });
-  const status = el("div", {});
+  const status = statusRegion();
   const history = el("div", { class: "stack" });
   const payouts = el("div", { class: "stack" });
 
@@ -79,6 +82,9 @@ export function renderWallet(root: HTMLElement): void {
   void load();
 
   async function load(): Promise<void> {
+    // A withdrawal redraws the whole card stack; the button that started it should not
+    // take the keyboard with it.
+    const restore = focusAnchor(summary);
     clear(status);
     clear(summary).append(skeleton("card", 1));
     try {
@@ -101,6 +107,8 @@ export function renderWallet(root: HTMLElement): void {
         withdrawCard(wallet),
       );
       await Promise.all([loadEntries(), loadWithdrawals()]);
+      say(`${price(wallet.availableXmr)} available`);
+      restore();
     } catch {
       clear(summary).append(errorState("The balance did not load.", () => void load()));
     }

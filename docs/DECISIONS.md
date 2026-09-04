@@ -3228,3 +3228,52 @@ exists to avoid until a second implementation is real.
 identical in both profiles, so the threat model does not fork. What is not offered is a
 horizontally scaled *database*, and a deployment that needs one is a different design that
 should be recorded as such.
+
+## ADR-0097 — Focus is state, and it survives a redraw
+
+**Status:** accepted (2026-09-04)
+
+**Context.** ADR-0031 put accessibility into the helpers — `field()`, `table()`,
+`formDialog()`, `announce()` — and the stylesheet was checked for contrast, focus rings and
+touch targets. What none of that covered was the code *between* the helpers. Every view
+here redraws a whole region after an action: a filter chip rebuilds the chips, a status
+change reloads the table, a deleted message redraws the panel, a failed sign-in redrew the
+entire form. Each of those destroys the element the reader was standing on, and the browser
+does the only thing it can with a focused node that no longer exists — it drops focus to
+`<body>`. With a mouse that is invisible. With a keyboard it is being thrown to the top of
+the page after every click, and with a screen reader it is that plus silence, because the
+message explaining what happened was written into a plain `<div>` that announces nothing.
+
+**Decision.** Three helpers, and the rule that views use them rather than improvise.
+
+- `focusAnchor(container)` is called *before* a rebuild and returns the function that puts
+  focus back. It identifies the control by name rather than by node — explicit key, id,
+  `aria-label`, `name`, then its text — so the redrawn twin counts as the same control, and
+  a caret in a text box keeps its position. Rows are rebuilt with identical labels, so
+  position among equals disambiguates, and a list that got shorter lands on the nearest
+  survivor. If nothing by that name survived, focus goes to the region's heading: a place
+  to be, rather than nowhere.
+- `statusRegion()` is what a view writes an outcome into: `role="status"`, polite. Every
+  refusal a form can produce now has somewhere to be heard.
+- `refuse(control, region, message)` marks the control invalid, says why in the region, and
+  moves focus to the control — then clears the invalid mark on the next keystroke, because
+  a field that stays flagged while the person is fixing it is lying.
+
+Two behaviours changed as a consequence rather than as a decoration: a failed sign-in and a
+failed recovery no longer redraw their screen, because the redraw was deleting a username,
+a password and — in the recovery case — twenty-four words somebody had just typed.
+
+**Rejected.** A framework with a virtual DOM that preserves focus for us: this client has no
+framework on purpose (ADR-0001, ADR-0027), and the fix is sixty lines. Restoring focus by
+holding the node: it is the node that gets thrown away. Per-callsite `element.focus()`
+after each rebuild, which is what the chat search box already did — it works until the next
+view forgets, and forgetting is silent. `aria-live="assertive"` for errors: nothing in a
+marketplace deserves to interrupt what a reader is in the middle of.
+
+**Consequences.** Focus restoration is a heuristic: two controls with the same name in the
+same region are told apart by position, so a redraw that both reorders and renames can land
+on the neighbour. The failure mode is a focused sibling rather than a lost focus, which is
+the trade being made deliberately. `test/accessibility.test.ts` enforces the parts a
+reviewer would otherwise have to remember — no control without a name, no outcome written
+into a silent `<div>`, no positive `tabindex`, and `focusAnchor()` present in every view
+that redraws — and unit-tests the two decisions the helper makes without needing a DOM.

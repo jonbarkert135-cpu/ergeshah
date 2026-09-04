@@ -9,7 +9,7 @@
  * are created, on another screen.
  */
 import { api } from "../api.ts";
-import { clear, confirmDialog, el, field, notice, skeleton, table, toast } from "../ui.ts";
+import { clear, confirmDialog, el, field, focusAnchor, notice, refuse, skeleton, statusRegion, table, toast } from "../ui.ts";
 import {
   changePassword,
   deriveKeys,
@@ -68,6 +68,10 @@ export function renderSecurity(root: HTMLElement, onSignedOut: () => void): void
   void load();
 
   async function load(): Promise<void> {
+    // A revoke, a rotation, an approval redraws this whole screen, and the control that
+    // asked for it is rebuilt as its own twin. The keyboard follows it rather than falling
+    // back to the top of the page.
+    const restore = focusAnchor(body);
     clear(body).append(skeleton("line", 5));
     const me = await api<Me>("/api/auth/me");
     const sessions = await api<{ sessions: SessionRow[] }>("/api/auth/sessions");
@@ -90,6 +94,7 @@ export function renderSecurity(root: HTMLElement, onSignedOut: () => void): void
       el("h2", {}, "Recent security events"),
       eventsCard(history),
     );
+    restore();
   }
 
   /** The whole account, in five lines: what is on, what is off, what that costs. */
@@ -136,9 +141,9 @@ export function renderSecurity(root: HTMLElement, onSignedOut: () => void): void
    */
   function pgpCard(me: Me): HTMLElement {
     const holder = el("div", {});
-    const message = el("div", {});
+    const message = statusRegion();
     const action = el("button", {}, me.pgpFingerprint ? "Replace this key" : "Add a PGP key");
-    const password = () => el("input", { type: "password", placeholder: "Your password" });
+    const password = () => el("input", { type: "password", placeholder: "Your password", "aria-label": "Your password" });
 
     const signingInstructions = (challenge: Challenge, who: string) =>
       el(
@@ -316,7 +321,7 @@ export function renderSecurity(root: HTMLElement, onSignedOut: () => void): void
    * public key derived from it, plus a copy of the master key wrapped with it.
    */
   function recoveryCard(configured: boolean): HTMLElement {
-    const message = el("div", { class: "muted" });
+    const message = statusRegion("muted");
     const holder = el("div", {});
     const add = el("button", {}, configured ? "Replace the recovery phrase" : "Create a recovery phrase");
 
@@ -395,20 +400,20 @@ export function renderSecurity(root: HTMLElement, onSignedOut: () => void): void
   }
 
   function passwordCard(): HTMLElement {
-    const current = el("input", { type: "password", placeholder: "Current password" });
-    const next = el("input", { type: "password", placeholder: "New password" });
-    const again = el("input", { type: "password", placeholder: "New password again" });
-    const message = el("div", { class: "muted" });
+    const current = el("input", { type: "password", placeholder: "Current password", "aria-label": "Current password" });
+    const next = el("input", { type: "password", placeholder: "New password", "aria-label": "New password" });
+    const again = el("input", { type: "password", placeholder: "New password again", "aria-label": "New password again" });
+    const message = statusRegion("muted");
     const button = el("button", {}, "Change password");
 
     button.addEventListener("click", () => {
       const values = [current, next, again].map((entry) => (entry as HTMLInputElement).value);
       if (values[1] !== values[2]) {
-        message.textContent = "The two new passwords do not match.";
+        refuse(again, message, "The two new passwords do not match.");
         return;
       }
       if (values[1]!.length < 12) {
-        message.textContent = "Use at least 12 characters — this password protects your keys.";
+        refuse(next, message, "Use at least 12 characters — this password protects your keys.");
         return;
       }
       button.setAttribute("disabled", "");
