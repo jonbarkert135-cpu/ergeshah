@@ -4,6 +4,7 @@
  * database: that the files actually apply to an empty one, that applying them twice is a
  * no-op, and that the schema they produce is the schema the code expects.
  */
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createSqliteDb } from "../src/server/db/sqlite.ts";
 import { migrate } from "../src/server/db/migrate.ts";
@@ -93,5 +94,34 @@ describe("migrations apply to an empty database", () => {
       expect(indexed, `${table}.${column}`).toMatch(new RegExp(`${table}[^\\n]*${column}`, "i"));
     }
     await db.close();
+  });
+
+  it("widens every millisecond column to BIGINT on PostgreSQL, in a migration that exists", () => {
+    // SQLite's INTEGER is 64 bits and PostgreSQL's is 32, so a `Date.now()` column declared
+    // INTEGER in a shared migration works on the driver the tests run on and is a 500 on the
+    // other. Migration 012 fixed the first batch and 030 the six added afterwards; this is the
+    // check that would have caught the second batch on SQLite (SEC-2026-026). A column named
+    // `*_at` holds milliseconds here by convention; day numbers are `*_day`.
+    const dir = "src/server/db/migrations";
+    const files = readdirSync(dir).filter((name) => name.endsWith(".sql") && !name.includes(".sqlite.")).sort();
+    const widened = new Set<string>();
+    const declared: string[] = [];
+    for (const name of files) {
+      const sql = readFileSync(`${dir}/${name}`, "utf8");
+      for (const match of sql.matchAll(/ALTER TABLE (\w+) ALTER COLUMN (\w+) TYPE BIGINT/gi)) {
+        widened.add(`${match[1]}.${match[2]}`);
+      }
+      for (const table of sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\(([^;]*)\);/gi)) {
+        for (const column of table[2]!.matchAll(/^\s*(\w+_at)\s+INTEGER\b/gim)) {
+          declared.push(`${table[1]}.${column[1]}`);
+        }
+      }
+      for (const added of sql.matchAll(/ALTER TABLE (\w+) ADD COLUMN (\w+_at) INTEGER\b/gi)) {
+        declared.push(`${added[1]}.${added[2]}`);
+      }
+    }
+    expect(declared.length).toBeGreaterThan(20);
+    const narrow = declared.filter((column) => !widened.has(column));
+    expect(narrow, "add these to a NNN_*.postgres.sql migration as ALTER COLUMN … TYPE BIGINT").toEqual([]);
   });
 });

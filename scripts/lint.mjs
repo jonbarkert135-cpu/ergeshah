@@ -106,6 +106,13 @@ const RULES = [
     message: ".only silently disables the rest of the suite, and CI would still be green",
   },
   {
+    name: "scalar-min-max",
+    pattern: /\b(?:MIN|MAX)\(\s*[^()]*,/,
+    files: /^src\/server\//,
+    message:
+      "two-argument MIN/MAX is SQLite only; in PostgreSQL they are aggregates. Write CASE WHEN a < b THEN a ELSE b END so both dialects run the same text",
+  },
+  {
     name: "unsafe-any",
     pattern: /:\s*any\b|\bas\s+any\b/,
     message: "`any` at a trust boundary is an unvalidated input; type it or validate it",

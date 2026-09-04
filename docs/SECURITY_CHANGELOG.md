@@ -169,3 +169,31 @@ pass is in the register, not here (point 178: nothing unfixed gets a description
   recipient stores only the peer's message, opens no session with the stranger's key, raises no
   key-change banner, and the server holds no parked envelope. Fails on the previous commit.
 - **Verification:** `npm run check`, `npm test`, `npm run audit`.
+
+## 2026-09-04 — the PostgreSQL driver answered 500 on every rate-limited route (SEC-2026-026, closing SEC-2026-022)
+
+- **Component:** `src/server/lib/rate_limit.ts`, `src/server/lib/reputation.ts`, migrations
+  `013`–`029` (six millisecond columns), `scripts/lint.mjs`, `test/migrations.test.ts`.
+- **Issue:** the owner copied the CI workflow into place (SEC-2026-022), and the first PostgreSQL
+  job it ran failed 60 tests. Three causes, all specific to that driver: the limiter's fractional
+  refill rate was bound in an expression next to `updated_at` (BIGINT), so PostgreSQL typed the
+  parameter as BIGINT and refused `0.0000083` — every route that charges a bucket, registration
+  first, was a 500; six columns holding `Date.now()` that were added after migration 012 were
+  still 32-bit INTEGER (`envelopes.available_at`, `lockdown.engaged_at`,
+  `order_evidence.created_at`, `send_tokens.expires_at`, `withdrawal_approvals.created_at`,
+  `withdrawals.claimed_at`); and `MIN(level_penalty + 1, 3)` is SQLite's two-argument form,
+  which PostgreSQL does not have.
+- **Root cause:** the suite ran on SQLite alone, where INTEGER is 64 bits, REAL is a double,
+  parameters are untyped and `MIN` takes two arguments. Migration 012 fixed the first batch of
+  this in 2026-09 and left no check that would catch the next one on the driver developers use.
+- **Remediation:** `CAST(? AS DOUBLE PRECISION)` on the refill rate (SQLite reads it as REAL);
+  migration `030_widen_timestamps_again.postgres.sql` widens the six columns and
+  `rate_limits.tokens` (float4 could not hold the 128 MiB `upload_bytes` burst exactly); `CASE`
+  replaces `MIN(a, b)`. And so the class stops recurring: `test/migrations.test.ts` reads the
+  migration files and fails on SQLite when a `*_at INTEGER` column has no BIGINT widening, and
+  the `scalar-min-max` lint rule refuses two-argument `MIN`/`MAX` under `src/server/`.
+- **Regression test:** `test/migrations.test.ts` (fails with the six columns named when 030 is
+  removed); `test/limits.test.ts` and the rest of the suite on `TEST_DATABASE_URL`, which CI
+  now runs on every push.
+- **Verification:** `npm run check`, `npm test` (SQLite), `npm run test:postgres` against
+  PostgreSQL 17 (72 files, 750 passed, 1 skipped), `npm run audit`.

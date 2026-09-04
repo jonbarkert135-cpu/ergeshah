@@ -226,7 +226,10 @@ export async function penaliseSellerStanding(
   options: { decayDays: number; today?: number },
 ): Promise<void> {
   const row = await db.get<Standing>(
-    `UPDATE sellers SET level_penalty = MIN(level_penalty + 1, 3) WHERE user_id = ?
+    // CASE rather than MIN(a, b): in PostgreSQL MIN is an aggregate only, and the two-argument
+    // form was a 500 on every suspension there (found by the first PostgreSQL CI run).
+    `UPDATE sellers SET level_penalty = CASE WHEN level_penalty < 3 THEN level_penalty + 1 ELSE 3 END
+      WHERE user_id = ?
       RETURNING settled_pico, level, level_penalty, last_settled_day`,
     [sellerUserId],
   );

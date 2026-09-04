@@ -32,8 +32,12 @@ automatically on boot. Applied names are recorded in `schema_migrations`.
 A migration named `NNN_name.postgres.sql` or `NNN_name.sqlite.sql` runs on that driver only.
 The escape hatch exists for one reason — the two databases disagree about *types*, not about
 the schema — and a dialect-scoped migration that is not about a dialect difference is a bug
-(ADR-0059). There is exactly one so far: 012, which widens every millisecond timestamp to
-`BIGINT` on PostgreSQL, where `INTEGER` is 32 bits.
+(ADR-0059). There are two so far, both about the same difference: 012 widens every millisecond
+timestamp to `BIGINT` on PostgreSQL, where `INTEGER` is 32 bits, and 030 does the same for the
+six `*_at` columns added after it (and `rate_limits.tokens` to `DOUBLE PRECISION`, since
+PostgreSQL's `REAL` is a float4). `test/migrations.test.ts` now fails on SQLite when a new
+`*_at INTEGER` column has no such widening, so a third one is written with the column, not
+found in CI (SEC-2026-026).
 
 A released migration is **never edited**: `src/server/db/migrations/CHECKSUMS.txt` records a
 digest of each, `npm run audit:migrations` fails if one changes, and `npm run migrate:checksums`

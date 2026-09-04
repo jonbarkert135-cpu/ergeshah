@@ -185,9 +185,12 @@ export async function consume(
   // The bucket's current level, refilled to this instant and capped at the burst, as one SQL
   // expression over the row *as the database sees it when the statement runs* — not as this
   // process read it a moment ago. Written with CASE rather than MIN/LEAST so that both
-  // dialects run the same text.
+  // dialects run the same text. The refill rate is cast explicitly: PostgreSQL types a bare
+  // parameter next to `updated_at` (BIGINT) as BIGINT and refuses the fraction — every route
+  // answered 500 on that driver (SEC-2026-026). SQLite reads DOUBLE PRECISION as REAL.
   const refilled =
-    "CASE WHEN tokens + (? - updated_at) * ? > ? THEN ? ELSE tokens + (? - updated_at) * ? END";
+    "CASE WHEN tokens + (? - updated_at) * CAST(? AS DOUBLE PRECISION) > ? THEN ? " +
+    "ELSE tokens + (? - updated_at) * CAST(? AS DOUBLE PRECISION) END";
   const refilledParams = [now, refillPerMs, limit.burst, limit.burst, now, refillPerMs];
   await db.transaction(async (tx) => {
     // A bucket that has never been seen starts full. `ON CONFLICT DO NOTHING` makes the
