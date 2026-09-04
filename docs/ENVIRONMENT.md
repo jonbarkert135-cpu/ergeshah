@@ -81,7 +81,8 @@ the server remembers anything.
 | `BOND_MIN_XMR` | 0.1 | Smallest seller bond worth the bookkeeping (ADR-0086) |
 | `BOND_COOLOFF_DAYS` | 7 | How long a bond must sit before it can be released |
 | `MAX_DELIVERY_BYTES` | 5 MiB | Cap on encrypted digital goods for one order |
-| `DELIVERY_TTL_MS` | 30 days | How long a delivery stays collectable |
+| `DELIVERY_TTL_MS` | 30 days | How long an order delivery stays collectable |
+| `ATTACHMENT_TTL_MS` | 14 days | How long a chat attachment blob survives before it is swept — shorter than a delivery on purpose (roadmap OPS-5, ADR-0110) |
 | `AUDIT_RETENTION_MS` | 365 days | How long administrative audit entries are kept before pruning |
 | `NOTIFICATION_RETENTION_MS` | 90 days | How long a notification stays in an inbox, read or unread |
 | `RATE_LIMITS` | *see below* | JSON overriding per-operation buckets |

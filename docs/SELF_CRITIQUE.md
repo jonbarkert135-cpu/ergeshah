@@ -40,9 +40,13 @@ and logins are unaffected — the service keeps working while somebody frees spa
 allowed when it is not, and — importantly — *not* refused when the filesystem cannot be read,
 because a safety margin that fails closed would take the service down on its own.
 
-**Still open:** the underlying asymmetry. A determined attacker with many accounts still
-consumes the whole allowance up to the floor, and blobs live for `DELIVERY_TTL_MS` (30 days).
-Shortening that TTL, or charging storage to an account without naming one, is roadmap work.
+**Closed since (2026-09-04).** Both levers named here shipped. Storage is charged to an account
+without naming one — the byte budget over an ownerless daily bucket (ADR-0093). And the TTL was
+shortened: chat attachments now expire at `ATTACHMENT_TTL_MS` (14 days, ADR-0110) rather than
+borrowing the 30-day delivery window, so a heavy uploader parks half as many days of blobs. The
+residual asymmetry is smaller but real — a determined attacker with many accounts still consumes
+the allowance up to the floor for fourteen days — and is bounded by the floor, the row ceiling
+and the byte budget together, not by any single one.
 
 ## 2. The authorisation sweep was passing by luck for four routes
 

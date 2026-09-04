@@ -3804,3 +3804,37 @@ only for the formats still not stripped. `test/isobmff.test.ts` builds a HEIC an
 byte and asserts both halves — the metadata is gone, the media and the file length are intact —
 and the fuzz corpus in `test/fuzz.test.ts` already exercises the walker for the guarantees it
 must keep whatever the bytes are: it never throws, never hangs and never grows a file.
+
+## ADR-0110 — Chat attachments expire sooner than order deliveries
+
+**Status:** accepted (2026-09-04). Closes roadmap OPS-5, completes `docs/SELF_CRITIQUE.md` finding 1.
+
+**Context.** The blind attachment store (`POST /api/attachments`, point 78) and order deliveries
+are different things that happened to share one number: both set an expiry of `DELIVERY_TTL_MS`
+(30 days). Finding 1 named the consequence — an account can spend its byte allowance every day
+and accumulate thirty days of blobs on the disk, inside every rate limit — and named the fix:
+shorten the attachment TTL, or charge storage without an owner column. The byte budget shipped
+first (ADR-0093); this is the TTL.
+
+A chat attachment is fetched lazily: the recipient decrypts the message and later clicks to
+download the file (`openAttachment`). So the server only needs to hold the blob long enough for
+that click, not for the full 30-day life of the message ciphertext.
+
+**Decision.** A new `ATTACHMENT_TTL_MS` (default 14 days) governs the blind store; order
+deliveries keep `DELIVERY_TTL_MS` (30 days) in their own `deliveries` table, because a buyer's
+download window is a real 30-day promise and this is not. Fourteen days halves the days of blobs
+a heavy uploader can park while staying a generous window for a recipient to fetch a file they
+were told about.
+
+**Rejected.** Coupling the attachment's server TTL to the message's own expiry: the server does
+not know that expiry — it is inside the ciphertext — and having the client send it would hand the
+operator the disappearing-message timer, metadata the store exists to not hold. One shared TTL
+for both: it forces the delivery window and the attachment window to move together, and they are
+not the same promise.
+
+**Consequences.** A message attachment left undownloaded past fourteen days is swept; clicking it
+then shows a plain "no such attachment" error (the message and its text remain). That is a
+deliberate tradeoff — media expires before text — chosen for the disk it saves, and stated in
+`docs/ENVIRONMENT.md` and the roadmap so an operator who wants the old behaviour sets
+`ATTACHMENT_TTL_MS=2592000000`. `test/attachments.test.ts` asserts the store's expiry is ~14 days
+and strictly shorter than a delivery's.

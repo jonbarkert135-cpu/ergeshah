@@ -169,16 +169,20 @@ export async function registerDeliveryRoutes(app: FastifyInstance): Promise<void
     await requireSpaceFor(dataPath, ciphertext.length, config.storageFloorBytes);
     await requireBlobHeadroom(db, config.maxBlobRows);
     const now = Date.now();
+    // A chat attachment expires sooner than an order delivery (roadmap OPS-5): a delivery keeps
+    // its own 30-day window in the `deliveries` table, but this blind store is fetched lazily and
+    // holds a shorter default so a heavy uploader cannot park thirty days of bytes here.
+    const expiresAt = now + config.attachmentTtlMs;
     await orConflict(
       db.run("INSERT INTO attachments (id, ciphertext, created_at, expires_at) VALUES (?, ?, ?, ?)", [
         id,
         ciphertext,
         now,
-        now + config.deliveryTtlMs,
+        expiresAt,
       ]),
       conflict("that attachment id is already taken", "id_taken"),
     );
-    return { id, expiresAt: now + config.deliveryTtlMs };
+    return { id, expiresAt };
   });
 
   /**

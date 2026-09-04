@@ -212,11 +212,13 @@ wording.*
   (`npm run backup:drill`), but this service has never run on a VPS with a domain, a
   certificate and a proxy in front of it. Until it has, the guide is tested and the
   deployment is not.
-- **OPS-5 — Storage accounting for blobs.** *Half shipped (2026-09-04, ADR-0093): uploads are
-  charged in bytes against a daily-rotating bucket, so an account now pays for the disk it
-  fills without an owner column ever existing.* What remains is the other half named in
-  `docs/SELF_CRITIQUE.md` finding 1: a shorter default lifetime for attachments, so that an
-  account spending its allowance every day does not accumulate thirty days of blobs.
+- **OPS-5 — Storage accounting for blobs. _Closed._** *Shipped in two halves (2026-09-04):
+  uploads are charged in bytes against a daily-rotating bucket (ADR-0093), so an account pays for
+  the disk it fills without an owner column ever existing; and chat attachments now expire at a
+  shorter default (`ATTACHMENT_TTL_MS`, 14 days) than order deliveries (ADR-0110), so an account
+  spending its allowance every day no longer accumulates thirty days of blobs. Fetching a chat
+  attachment is lazy, so the shorter window is a deliberate tradeoff: a recipient who waits past
+  it loses the file, not the message.*
 - **OPS-4 — Rate-limit tuning under real traffic.** The backoff hint shipped with point 89:
   a 429 carries `retryAfterSeconds` and the client shows it. What remains is the tuning
   itself, which needs traffic to tune against.

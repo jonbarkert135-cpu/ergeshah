@@ -48,6 +48,9 @@ export interface Config {
   /** Ciphertext cap for one order delivery, in bytes before base64url expansion. */
   maxDeliveryBytes: number;
   deliveryTtlMs: number;
+  /** How long a blind chat-attachment blob survives — shorter than a delivery (roadmap OPS-5,
+   *  ADR-0110), because it is fetched lazily and should not park thirty days of bytes on disk. */
+  attachmentTtlMs: number;
   /** How long administrative audit entries are kept before housekeeping deletes them. */
   auditRetentionMs: number;
   /** How long a read or unread notification stays in an inbox. An inbox is not a history. */
@@ -410,6 +413,13 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     bondCooloffMs: nonNegativeInteger("BOND_COOLOFF_DAYS", process.env.BOND_COOLOFF_DAYS, 7) * 86_400_000,
     maxDeliveryBytes: positiveInteger("MAX_DELIVERY_BYTES", process.env.MAX_DELIVERY_BYTES, 5 * 1024 * 1024),
     deliveryTtlMs: positiveInteger("DELIVERY_TTL_MS", process.env.DELIVERY_TTL_MS, 30 * 24 * 60 * 60 * 1000),
+    // Chat attachments live shorter than order deliveries on purpose (roadmap OPS-5,
+    // docs/SELF_CRITIQUE.md finding 1): a delivery has a 30-day buyer download window, but a
+    // message attachment is fetched soon after the message is read, so a shorter default keeps
+    // a heavy uploader from parking thirty days of blobs on the disk. Fetching is lazy, so a
+    // recipient who waits longer than this to download loses the file, not the message — the
+    // screen shows a plain error, the tradeoff ADR-0110 makes deliberately.
+    attachmentTtlMs: positiveInteger("ATTACHMENT_TTL_MS", process.env.ATTACHMENT_TTL_MS, 14 * 24 * 60 * 60 * 1000),
     auditRetentionMs: positiveInteger("AUDIT_RETENTION_MS", process.env.AUDIT_RETENTION_MS, 365 * 24 * 60 * 60 * 1000),
     notificationRetentionMs: positiveInteger(
       "NOTIFICATION_RETENTION_MS",

@@ -58,6 +58,23 @@ describe("the blind attachment store", () => {
     ]);
   });
 
+  it("expires a chat attachment sooner than an order delivery (roadmap OPS-5)", async () => {
+    // The blind store is fetched lazily, so a shorter default keeps a heavy uploader from
+    // parking thirty days of blobs on the disk (docs/SELF_CRITIQUE.md finding 1, ADR-0110). A
+    // delivery keeps its own 30-day window in the `deliveries` table; this store does not.
+    const alice = await register(server, "alice");
+    const before = Date.now();
+    const response = await alice.post<{ id: string; expiresAt: number }>("/api/attachments", {
+      id: id(),
+      ciphertext: toBase64Url(new Uint8Array(64).fill(9)),
+    });
+    const life = response.body.expiresAt - before;
+    const day = 24 * 60 * 60 * 1000;
+    expect(life).toBeGreaterThan(13 * day); // ~14 days, allowing for the round trip
+    expect(life).toBeLessThan(15 * day);
+    expect(life).toBeLessThan(30 * day); // and strictly shorter than a delivery's window
+  });
+
   it("refuses every field that would describe the bytes", async () => {
     const alice = await register(server, "alice");
     for (const extra of [
