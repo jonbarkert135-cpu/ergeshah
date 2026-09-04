@@ -573,7 +573,15 @@ export function encodeMessage(message: RatchetMessage): string {
 }
 
 export function decodeMessage(encoded: string): RatchetMessage {
-  const parsed = JSON.parse(encoded) as { v: number; h?: string; ct?: string };
+  const parsed = JSON.parse(encoded) as { v?: unknown; h?: unknown; ct?: unknown } | null;
+  // `JSON.parse("null")` and `JSON.parse("7")` are valid JSON and not objects, so reading a
+  // property off the result threw a TypeError instead of this function's own refusal
+  // (finding SEC-2026-003, found by `test/fuzz.test.ts`). The distinction matters because a
+  // frame arrives from whoever posted the envelope: a parser must refuse it in the way its
+  // callers expect, and a TypeError from inside is not that.
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("ratchet: malformed message");
+  }
   if (parsed.v !== 2) throw new Error("ratchet: unsupported message version");
   if (typeof parsed.h !== "string" || typeof parsed.ct !== "string") {
     throw new Error("ratchet: malformed message");

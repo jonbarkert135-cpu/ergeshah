@@ -19,6 +19,15 @@
 - [`../AUDIT.md`](../AUDIT.md) — the scanners that run on every push (bundle, secrets,
   history, migrations, supply chain) and what each one refuses.
 - [`../LOGGING.md`](../LOGGING.md) — what is written down, and for how long.
+- [`../SECURITY_PIPELINE.md`](../SECURITY_PIPELINE.md) — the continuous process: the ten
+  stages, the source rules, severities, the release block, suppressions with owners and
+  review dates, and the patch policy.
+- [`../SECURITY_FINDINGS.md`](../SECURITY_FINDINGS.md) — the findings register: eleven fields
+  per finding, machine-checked, with an open CRITICAL or HIGH blocking a release.
+- [`../SECURITY_CHANGELOG.md`](../SECURITY_CHANGELOG.md) — the history of security fixes, with
+  root cause and regression test, and no payload for anything unfixed.
+- [`../PROVENANCE.md`](../PROVENANCE.md) — where borrowed or adapted code came from, under
+  which licence, and how it was reviewed.
 
 - [`../MECHANISMS.md`](../MECHANISMS.md) — one row per security mechanism: the threat it
   answers, the property it provides, where it lives, what proves it, and how it fails.

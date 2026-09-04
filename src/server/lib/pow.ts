@@ -13,10 +13,10 @@
  * is not itself an attack; only redeeming one writes, and that write is what makes it
  * single-use.
  */
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { Db } from "../db/index.ts";
 import { badRequest, proofOfWorkRequired } from "./errors.ts";
-import { hmac, randomToken } from "./ids.ts";
+import { constantTimeEqual, hmac, randomToken } from "./ids.ts";
 import { meetsDifficulty, powPreimage } from "../../shared/pow.ts";
 
 /** Long enough to solve on a slow phone, short enough to be worthless to stockpile. */
@@ -42,12 +42,6 @@ export function issueProofOfWork(pepper: string, bits: number, now = Date.now())
     bits,
     expiresInSeconds: POW_TTL_MS / 1000,
   };
-}
-
-function equal(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 /**
@@ -81,7 +75,7 @@ export async function requireProofOfWork(
     throw fresh();
   }
 
-  if (!equal(proof.mac, macFor(pepper, proof.challenge, bits))) throw fresh();
+  if (!constantTimeEqual(proof.mac, macFor(pepper, proof.challenge, bits))) throw fresh();
 
   const issuedAt = Number(proof.challenge.split(".")[1]);
   if (!Number.isFinite(issuedAt) || issuedAt > now + 60_000 || now - issuedAt > POW_TTL_MS) {

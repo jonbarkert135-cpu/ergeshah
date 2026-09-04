@@ -18,19 +18,12 @@
  * and shows up in the next solvency comparison as a surplus). What they do not get is a
  * transfer, because nothing on this side can make one.
  */
-import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { unauthorized, badRequest } from "../lib/errors.ts";
 import { asId, asXmrAmount, onlyKeys } from "../lib/validate.ts";
+import { constantTimeEqual } from "../lib/ids.ts";
 import { claimWithdrawal, markWithdrawalFailed, markWithdrawalSent } from "../lib/ledger.ts";
 import { xmrString } from "../../shared/money.ts";
-
-/** Constant-time, and false for a missing header rather than an exception. */
-function tokenMatches(presented: string, expected: string): boolean {
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 
 export async function registerPayoutRoutes(app: FastifyInstance): Promise<void> {
   const { db, config } = app;
@@ -44,7 +37,8 @@ export async function registerPayoutRoutes(app: FastifyInstance): Promise<void> 
     const presented = typeof header === "string" && header.startsWith("Bearer ")
       ? header.slice("Bearer ".length)
       : "";
-    if (!presented || !tokenMatches(presented, expected)) throw unauthorized();
+    // Constant-time, and false for a missing header rather than an exception (`lib/ids.ts`).
+    if (!presented || !constantTimeEqual(presented, expected)) throw unauthorized();
   }
 
   /**

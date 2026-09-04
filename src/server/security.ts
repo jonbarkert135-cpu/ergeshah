@@ -10,7 +10,7 @@ import type { Config } from "./config.ts";
 import { forbidden } from "./lib/errors.ts";
 import { API_VERSION, cookiesAreSecure, isOnionHost } from "./app.ts";
 import { parseCookies, serializeCookie } from "./lib/cookies.ts";
-import { randomToken } from "./lib/ids.ts";
+import { constantTimeEqual, randomToken } from "./lib/ids.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -140,7 +140,11 @@ export function enforceCsrf(request: FastifyRequest, _reply: FastifyReply): void
   if (typeof request.headers["x-send-token"] === "string" && !cookies["session"]) return;
   const cookieToken = cookies["csrf"];
   const headerToken = request.headers["x-csrf-token"];
-  if (!cookieToken || typeof headerToken !== "string" || headerToken !== cookieToken) {
+  // Constant-time, like every other secret comparison on the server (`lib/ids.ts`). The
+  // double-submit token is not a password and the attack is awkward, but a `!==` on a secret
+  // is the kind of exception that gets copied into the next handler, and there is no reason
+  // to keep one (finding SEC-2026-005).
+  if (!cookieToken || typeof headerToken !== "string" || !constantTimeEqual(headerToken, cookieToken)) {
     throw forbidden("missing or mismatched CSRF token");
   }
 }

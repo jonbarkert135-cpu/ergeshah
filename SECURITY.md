@@ -87,8 +87,19 @@ in this file, in the repository — is the one to compare against.
   hybrid post-quantum handshake is a roadmap item, not a shipped feature.
 - A web client cannot defend against its own server serving modified code.
 - No external audit has been performed. `docs/SECURITY_REVIEW.md` is a self-review, and it
-  says what it did not cover: no fuzzing, no PostgreSQL job in CI, no browser end-to-end
-  run, no load test.
+  says what it did not cover. Since 2026-09 the parsers are fuzzed with a seeded corpus and the
+  authorisation matrix is generated from the route table (`docs/SECURITY_PIPELINE.md`), but
+  there is still no coverage-guided fuzzing, no dynamic scan against a real deployment
+  (roadmap SEC-1), no browser end-to-end run and no load test.
+
+## The continuous process
+
+Every push runs the twelve audits, sixty-eight suites and the source rules in
+`scripts/security.mjs`; `npm run security` runs the ten-stage pipeline around them. What was
+found, how bad it was, and which test keeps it fixed is public to whoever holds the repository:
+`docs/SECURITY_FINDINGS.md` (the register), `docs/SECURITY_CHANGELOG.md` (the history) and
+`docs/SECURITY_PIPELINE.md` (the process, the severities, the patch policy). An open CRITICAL or
+HIGH finding blocks a release, mechanically.
 
 ## Deployment hardening
 

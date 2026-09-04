@@ -1,0 +1,17 @@
+{
+  "why": [
+    "Point 153. A rule may be muted for a path, and never for the tree. Every entry carries",
+    "the rule it mutes, the scope it applies to (a path prefix), the reason, the person who",
+    "decided, and the date the decision is re-read. `node scripts/security.mjs scan` fails on",
+    "an entry that is missing a field, names a rule that does not exist, or whose review date",
+    "has passed — a muted rule may not outlive the reason it was muted.",
+    "",
+    "It is empty on purpose. Nothing in this tree needs a suppression today: the two findings",
+    "a sweep raised and a person judged to be design are `accepted` rows in",
+    "docs/SECURITY_FINDINGS.md with the reasoning, which is a better record than silence.",
+    "A scanner finding that is genuinely a false positive is fixed in the *rule* first — a",
+    "pattern that matches the wrong thing is a bug in the pattern (see the `marked` and",
+    "`enumerating-error-message` rules, both narrowed rather than suppressed)."
+  ],
+  "suppressions": []
+}

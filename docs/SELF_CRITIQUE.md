@@ -313,3 +313,91 @@ because it has just proved the password *and* a signature from the key being rep
 asserting a *second* session is 401 afterwards — plus the one thing a rotation cannot revoke,
 unspent sealed-sender tokens, asserted rather than claimed.
 
+## 12. One malformed cookie made every route answer 500
+
+**Why it matters.** Cookie values are percent-decoded, and `decodeURIComponent` throws on a
+malformed escape. `parseCookies` did it unguarded, and it runs in the CSRF hook and in
+`authenticate` — before any authorisation decision, on every request. So a single header
+(`csrf=%zz`) turned the whole API into `500 internal_error` for that browser, and wrote one
+error line per request into the operator's log, which is how a bad header becomes a suspected
+incident.
+
+It was found by fuzzing the header, not by reading the code: the parser looks obviously
+correct, which is the point of `test/fuzz.test.ts` existing.
+
+**Severity:** medium — availability and log noise, no confidentiality impact, but it needs
+nothing except the ability to set a cookie on the origin, which a related host has.
+
+**Attack scenario.** Set a malformed cookie for the domain (a subdomain the operator also
+runs, or anything else on the host), or persuade a victim's browser to keep one, and their
+client cannot make a single API call until the cookie is cleared. In the meantime the log
+fills with faults that name no cause.
+
+**Proposed fix.** Never let a decode of attacker-controlled input throw at a trust boundary:
+decode defensively and let the comparison that follows do the refusing.
+
+**Implementation.** A guarded decode in `src/server/lib/cookies.ts`: a value that will not
+decode is kept verbatim, does not match any stored token, and is refused with the 401 or 403
+the request had earned. Variant analysis (point 157) found the same shape in
+`src/client/api.ts`, where a malformed `csrf` cookie would have thrown before any request was
+sent; fixed the same way.
+
+**Verification.** `test/fuzz.test.ts` — the corpus against the parser and against a live
+server, asserting no 5xx, and that a session cookie with a broken escape is not a session.
+Recorded as SEC-2026-001 in `docs/SECURITY_FINDINGS.md`.
+
+## 13. Two registrations racing on an empty deployment could both become administrator
+
+**Why it matters.** The first account is the administrator, and that was decided by reading
+`users` and then inserting. Two statements, no lock between them: on PostgreSQL under READ
+COMMITTED — the driver CI runs and a real deployment uses — two simultaneous registrations both
+see an empty table. The window is one instant per deployment, and what is behind it is seller
+approvals, treasury reads, role changes and the canary.
+
+This is the third instance of one pattern in this repository (findings 8 and 9 were the
+others): a decision derived from a read instead of from a write. ADR-0028 and ADR-0060 already
+said where such decisions belong.
+
+**Severity:** medium — high impact, low likelihood.
+
+**Attack scenario.** Someone who knows a new deployment's address registers at the same moment
+as the operator. Both accounts are administrators; the operator has no reason to look.
+
+**Proposed fix.** Derive the decision from a write, not from a read — the answer ADR-0028 and
+ADR-0060 already gave for the two earlier instances of this pattern.
+
+**Implementation.** `bootstrap_claims` (migration 027, ADR-0104): the role is claimed by
+`INSERT … ON CONFLICT DO NOTHING RETURNING id` inside the transaction that writes the account,
+so the primary key arbitrates and a failed registration releases the claim.
+
+**Verification.** `test/authz_fuzz.test.ts` — two registrations in one `Promise.all` against a
+fresh deployment produce exactly one administrator, a third produces none, and a failed
+registration leaves the claim untaken. Recorded as SEC-2026-002.
+
+## 14. The parsers had never been fuzzed, and the authorization matrix was checked by hand
+
+**Why it matters.** `docs/SECURITY_REVIEW.md` said it in as many words — "nothing here was
+fuzzed", and the container walker in `src/shared/media.ts` "has not been fuzzed, and that is
+the obvious next step for it". Meanwhile authorisation was proved for two credential states
+(anonymous, and wrong role) out of the seven a real attacker tries: expired, revoked,
+suspended, wrong owner, malformed identifier, another account's identifier.
+
+**Severity:** medium as a process gap. Two of the three defects it found on the first run were
+real (findings 12 and 13 above); the third was a parser throwing the wrong error type.
+
+**Attack scenario.** Not one scenario but a class: any input shape nobody wrote a case for —
+a malformed header, a truncated container, a valid session in the wrong state — reaching code
+that assumed it would not. Two of those were real (findings 12 and 13).
+
+**Proposed fix.** Generate the cases from the tree instead of writing them: a seeded corpus for
+the parsers, and the credential matrix from the route table.
+
+**Implementation.** `test/fuzz.test.ts` and `test/authz_fuzz.test.ts`, both generated from the
+tree rather than from a list — the fuzz corpus from a seeded generator, the authorisation matrix
+from `app.routeInventory` — so a route or a parser added next month is covered without anybody
+remembering to add it. Plus `scripts/security.mjs`, which turns each fixed defect into a rule
+that fails the build on the *next* instance of the same class (ADR-0103).
+
+**Verification.** `npm run security` runs the pipeline; `npm run audit:security` runs its static
+half on every push. What remains is in the roadmap: coverage-guided fuzzing rather than a seeded
+corpus, and a dynamic scan against a real deployment (SEC-1, SEC-2).

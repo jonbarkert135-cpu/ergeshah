@@ -33,14 +33,18 @@ floor of verifiability for any web application, and closing the source does not 
 | Supply chain | `npm run audit:supply` | The lockfile lost an integrity hash, a package resolves outside the public registry, or install scripts are no longer disabled |
 | Server egress | `npm run audit:egress` | A file under `src/server` or `scripts` grew an outbound call the audit does not name with a reason, a host was written into the source, or a telemetry package entered the lockfile |
 | Dependency freeze | `npm run audit:inventory` | A dependency changed version — direct or transitive — without the generated inventory being regenerated and reviewed (`docs/DEPENDENCY_INVENTORY.md`) |
+| Security rules and findings | `npm run audit:security` | A source rule fired (crypto misuse, mass assignment, permissive CORS, a hand-built cookie, a URL from a request, an HTML sink, an enumerating authentication error), the findings register is incomplete or has an open CRITICAL/HIGH, or a suppression lost its owner or its review date (`docs/SECURITY_PIPELINE.md`) |
 | Security baseline | `npm run audit:baseline` | This commit's security surface is wider than the recorded one: a port, an outbound destination, a dependency count, a missing header (`deploy/security-baseline.json`, `docs/RELEASE.md`) |
 | Reproducibility | part of `audit:bundle` | Two identical builds produced different bytes |
 
-`npm run check` runs lint and types; `npm run audit` runs the eleven audits. `npm run release`
-runs all of it and maps the result onto the areas a release has to clear (`docs/RELEASE.md`).
+`npm run check` runs lint and types; `npm run audit` runs the twelve audits. `npm run release`
+runs all of it and maps the result onto the areas a release has to clear (`docs/RELEASE.md`);
+`npm run security` runs the ten-stage pipeline around them (`docs/SECURITY_PIPELINE.md`).
 
-They all live in `scripts/audit.mjs` and `scripts/lint.mjs`, are `String.matchAll` and
-`git` plumbing, and add no dependency.
+They all live in `scripts/audit.mjs`, `scripts/lint.mjs` and `scripts/security.mjs`, are
+`String.matchAll` and `git` plumbing, and add no dependency. External scanners (OSV-Scanner,
+Semgrep, Trivy, ZAP) are used when they happen to be installed and are never required —
+`npm run security:tools` says which are present and what each would add.
 
 ### What subresource integrity does and does not cover
 

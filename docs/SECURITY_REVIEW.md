@@ -216,6 +216,10 @@ that was not.
 - **No fuzzing of the container walker.** `src/shared/media.ts` parses hostile input in the
   browser and is written to return the file unchanged rather than guess, with unit cases per
   format — but it has not been fuzzed, and that is the obvious next step for it.
+  *Closed on 2026-09-04 (block 141–180): `test/fuzz.test.ts` runs a seeded corpus of truncated,
+  mutated and oversized containers through the walker and asserts it never throws, never hangs
+  and never returns more bytes than it was given. It found nothing in the walker — and two real
+  defects elsewhere, SEC-2026-001 and SEC-2026-003. Coverage-guided fuzzing is roadmap SEC-3.*
 
 One process note, since it is the more useful finding: two of these passes were run twice, in
 parallel, by two agents against the same brief, and both wrote a metadata stripper. The second

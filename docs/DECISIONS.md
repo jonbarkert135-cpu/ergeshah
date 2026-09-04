@@ -3546,3 +3546,104 @@ any of them stops. Unspent sealed-sender tokens still survive every rotation —
 owner by design (ADR-0084), so nothing can find them to revoke — and the test states that
 rather than leaving it implied. A user with several devices will have to sign in again on the
 others after changing their key, which is the intended cost.
+
+## ADR-0103 — The security pipeline is a script in this repository, and every external scanner is optional
+
+**Status:** accepted, 2026-09-04 (points 141–153, 174–180). Extends ADR-0016.
+
+**Context.** Block 141–180 asks for a continuous defensive-security process: research, scan,
+triage, fix, regression test, rescan, document — with a named toolchain (CodeQL, Semgrep,
+OSV-Scanner, Trivy, OWASP ZAP) and a pipeline of ten stages. Most of the *checking* already
+existed here: eleven audits, sixty-eight suites, a release gate over fourteen areas, a
+baseline that ratchets. What did not exist was the part that turns a check into a process —
+a register of findings with severities, a rule against silently muting a scanner, a documented
+loop from a report to a regression test, and a decision about which third-party scanners may
+ever become load-bearing.
+
+Two constraints shape the answer. The repository is **private and proprietary** (ADR-0022),
+which is exactly the case the free CodeQL terms exclude; and `npm run audit:cost` fails the
+build if anything mandatory in this project needs an account, a key or a hosted service
+(ADR-0094). A pipeline built on a SaaS scanner would break both.
+
+**Decision.** Four things, and no new subsystem:
+
+- **`scripts/security.mjs`** holds twelve source rules for the classes the block names —
+  cryptographic misuse (weak hash, unauthenticated mode, static nonce, password as key,
+  `===` on a secret), mass assignment, permissive CORS, hand-built cookies, a URL taken from
+  a request, HTML/markdown sinks, and an authentication error that names the account — plus
+  the parser for the findings register and the probe for external tools. Patterns, not a
+  semantic analyser, for the reason `scripts/lint.mjs` gives: a generic tool brings a hundred
+  packages and knows nothing about this codebase. `npm run audit:security` is inside
+  `npm run audit`, so CI needs no new workflow step (and the human no re-copy).
+- **`docs/SECURITY_FINDINGS.md`** is the register: eleven fields per finding, five severities,
+  and a release block — an open CRITICAL or HIGH fails the scan. A `fixed` row must name a
+  regression test that exists and appear in `docs/SECURITY_CHANGELOG.md`; both are checked
+  mechanically, which is what stops the register drifting into a wish list.
+- **`deploy/security-suppressions.json`** is the only way to mute a rule: per rule, per path
+  prefix, with a reason, an owner and a review date, and an expired entry fails the scan. It
+  is empty today; a pattern that matches correct code is fixed in the pattern.
+- **The external scanners are optional and named with their licence caveat.** Each is looked
+  up on `PATH`, used if present, reported as NOT INSTALLED if not, and never required.
+  CodeQL's terms are recorded next to it so that nobody automates it here by accident. The
+  dynamic stage (ZAP) is an operator step against a staging deployment, because a CI instance
+  with no Tor, no proxy and an empty database is not the thing whose dynamic behaviour matters.
+
+**Rejected.** A hosted scanning service, for the cost audit and because it would send this
+code to a third party. Semgrep or Trivy as a devDependency: neither is a Node package, both
+would be a new install path and a new update surface for something the tree can check itself.
+A separate CI job per scanner: a job that is skipped when a binary is missing is a green tick
+that means nothing. A fifteenth category in the release gate: the fourteen areas of point 140
+are fixed, so the security pipeline is *evidence* under SECURITY and AUTH instead. Recording
+the two sweep results that turned out to be design as suppressions: they are `accepted` rows
+with reasoning, which a future reader can argue with.
+
+**Consequences.** There is now a mechanical answer to "what is open, how bad, and what test
+keeps it fixed", and a release cannot pass with an open CRITICAL or HIGH. The rules are a
+maintenance surface of their own: a pattern that fires on correct code has to be narrowed
+(two were, on the first run), and a pattern nobody tests would be theatre —
+`test/security_pipeline.test.ts` plants an example of every rule and asserts each one fires.
+The process makes no claim about being secure: `npm run security` prints that sentence at the
+end of every run, and the register is a list of what was found, not a certificate.
+
+## ADR-0104 — The first administrator is claimed by one row, not by an empty table
+
+**Status:** accepted, 2026-09-04 (finding SEC-2026-002). Applies ADR-0028 and ADR-0060.
+
+**Context.** `POST /api/auth/register` gives the first account of a deployment the `admin`
+role — somebody has to approve the first seller, and a deployment with no administrator is a
+deployment nobody can operate. It decided that with `SELECT id FROM users LIMIT 1` followed by
+an `INSERT`, and the two statements were not in the same transaction. On SQLite the single
+writer (ADR-0036) hides the gap; on PostgreSQL under READ COMMITTED two registrations arriving
+together both read an empty table and both get the role. It is the same shape as the one-time
+prekey race in `docs/SELF_CRITIQUE.md` finding 9, found the same way — by asking what happens
+when two callers do this at once — and it was found by reading the path while writing the
+authorization matrix, not by a scanner.
+
+**Decision.** A one-row table, `bootstrap_claims` (migration 027), and the claim is a single
+statement inside the transaction that writes the account:
+
+```
+INSERT INTO bootstrap_claims (id, claimed_at) VALUES ('admin', ?)
+  ON CONFLICT (id) DO NOTHING RETURNING id
+```
+
+A row back means this registration is the administrator; nothing back means it is an ordinary
+user. Two racers cannot both get a row: the primary key arbitrates, on both drivers. Because
+the claim is inside the same transaction as the `users` insert, a registration that fails
+afterwards releases the claim with it — so a deployment cannot end up with the claim spent and
+no administrator to show for it.
+
+**Rejected.** Re-reading `users` inside the transaction: under READ COMMITTED both readers
+still see an empty table, so it would look fixed and not be. A serialisable transaction: it
+would work and it would be the only one in the codebase, with retry handling for a path that
+runs once per deployment. A configuration variable naming the first administrator: another
+credential-shaped setting in `.env`, and `npm run release` refuses master credentials in the
+configuration for good reasons (point 134). Promoting by hand with SQL after installation:
+correct and hostile — the operator would have to run SQL before they can use the product.
+
+**Consequences.** One new table, one row, no user data in it. Registration does one extra
+insert on the first account of a deployment and one no-op insert on every later one, which is
+inside the noise of a scrypt hash. `test/authz_fuzz.test.ts` races two registrations against a
+fresh deployment and asserts exactly one administrator, and that a failed registration leaves
+the claim untaken. The mechanism register carries the row; the finding is SEC-2026-002 in
+`docs/SECURITY_FINDINGS.md`.

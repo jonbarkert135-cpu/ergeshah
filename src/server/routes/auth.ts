@@ -69,9 +69,24 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     const userId = newId();
     const passwordHash = await hashAuthSecret(authSecret);
-    const isFirstUser = !(await db.get("SELECT id FROM users LIMIT 1"));
+
+    // The first account of a fresh deployment is its administrator, and *which* account that
+    // is has to be decided by one statement rather than by a read followed by a write.
+    // "Is the users table empty?" and then `INSERT` is two statements with no lock between
+    // them: on PostgreSQL two registrations arriving in the same instant both saw an empty
+    // table and both became administrators (finding SEC-2026-002). The claim is now a row in
+    // `bootstrap_claims` whose primary key does the arbitration — the same pattern as the
+    // one-time prekey (ADR-0060) — and it is inserted inside the transaction that writes the
+    // account, so a registration that fails afterwards releases the claim with it.
+    let isFirstUser = false;
 
     await db.transaction(async (tx) => {
+      const claim = await tx.get<{ id: string }>(
+        `INSERT INTO bootstrap_claims (id, claimed_at) VALUES ('admin', ?)
+         ON CONFLICT (id) DO NOTHING RETURNING id`,
+        [Date.now()],
+      );
+      isFirstUser = Boolean(claim);
       await tx.run(
         `INSERT INTO users (id, username, password_hash, role, status, created_day,
                             recovery_public_key)

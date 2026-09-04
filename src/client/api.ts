@@ -27,7 +27,17 @@ export class ApiError extends Error {
 
 function csrfToken(): string {
   const match = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
-  return match ? decodeURIComponent(match[1] as string) : "";
+  if (!match) return "";
+  // Same guard as the server's cookie parser (`lib/cookies.ts`, finding SEC-2026-001):
+  // `decodeURIComponent` throws on a malformed escape, and a cookie a related host set —
+  // or one left behind by something else on this host — would otherwise throw here, before
+  // any request is sent, on every call. A value that will not decode is sent verbatim and
+  // refused by the server as a mismatch, which is what it is.
+  try {
+    return decodeURIComponent(match[1] as string);
+  } catch {
+    return match[1] as string;
+  }
 }
 
 /**

@@ -21,7 +21,7 @@ Three rules it is built around, because they are the three ways a release gate l
    production-ready. A check the network prevented prints `COULD NOT RUN` — also not a pass,
    but not a finding against the commit either. The two are worth separating: `audit:deps`
    asks the public registry for advisories, and a registry that answers 503 says nothing
-   about this code. For the same reason the gate runs the eleven audits one at a time
+   about this code. For the same reason the gate runs the twelve audits one at a time
    instead of `npm run audit`: that script is a chain of `&&`, so one unreachable host used
    to leave ten audits unrun and printed as failures. `scripts/clean-clone.mjs` exits 0
    verified, 1 a finding, 2 not verified (the network).
@@ -113,6 +113,7 @@ answered by reading.
 | no accidental external services | `audit:cost` and `audit:egress` |
 | no test credentials | `npm run release` static check over every deployed file |
 | no development routes | `npm run release` static check over the route table |
+| security findings triaged | `audit:security` — the source rules in `scripts/security.mjs`, the findings register with no open CRITICAL or HIGH, and the suppression file (`docs/SECURITY_PIPELINE.md`) |
 
 The three static checks are in `scripts/release.mjs` because they are about what is *absent*,
 and an absence has no natural home in a suite about behaviour. Two more are there for the same
@@ -166,9 +167,9 @@ Fourteen areas, each resting on evidence from *this* run:
 | Area | Evidence |
 | --- | --- |
 | ARCHITECTURE | `test/architecture.test.ts`, `test/features.test.ts`, `test/adr.test.ts` |
-| SECURITY | `test/security.test.ts`, `test/hardening.test.ts`, `test/compromise.test.ts` |
+| SECURITY | `test/security.test.ts`, `test/hardening.test.ts`, `test/compromise.test.ts`, `test/fuzz.test.ts`, `audit:security` |
 | PRIVACY | `test/metadata.test.ts`, `test/logging.test.ts`, `test/observability.test.ts` |
-| AUTH | `test/auth.test.ts`, `test/authorization.test.ts`, `test/sessions.test.ts`, `test/idor.test.ts` |
+| AUTH | `test/auth.test.ts`, `test/authorization.test.ts`, `test/sessions.test.ts`, `test/idor.test.ts`, `test/authz_fuzz.test.ts` |
 | CRYPTO | `test/cryptography.test.ts`, `test/protocol.test.ts`, `test/hkdf.test.ts`, `test/pgp.test.ts` |
 | DATABASE | `audit:migrations`, `test/migrations.test.ts`, `deploy/postgres-roles.sql` (ADR-0095) |
 | STORAGE | `test/uploads.test.ts`, `test/attachments.test.ts`, `test/images.test.ts`, `test/jobs.test.ts` |

@@ -59,6 +59,7 @@ or if a record is missing a section.
 | [ADR-0090](../DECISIONS.md#adr-0090--an-accounts-security-history-is-a-count-per-day-and-only-its-owner-reads-it) | An account's security history is a count per day, and only its owner reads it |
 | [ADR-0091](../DECISIONS.md#adr-0091--a-key-change-is-announced-by-the-client-not-prevented-by-a-tombstone) | A key change is announced by the client, not prevented by a tombstone |
 | [ADR-0102](../DECISIONS.md#adr-0102--a-change-to-the-second-factor-ends-the-other-sessions) | A change to the second factor ends the other sessions |
+| [ADR-0104](../DECISIONS.md#adr-0104--the-first-administrator-is-claimed-by-one-row-not-by-an-empty-table) | The first administrator is claimed by one row, not by an empty table |
 
 ### Database
 
@@ -143,6 +144,7 @@ or if a record is missing a section.
 | [ADR-0010](../DECISIONS.md#adr-0010--dependency-budget) | Dependency budget |
 | [ADR-0100](../DECISIONS.md#adr-0100--the-dependency-inventory-is-generated-and-it-is-the-freeze) | The dependency inventory is generated, and it is the freeze |
 | [ADR-0016](../DECISIONS.md#adr-0016--audits-as-ci-checks-written-in-the-repository-not-bought) | Audits as CI checks, written in the repository, not bought |
+| [ADR-0103](../DECISIONS.md#adr-0103--the-security-pipeline-is-a-script-in-this-repository-and-every-external-scanner-is-optional) | The security pipeline is a script in this repository, and every external scanner is optional |
 | [ADR-0022](../DECISIONS.md#adr-0022--proprietary-license-supersedes-adr-0002) | Proprietary license; supersedes ADR-0002 |
 | [ADR-0023](../DECISIONS.md#adr-0023--one-project-one-tree-no-pre-built-openclosed-split) | One project, one tree: no pre-built open/closed split |
 | [ADR-0026](../DECISIONS.md#adr-0026--project-hygiene-as-executable-checks-not-as-a-document) | Project hygiene as executable checks, not as a document |

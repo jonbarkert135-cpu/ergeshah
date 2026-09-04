@@ -15,7 +15,7 @@
  *    minutes and a network, so it is opt-in (`--clean-clone`), and until it runs the gate
  *    says the commit is not production-ready. A check the network prevented prints
  *    COULD NOT RUN — also not a pass, but not an accusation against the commit either.
- *    Every audit runs on its own for the same reason: `npm run audit` is a chain of eleven
+ *    Every audit runs on its own for the same reason: `npm run audit` is a chain of twelve
  *    `&&`, so one unreachable registry used to leave nine audits unrun and reported as
  *    failures of this commit. The gate runs them one by one and reports each separately.
  * 2. **The report carries real values.** 4 direct dependencies, 65 production packages, 2
@@ -323,6 +323,7 @@ export const AUDITS = [
   "cost",
   "egress",
   "inventory",
+  "security",
 ];
 
 /** Each item of the release checklist, and the runs that decide it. */
@@ -360,6 +361,11 @@ export const CHECKLIST = [
   [["audit:cost", "audit:egress"], "no accidental external services", "audit:cost and audit:egress"],
   [["static"], "no test credentials", "no credential in a deployed file"],
   [["static"], "no development routes", "no dev, debug or fixture path in the route table"],
+  [
+    ["audit:security"],
+    "security findings triaged",
+    "audit:security — the source rules, the findings register (no open CRITICAL or HIGH), the suppression file",
+  ],
 ];
 
 /**
@@ -368,9 +374,17 @@ export const CHECKLIST = [
  */
 export const GATE = [
   [["test"], "ARCHITECTURE", "test/architecture.test.ts, test/features.test.ts, test/adr.test.ts"],
-  [["test"], "SECURITY", "test/security.test.ts, test/hardening.test.ts, test/compromise.test.ts"],
+  [
+    ["test", "audit:security"],
+    "SECURITY",
+    "test/security.test.ts, test/hardening.test.ts, test/compromise.test.ts, test/fuzz.test.ts, audit:security",
+  ],
   [["test"], "PRIVACY", "test/metadata.test.ts, test/logging.test.ts, test/observability.test.ts"],
-  [["test"], "AUTH", "test/auth.test.ts, test/authorization.test.ts, test/sessions.test.ts, test/idor.test.ts"],
+  [
+    ["test"],
+    "AUTH",
+    "test/auth.test.ts, test/authorization.test.ts, test/sessions.test.ts, test/idor.test.ts, test/authz_fuzz.test.ts",
+  ],
   [["test"], "CRYPTO", "test/cryptography.test.ts, test/protocol.test.ts, test/hkdf.test.ts, test/pgp.test.ts"],
   [
     ["audit:migrations", "test"],

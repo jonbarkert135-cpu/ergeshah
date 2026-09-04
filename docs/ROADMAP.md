@@ -209,6 +209,33 @@ wording.*
   a 429 carries `retryAfterSeconds` and the client shows it. What remains is the tuning
   itself, which needs traffic to tune against.
 
+## Security process
+
+*Shipped: the pipeline itself (ADR-0103) — twelve source rules inside `npm run audit`, a
+findings register that blocks a release on an open CRITICAL or HIGH, suppressions with owners
+and review dates, fuzzed parsers, an authorisation matrix generated from the route table, and
+`skills/vulnerability-remediation/SKILL.md` for the loop from a report to a regression test.*
+
+- **SEC-1 — A dynamic scan against a real deployment.** OWASP ZAP is the one stage of point 150
+  that cannot run in CI honestly: an instance with no Tor, no reverse proxy, no TLS and an empty
+  database is not the system whose dynamic behaviour matters. The pipeline prints NOT RUN for
+  the stage until an operator runs `zap.sh -cmd -quickurl <origin>` against staging and the
+  findings are triaged into `docs/SECURITY_FINDINGS.md`. Blocked on OPS-6, the first real
+  deployment.
+- **SEC-2 — OSV-Scanner and Trivy in CI, if they can be pinned without a new install path.**
+  Both are optional today: used when present on `PATH`, never required (`npm run security:tools`).
+  Adding them to CI means pinning a binary by digest in the workflow — which costs a human
+  re-copy of `.github/workflows/ci.yml` — so it waits until there is a second reason to touch
+  that file. `npm audit` plus the dependency freeze covers the same ground more narrowly.
+- **SEC-3 — Coverage-guided fuzzing for the container walker.** `test/fuzz.test.ts` is a seeded
+  corpus: it covers shapes, not paths. A real fuzzer over `stripImageMetadata` (and the ratchet
+  frame decoder) would need a harness and a corpus directory, which is a dependency and a
+  workflow, and is worth it only once UI-4 makes that walker handle ISO base media boxes.
+- **SEC-4 — Semgrep rules for this codebase.** The twelve patterns in `scripts/security.mjs`
+  are regular expressions and say so; a handful of them (mass assignment, URL sinks) would be
+  more precise as Semgrep rules with real dataflow. The rules would live in the repository and
+  run only where the binary exists, so the tree keeps its own answer either way.
+
 ## Client
 
 *Shipped: UI-1, the safety-number verification flow — a scannable code, a per-device
