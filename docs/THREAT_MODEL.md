@@ -255,3 +255,26 @@ rate-limit pepper, the payout worker's bearer token, the wallet password and the
 five different secrets, from five different places, rotated independently
 (`docs/ENVIRONMENT.md`, `docs/INCIDENT_RESPONSE.md`). There is no universal application secret,
 and no key that opens more than its own domain (point 71, `docs/CRYPTO.md` §Key separation).
+
+## Declined by request (mechanisms proposed but not built)
+
+This section is a record, not a plan. Each row was proposed to be added to Symvolon and
+was **declined** — either because the contract above forbids it, or because it is a
+host-level anti-virus/EDR idea that does not fit a server application and would only be
+decoration (the rule in `docs/MECHANISMS.md`: a mechanism that cannot name its threat is
+ornament). It is written here, at the end of the contract, so the boundary is on the record
+and the same requests are not silently reconsidered later.
+
+| Mechanism (as requested) | What it is | Why it was declined | Verdict |
+| --- | --- | --- | --- |
+| `RansomwareProtection` (VanHelsing RaaS pattern) | Host file-integrity plus process/network monitoring that watches the VPS for ransomware behaviour. | Host AV/EDR. The architecture forbids background process/filesystem monitoring inside the app; ransomware on the operator's VPS is not in this threat model. Names no threat this app defends → ornament. | отвергнуто |
+| `StealerProtection` (LummaC2 / QBit pattern) | Guarding browser and wallet paths (`%LOCALAPPDATA%\Chrome`, `fs.watch('/')`) against info-stealers. | Meaningless on a server: user keys live in the user's browser, the server never sees those paths, and the spend key is not on the server. Not applicable to this topology. | отвергнуто |
+| Signature blocking (LockBit 3.0 builder pattern) | Signature-based anti-virus that blocks known malware binaries on the host. | Signature AV on the server is decoration; running `lockbit.exe` on the Node host is not a threat this application is positioned to answer. | отвергнуто |
+| Cracked-builder detection (RAMP pattern) | Detecting/blocking cracked pentest tooling (e.g. Cobalt Strike) by signature on the host. | Same host-IDS/AV class as above; not the app's threat surface. | отвергнуто |
+| Double-blockchain unlinkability (FreeMarketOne pattern) | A second ledger whose purpose is to decouple a participant from their own transactions so trades cannot be attributed to them. | Its stated goal — make marketplace participants untraceable / unlinkable to their deals — contradicts the contract above ("Not anonymous"). This is participant-untraceability infrastructure, not privacy. Architecturally also a cargo-cult: there is no blockchain here (one VPS, SQLite/Postgres). | отвергнуто |
+| Proof-of-burn identity (OpenBazaar pattern) | Burn-based pseudonymous identities intended to sever a trader's identity from their trading history. | Same goal and same reason as the row above: participant untraceability, which the contract explicitly disclaims. | отвергнуто |
+
+Escrow, dispute-resolution, seller accountability (KYC), audit trails, and every mechanism
+that reduces what the *server* learns (E2EE, data minimisation, encryption at rest, sealed
+sender, no access logs, IDOR defence) are **in scope** and are built or on the roadmap; they
+are not part of this list.
