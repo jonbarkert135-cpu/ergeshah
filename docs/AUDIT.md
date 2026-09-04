@@ -33,11 +33,12 @@ floor of verifiability for any web application, and closing the source does not 
 | Supply chain | `npm run audit:supply` | The lockfile lost an integrity hash, a package resolves outside the public registry, or install scripts are no longer disabled |
 | Server egress | `npm run audit:egress` | A file under `src/server` or `scripts` grew an outbound call the audit does not name with a reason, a host was written into the source, or a telemetry package entered the lockfile |
 | Dependency freeze | `npm run audit:inventory` | A dependency changed version — direct or transitive — without the generated inventory being regenerated and reviewed (`docs/DEPENDENCY_INVENTORY.md`) |
+| SBOM freeze | `npm run sbom` | The dependency tree changed without the committed CycloneDX SBOM being regenerated (`docs/sbom.cdx.json`), the machine-readable list an external scanner reads (ADR-0116) |
 | Security rules and findings | `npm run audit:security` | A source rule fired (crypto misuse, mass assignment, permissive CORS, a hand-built cookie, a URL from a request, an HTML sink, an enumerating authentication error), the findings register is incomplete or has an open CRITICAL/HIGH, or a suppression lost its owner or its review date (`docs/SECURITY_PIPELINE.md`) |
 | Security baseline | `npm run audit:baseline` | This commit's security surface is wider than the recorded one: a port, an outbound destination, a dependency count, a missing header (`deploy/security-baseline.json`, `docs/RELEASE.md`) |
 | Reproducibility | part of `audit:bundle` | Two identical builds produced different bytes |
 
-`npm run check` runs lint and types; `npm run audit` runs the twelve audits. `npm run release`
+`npm run check` runs lint and types; `npm run audit` runs the thirteen audits. `npm run release`
 runs all of it and maps the result onto the areas a release has to clear (`docs/RELEASE.md`);
 `npm run security` runs the ten-stage pipeline around them (`docs/SECURITY_PIPELINE.md`).
 
@@ -82,6 +83,18 @@ which is the most-used npm compromise path. The audit verifies that setting, tha
 locked package has an integrity hash and resolves to the public registry, that the
 lockfile is version 3 or newer, and that the build tool is pinned to an exact version
 rather than a range — a caret on `esbuild` is a caret on the bytes the browser runs.
+
+### `sbom` — the bill of materials a scanner can read
+
+`audit:inventory` freezes a human-readable inventory; `sbom` freezes the same tree in the
+format an external tool reads. `scripts/sbom.mjs` generates a CycloneDX 1.5 document into
+`docs/sbom.cdx.json` — one component per lockfile package with its Package URL, declared
+licence and integrity hash — and fails if the committed copy no longer matches the tree, so
+a dependency change that skipped regenerating it is caught here rather than at deploy. The
+document is what an operator points OSV-Scanner, Trivy or Dependency-Track at to ask "does
+anything here have a known CVE", offline and against a database this build never touched. It
+is generated, not a scanner: `npm run sbom:update` rewrites it, to be committed with the
+reason. This is the SBOM half of OPS-3 (ADR-0116); image signing is the other half.
 
 ### `audit:bundle` — the client talks to us and no one else
 

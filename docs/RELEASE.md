@@ -21,7 +21,7 @@ Three rules it is built around, because they are the three ways a release gate l
    production-ready. A check the network prevented prints `COULD NOT RUN` — also not a pass,
    but not a finding against the commit either. The two are worth separating: `audit:deps`
    asks the public registry for advisories, and a registry that answers 503 says nothing
-   about this code. For the same reason the gate runs the twelve audits one at a time
+   about this code. For the same reason the gate runs the thirteen audits one at a time
    instead of `npm run audit`: that script is a chain of `&&`, so one unreachable host used
    to leave ten audits unrun and printed as failures. `scripts/clean-clone.mjs` exits 0
    verified, 1 a finding, 2 not verified (the network).

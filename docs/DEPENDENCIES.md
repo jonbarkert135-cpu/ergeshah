@@ -17,6 +17,14 @@ the tree. So a version change cannot arrive unnoticed: it owes a **security revi
 `npm run inventory:update` writes the new document. This page stays the argument; that page is
 the record.
 
+**The same tree, in the format a scanner reads.** [`sbom.cdx.json`](sbom.cdx.json) is a
+CycloneDX 1.5 bill of materials generated from the lockfile by `scripts/sbom.mjs` — one
+component per package with its Package URL, licence and integrity hash. It is frozen the same
+way: `npm run sbom` fails if it drifts from the tree, `npm run sbom:update` regenerates it.
+Where the inventory is the human argument, this is the machine interchange: an operator points
+OSV-Scanner, Trivy or Dependency-Track at it to ask what has a known CVE, offline and against
+a database this build never touched (ADR-0116).
+
 The rule that keeps the number small: *a dependency must do something we cannot do correctly
 ourselves in a comparable amount of code*. Cryptography and a database protocol qualify.
 Padding a string, generating a UUID, parsing a cookie, formatting a date, deep-cloning an

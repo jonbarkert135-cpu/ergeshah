@@ -4059,3 +4059,50 @@ saying why, without it. The drill needs a URL that may create databases, which t
 application role by design may not (ADR-0095): the operator keeps the admin URL in a file
 for the quarterly drill, as they already do for the roles script. Reversible: delete the
 tool and the test and the sentence in `docs/BACKUPS.md` is what remains.
+
+## ADR-0116 — A machine-readable SBOM, generated from the lockfile and frozen
+
+**Status:** Accepted (2026-09-05). Closes the SBOM half of OPS-3; container image signing,
+the other half, needs a key and is left open.
+
+**Context.** Two documents already describe the dependency tree. `docs/DEPENDENCY_INVENTORY.md`
+lists every package, transitive included, with its licence, for a human reviewer, and is a
+freeze — `audit:inventory` fails if the tree drifts from it. `audit:supply` proves every
+package is pinned to the public registry with an integrity hash. Neither is a format a
+vulnerability scanner can read. Asking "does any transitive dependency have a known CVE"
+against this tree meant either trusting `npm audit`'s own view of the registry or pasting a
+package list into a scanner by hand. A CycloneDX document is the interchange format
+OSV-Scanner, Trivy, `grype` and Dependency-Track all consume, so the question can be asked
+offline, against a vulnerability database that never saw this build, by a tool this
+repository does not have to install or trust at build time.
+
+**Decision.** `scripts/sbom.mjs` generates a CycloneDX 1.5 document at `docs/sbom.cdx.json`:
+one component per lockfile package, each with its Package URL (`pkg:npm/…`, the scope its
+own namespace segment), its declared licence as an SPDX id where the id is known and a
+free-text name otherwise, its integrity hash re-expressed as a CycloneDX `SHA-512` hash, and
+`required`/`optional` from whether the package is a development-only tool. It reuses
+`collect()` from the inventory generator, so both documents read one lockfile and cannot
+describe two different trees. The document is deterministic — no wall-clock timestamp, and a
+serial number derived from the component set itself — so the committed file is also the
+freeze: `npm run sbom` regenerates it in memory and fails if it differs from the committed
+copy, and it runs inside `npm run audit`, so a lockfile change that skipped regenerating the
+SBOM fails CI the same way an un-regenerated inventory does. `npm run sbom:update` writes the
+new document, to be committed with the reason for the dependency change.
+
+**Rejected.** A dependency on `@cyclonedx/cyclonedx-npm` or `cdxgen` to produce the SBOM: it
+would add a build-time dependency — and an install script — to generate a file the lockfile
+already contains everything for, which is exactly the supply-chain surface an SBOM exists to
+shrink. Generating it in CI only, unversioned: then the SBOM is not a reviewable artifact and
+a dependency change leaves no diff anybody approves. A wall-clock `metadata.timestamp` (the
+CycloneDX default): it makes every regeneration differ, so the file could not double as the
+freeze. Signing the SBOM here: the signature belongs with the container image it describes
+(OPS-3's other half), against a key this repository does not hold.
+
+**Consequences.** `docs/sbom.cdx.json` is committed and moves only when the tree does; a
+reviewer sees the dependency delta as a diff, and an operator can run any CycloneDX-consuming
+scanner against it without trusting this build. It is the SBOM the deployment ships beside
+the image. It is not a vulnerability scanner itself (`audit:deps` is) and not the licence and
+purpose argument (`audit:inventory` and `docs/DEPENDENCIES.md` are) — it is the interchange
+format that lets an external tool answer both against a frozen list. Reversible: delete the
+script, the test and the committed file, remove the two npm scripts and the one clause in the
+`audit` chain, and the inventory is what remains.

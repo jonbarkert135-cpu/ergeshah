@@ -187,3 +187,4 @@ or if a record is missing a section.
 | [ADR-0113](../DECISIONS.md#adr-0113--boot-time-migrations-take-a-postgresql-advisory-lock-one-transaction-at-a-time) | Boot-time migrations take a PostgreSQL advisory lock, one transaction at a time |
 | [ADR-0114](../DECISIONS.md#adr-0114--the-authorisation-matrix-is-a-committed-table-and-the-test-reads-it) | The authorisation matrix is a committed table, and the test reads it |
 | [ADR-0115](../DECISIONS.md#adr-0115--postgresql-backups-are-pg_dump-archives-in-the-shared-envelope-drilled-in-a-throwaway-database) | PostgreSQL backups are `pg_dump` archives in the shared envelope, drilled in a throwaway database |
+| [ADR-0116](../DECISIONS.md#adr-0116--a-machine-readable-sbom-generated-from-the-lockfile-and-frozen) | A machine-readable SBOM, generated from the lockfile and frozen |

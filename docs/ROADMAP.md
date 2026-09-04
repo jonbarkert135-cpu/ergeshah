@@ -204,7 +204,14 @@ wording.*
   by widening one `requireRole` and by deleting one row, before the file was committed. The
   sweep in `test/authorization.test.ts` stays: it is the proof that nothing is missing a check,
   this is the proof that no check has quietly moved (ADR-0114).
-- **OPS-3 — Container image signing and an SBOM.**
+- **OPS-3 — Container image signing and an SBOM. _SBOM shipped; signing open._** The SBOM
+  half is done: `scripts/sbom.mjs` generates a CycloneDX 1.5 document from the lockfile into
+  `docs/sbom.cdx.json` — one component per package with its purl, licence and integrity hash,
+  in the format OSV-Scanner, Trivy and Dependency-Track read — and freezes it, so a dependency
+  change that skipped regenerating it fails `npm run audit` (ADR-0116). Container image signing
+  is the other half and is still open: it needs a key `cosign` can use and a verification step
+  at deploy, which is a change to the owner-only CI workflow (`deploy/github-ci.yml`) and a
+  secret this repository does not hold, so it waits alongside the first real deployment (OPS-6).
 - **OPS-8 — Authenticate the wallet RPC, not just its network position.** `app` reaches the
   view-only wallet over the internal network with `--disable-rpc-login`, which is the one
   "inside Docker, therefore trusted" assumption left in the deployment
