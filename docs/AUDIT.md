@@ -127,6 +127,15 @@ key ids, JWTs, and long string literals assigned to a name like `password`, `tok
 `${…}`) are ignored, as are fixture passwords under `test/` — but key material in a
 fixture is still a failure, because a test private key is a real private key.
 
+Some files are a secret whatever their bytes look like, and several of them are binary with
+no `-----BEGIN` line for the rules above to find: a Tor onion service's
+`hs_ed25519_secret_key`, a Monero wallet's `.keys` file, a PKCS#12 bundle, a whole SQLite
+database, a `.env` with anything but `.example` after it, an SSH `id_ed25519`, a `.tar.gz` of
+who knows what. Since SEC-2026-027 these are findings **by path** — in the working tree and in
+every revision `audit:history` walks — before anybody reads them. The list is
+`KEY_MATERIAL_PATH` in `scripts/audit.mjs`; `.env.example` and the `.sql` migrations are the
+deliberate exceptions.
+
 It reads *tracked* files only, so run it after `git add` — a new file that has not been
 staged is invisible to it, and to CI it will not be. A line can opt out with an
 `audit:allow` comment plus a reason. That is deliberately

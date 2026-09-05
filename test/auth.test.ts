@@ -183,6 +183,76 @@ describe("privacy of what is stored", () => {
       }
     }
   });
+
+  /**
+   * The column check above is about names; this one is about values. The RAMP forum dump
+   * (2024) was 340 333 rows of client addresses next to account ids, and the BreachForums
+   * dumps (2026) carried e-mail addresses beside every hash — neither had a column *called*
+   * that. So: drive a browser-shaped session from a distinctive address with a distinctive
+   * user agent, doing the things the server has to rate-limit by address (anonymous search,
+   * a failed sign-in), then read every column of every table and look for the address, the
+   * user agent, anything shaped like an IP address at all, and anything shaped like an
+   * e-mail. The rate limiter is the only consumer of the address (`lib/rate_limit.ts`), and
+   * what it writes is a daily-rotating HMAC — this is the test that keeps it that way.
+   */
+  it("keeps no value anywhere that is the client's address, user agent or an e-mail", async () => {
+    const address = "203.0.113.77";
+    const address6 = "2001:db8:cafe::7:7";
+    const agent = "Mozilla/5.0 (X11; BreachProbe 7.7) Gecko/20100101";
+    const probe = { headers: { "user-agent": agent }, remoteAddress: address };
+    const probe6 = { headers: { "user-agent": agent }, remoteAddress: address6 };
+
+    const client = new TestClient(server);
+    await client.request("GET", "/", undefined, probe);
+    const registered = await client.request(
+      "POST",
+      "/api/auth/register",
+      { username: "leakprobe", authSecret: authSecretFor("leakprobe", "correct horse battery staple") },
+      probe,
+    );
+    expect(registered.status).toBe(200);
+    // A failed sign-in: the place a "suspicious activity" log would record the address.
+    const stranger = new TestClient(server);
+    await stranger.request("GET", "/", undefined, probe6);
+    const wrong = await stranger.request(
+      "POST",
+      "/api/auth/login",
+      { username: "leakprobe", authSecret: authSecretFor("leakprobe", "not the passphrase") },
+      probe6,
+    );
+    expect(wrong.status).toBe(401);
+    // Anonymous, address-keyed routes, from both address families.
+    for (const options of [probe, probe6]) {
+      await new TestClient(server).request("GET", "/api/market/listings?q=probe", undefined, options);
+    }
+    await client.request("GET", "/api/auth/me", undefined, probe);
+    await client.request("GET", "/api/auth/sessions", undefined, probe6);
+
+    const ipv4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
+    const ipv6 = /\b(?:[0-9a-f]{1,4}:){2,7}(?::|[0-9a-f]{1,4})\b/i;
+    const email = /[^\s@"'<>]+@[^\s@"'<>]+\.[a-z]{2,}/i;
+    let cells = 0;
+    for (const table of await listTables(server.db)) {
+      // The table name comes from the schema itself, never from a request. audit:allow
+      const rows = await server.db.all<Record<string, unknown>>(`SELECT * FROM ${table}`);
+      for (const row of rows) {
+        for (const [column, value] of Object.entries(row)) {
+          const text = value instanceof Uint8Array ? Buffer.from(value).toString("latin1") : String(value ?? "");
+          const where = `${table}.${column}`;
+          cells += 1;
+          expect(text, where).not.toContain(address);
+          expect(text, where).not.toContain(address6);
+          expect(text, where).not.toContain("BreachProbe");
+          expect(text, where).not.toMatch(ipv4);
+          expect(text, where).not.toMatch(ipv6);
+          expect(text, where).not.toMatch(email);
+        }
+      }
+    }
+    // The workload above must have written something, or the assertions prove nothing.
+    expect(cells).toBeGreaterThan(20);
+    expect((await server.db.all("SELECT bucket FROM rate_limits")).length).toBeGreaterThan(0);
+  });
 });
 
 /**

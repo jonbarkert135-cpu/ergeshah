@@ -197,3 +197,24 @@ pass is in the register, not here (point 178: nothing unfixed gets a description
   now runs on every push.
 - **Verification:** `npm run check`, `npm test` (SQLite), `npm run test:postgres` against
   PostgreSQL 17 (72 files, 750 passed, 1 skipped), `npm run audit`.
+
+## 2026-09-05 — the secret audit read content only, so a binary key file passed (SEC-2026-027)
+
+- **Component:** `scripts/audit.mjs`, the `secrets` and `history` modes.
+- **Issue:** both scans looked for text patterns — PEM headers, token shapes, credential
+  literals — and nothing else. A file that *is* a secret but has no such text (an onion
+  service's `hs_ed25519_secret_key`, a wallet's `.keys`, a PKCS#12 bundle, a SQLite database,
+  a `.env`) would have been committed with a green build, in the tree and in history.
+- **Root cause:** the scanner was written against the leak it had seen (a token in a
+  lockfile URL, SEC-2026-021), not against the class: key material is defined by what a file
+  *is*, and several forms of it are binary. Found while reviewing the audit against the
+  Solaris takeover (2023), which began with keys taken from the operator's repository.
+- **Remediation:** `isKeyMaterialPath()` — a rule on the path, applied to every tracked file
+  and to every path in every revision, reported before the content is read. `.env.example`
+  and the `.sql` migrations are the named exceptions. `docs/AUDIT.md` lists the names.
+- **Regression test:** `test/audit.test.ts`, twelve paths that must be refused and eight that
+  must not; a tracked `deploy/tor/hs_ed25519_secret_key` fails `npm run audit:secrets` on the
+  spot.
+- **Verification:** `npm run audit:secrets` and `npm run audit:history` on this tree (116
+  commits, 1546 blobs, nothing found — the gap was assurance, not an incident), `npm run
+  check`, `npm test`, `npm run test:postgres`.

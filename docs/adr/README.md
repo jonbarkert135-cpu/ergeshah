@@ -188,3 +188,4 @@ or if a record is missing a section.
 | [ADR-0114](../DECISIONS.md#adr-0114--the-authorisation-matrix-is-a-committed-table-and-the-test-reads-it) | The authorisation matrix is a committed table, and the test reads it |
 | [ADR-0115](../DECISIONS.md#adr-0115--postgresql-backups-are-pg_dump-archives-in-the-shared-envelope-drilled-in-a-throwaway-database) | PostgreSQL backups are `pg_dump` archives in the shared envelope, drilled in a throwaway database |
 | [ADR-0116](../DECISIONS.md#adr-0116--a-machine-readable-sbom-generated-from-the-lockfile-and-frozen) | A machine-readable SBOM, generated from the lockfile and frozen |
+| [ADR-0117](../DECISIONS.md#adr-0117--lessons-from-published-marketplace-breaches-two-tests-one-hardening-section-three-refusals) | Lessons from published marketplace breaches: two tests, one hardening section, three refusals |

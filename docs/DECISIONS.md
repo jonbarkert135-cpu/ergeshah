@@ -4106,3 +4106,77 @@ purpose argument (`audit:inventory` and `docs/DEPENDENCIES.md` are) — it is th
 format that lets an external tool answer both against a frozen list. Reversible: delete the
 script, the test and the committed file, remove the two npm scripts and the one clause in the
 `audit` chain, and the inventory is what remains.
+
+## ADR-0117 — Lessons from published marketplace breaches: two tests, one hardening section, three refusals
+
+**Status:** Accepted (2026-09-05).
+
+**Context.** A batch of requirements arrived as architectural lessons drawn from the public
+post-mortems of marketplace and forum breaches of 2023–2026: a forum's full MySQL dump with
+340 333 client-address rows beside account ids and 3 875 private messages in the clear; a
+market taken over by a competitor after keys and passwords were lifted, in plaintext, from its
+servers and repository; a market whose infrastructure was mapped from the EXIF of its logo and
+a shared address across domains; two forum dumps carrying e-mail addresses beside every
+password hash; a card shop that lost 145 domains and its funds to seizure; a market selling
+browser fingerprints and stolen cookies; a market selling RDP and SSH access to 700 000
+servers. The batch proposed eight mechanisms: field-level database encryption, salted IP
+hashes with thirty-day retention, infrastructure split per mirror, keys never in plaintext,
+metadata stripping, fingerprinting protection, data minimisation, and key rotation — plus
+crypto mixers, domain rotation and jurisdiction as protections against seizure.
+
+`docs/CHANGE_REVIEW.md` §7 applies: find what already answers it before writing anything.
+Almost all of it did. There is no e-mail, address, user agent or referrer column
+(`docs/PRIVACY.md`, `test/auth.test.ts`); messages, vaults and delivered files are ciphertext
+the server cannot open, so there is no field to encrypt "additionally"; the limiter keeps a
+daily-rotating HMAC deleted after a day, which is stricter than a salted hash kept a month
+(`src/server/lib/rate_limit.ts`); secrets arrive as `_FILE` mounts and the server holds no key
+that moves value or opens a message (`docs/INCIDENT_RESPONSE.md` §1); EXIF, XMP, IPTC and
+ISO-BMFF metadata are removed on the sender's device before encryption (ADR-0092); cookies are
+`HttpOnly`, `SameSite=Strict`, `__Host-` and rotate; the client reads none of the fingerprint
+surface and a lint rule keeps it that way (ADR-0098); SSH keys only, a firewall and unattended
+updates are `docs/HARDENING.md` §1–3.
+
+Three things were genuinely missing. The address test checked column *names* only, and the
+RAMP rows had no column called `ip` either — a value-level probe did not exist. The secret
+audit read file content for text patterns, so a binary key file (an onion secret key, a wallet's
+`.keys`, a PKCS#12, a database) passed both the tree scan and the history walk. And the
+hardening guide covered the machine and TLS but said nothing about the *name*: the registrar
+account, DNSSEC, CAA, certificate transparency — which is where the Solaris redirect happened.
+
+**Decision.** (1) `test/auth.test.ts` drives a browser-shaped session from a distinctive IPv4
+and IPv6 address with a distinctive user agent through the address-keyed routes (registration,
+a failed sign-in, anonymous search) and then reads every column of every table, failing on the
+address, the user agent, anything IP-shaped and anything e-mail-shaped; `TestClient` gained
+`headers` and `remoteAddress` options for it. Removing the HMAC from the limiter's bucket key
+fails the test on `rate_limits.bucket`. (2) `isKeyMaterialPath()` in `scripts/audit.mjs`, a
+name-based rule applied by `secrets` to every tracked path and by `history` to every path in
+every revision, reported before content is read (SEC-2026-027). (3) `docs/HARDENING.md` §10 —
+registrar lock and second factor, DNSSEC, a CAA record bound to Caddy's ACME account,
+CT monitoring, the onion address published in a second place, `audit:deployment` as the way to
+tell a redirected name from a redeployed one — with the matching row in the threat model's
+network-attacker table. (4) Three proposals declined, on the record in `docs/THREAT_MODEL.md`
+→ "Declined by request": mixers and seizure-resistant treasuries, hidden or rotating domains,
+and separate databases per mirror.
+
+**Rejected.** Field-level encryption of "sensitive columns" with a server-held key: the
+columns it names do not exist, and a key the server holds protects a database dump only until
+the same attacker reads the environment — the design already keeps what matters in ciphertext
+the server *cannot* open, which is the stronger property (`docs/THREAT_MODEL.md`, "What an
+attacker gets"). Salted IP hashes retained thirty days: a salted hash of a 32-bit space is a
+lookup table, and thirty days is a log; the daily pepper with 24-hour deletion stays. An
+automated DNS/CAA check inside `npm run audit`: it would be the first network call in the audit
+chain and would fail for every developer without the production domain; the check is written as
+commands the operator runs. A rotation *scheduler* for secrets: the secrets that exist rotate
+freely with no user impact (`docs/DEPLOYMENT.md`'s table) and the one that does not — the
+database password — is rotated by the operator on an incident, not on a calendar (§1 of
+`docs/INCIDENT_RESPONSE.md`). Client-side anti-fingerprinting (canvas noise, UA spoofing):
+`docs/PRIVACY.md` already says why a page cannot make its visitors look alike and points at Tor
+Browser.
+
+**Consequences.** Two more assertions that fail when a property disappears rather than a
+paragraph that says it holds; a secret audit that refuses a class rather than a pattern;
+operator guidance for the one part of the deployment no server hardening reaches. Nothing
+changed at runtime. The declined rows keep the same requests from being reconsidered quietly
+when the next batch of post-mortems arrives. Reversible: each of the three additions is a
+self-contained block in one file.
+

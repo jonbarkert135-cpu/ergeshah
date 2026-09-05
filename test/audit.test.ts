@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { startTestServer } from "./helpers.ts";
 // @ts-expect-error - plain ESM script, no types needed for two pure functions
-import { isTelemetryPackage, scanBundle, scanEgress, scanSource } from "../scripts/audit.mjs";
+import { isKeyMaterialPath, isTelemetryPackage, scanBundle, scanEgress, scanSource } from "../scripts/audit.mjs";
 // @ts-expect-error - same: the linter is a plain ESM script
 import { lintFile } from "../scripts/lint.mjs";
 
@@ -93,6 +93,40 @@ describe("secret audit", () => {
       "JWT",
     );
     expect(rules(scanSource(`const dbPassword = "hunter2-9f3a-b71c-2210"`))).toContain("credential literal");
+  });
+
+  // SEC-2026-027: the content rules read text, so a binary key file — a PKCS#12 bundle, an
+  // onion service's secret key, a wallet's `.keys`, a whole SQLite database — passed both the
+  // working-tree and the history scan. These are findings by name, before anyone reads them.
+  it("refuses a key, wallet, database or archive file by its path alone", () => {
+    for (const path of [
+      ".env",
+      ".env.production",
+      "deploy/.env.local",
+      "deploy/tor/hs_ed25519_secret_key",
+      "deploy/certs/symvolon.pem",
+      "deploy/certs/symvolon.key",
+      "ops/backup.p12",
+      "wallet/symvolon.keys",
+      "data/symvolon.sqlite",
+      "dumps/prod.sql.gz",
+      "id_ed25519",
+      ".pgpass",
+    ]) {
+      expect(isKeyMaterialPath(path), path).toBe(true);
+    }
+    for (const path of [
+      ".env.example",
+      "hive/.env.example",
+      "id_ed25519.pub",
+      "src/server/db/migrations/001_init.sql",
+      "src/server/db/migrate.ts",
+      "docs/BACKUPS.md",
+      "package-lock.json",
+      "public/favicon.svg",
+    ]) {
+      expect(isKeyMaterialPath(path), path).toBe(false);
+    }
   });
 
   // SEC-2026-021: the lockfile was skipped by path in both the working-tree and the history

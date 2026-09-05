@@ -82,10 +82,17 @@ export class TestClient {
     method: string,
     url: string,
     body?: unknown,
-    options: { origin?: string; csrf?: string | null } = {},
+    options: {
+      origin?: string;
+      csrf?: string | null;
+      /** Extra request headers (a `user-agent`, say) for tests about what the server keeps. */
+      headers?: Record<string, string>;
+      /** The peer address the server sees; the default is Fastify's loopback. */
+      remoteAddress?: string;
+    } = {},
     retried = false,
   ): Promise<Response<T>> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...options.headers };
     if (body !== undefined) headers["content-type"] = "application/json";
     const cookie = [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
     if (cookie) headers.cookie = cookie;
@@ -100,6 +107,7 @@ export class TestClient {
       url,
       headers,
       payload: body === undefined ? undefined : JSON.stringify(body),
+      ...(options.remoteAddress ? { remoteAddress: options.remoteAddress } : {}),
     });
     for (const raw of [response.headers["set-cookie"] ?? []].flat()) {
       const [pair] = String(raw).split(";");

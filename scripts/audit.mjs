@@ -74,6 +74,21 @@ const SECRETS = [
   ["npm auth token", /\b_authToken\s*[=:]\s*["']?([^\s"'\n]{16,})/gi],
 ];
 
+/**
+ * Files that *are* a secret, whatever their content looks like. The content rules above read
+ * text; a PKCS#12 bundle, a Tor onion service's `hs_ed25519_secret_key`, a Monero wallet's
+ * `.keys` file or a SQLite database committed by mistake are binary, carry no `-----BEGIN`
+ * header and would pass them. The Solaris takeover (2023) began with keys lifted from the
+ * operator's repository and servers, so this rule is by path: a key file is a finding the
+ * moment it is tracked, before anybody reads it. `.env.example` is documentation and stays;
+ * the migrations are `.sql`, not `.sql.gz`, and stay.
+ */
+const KEY_MATERIAL_PATH =
+  /(?:^|\/)(?:\.env(?:\.[^/]+)?|\.netrc|\.pgpass|id_(?:rsa|dsa|ecdsa|ed25519)|hs_ed25519_secret_key|[^/]+\.(?:pem|key|p12|pfx|jks|keystore|kdbx|ppk|keys|sqlite3?|db|dump|sql\.gz|tar|tar\.gz|tgz|zip))$/i;
+
+/** `true` when a tracked path is key material or a database by name alone. */
+export const isKeyMaterialPath = (path) => KEY_MATERIAL_PATH.test(path) && !/(?:^|\/)\.env\.example$/.test(path);
+
 /** The lockfile is JSON npm writes; the credential-literal heuristic would drown in it. */
 const LOCKFILE_RULES = SECRETS.filter(([rule]) => rule !== "credential literal");
 
@@ -227,12 +242,15 @@ function history() {
   // Every (path, blob) pair that has ever existed, deduplicated by blob hash: a file
   // unchanged across 200 commits is scanned once.
   const blobs = new Map();
+  const keyFiles = new Map();
   for (const rev of revisions) {
     const listing = execFileSync("git", ["ls-tree", "-r", "-z", rev], { cwd: root, encoding: "utf8" });
     for (const entry of listing.split("\0").filter(Boolean)) {
       const [meta, path] = entry.split("\t");
       const [, type, hash] = meta.split(/\s+/);
       if (type !== "blob") continue;
+      // A key file is a finding by name in any revision, binary or not (see KEY_MATERIAL_PATH).
+      if (isKeyMaterialPath(path) && !keyFiles.has(path)) keyFiles.set(path, hash);
       if (/\.(png|jpg|jpeg|gif|svg|ico|woff2?|pdf)$/i.test(path)) continue;
       if (!blobs.has(hash)) blobs.set(hash, path);
     }
@@ -246,6 +264,11 @@ function history() {
   );
   const findings = [];
   const unreviewed = [];
+  for (const [path, hash] of keyFiles) {
+    if (allowed.has(hash)) continue;
+    unreviewed.push({ blob: hash, path });
+    findings.push({ file: `${path}@${hash.slice(0, 8)}`, rule: "key material by path", line: 0, match: "a key, wallet, database or archive file was committed" });
+  }
   for (const [hash, path] of blobs) {
     if (allowed.has(hash)) continue;
     const text = execFileSync("git", ["cat-file", "blob", hash], {
@@ -270,7 +293,7 @@ function history() {
   }
   console.log(
     `history audit: ${revisions.length} commits, ${blobs.size} distinct blobs ` +
-      `(${allowed.size} reviewed fixtures allowed), no credential ever committed`,
+      `(${allowed.size} reviewed fixtures allowed), no credential and no key file ever committed`,
   );
 }
 
@@ -514,10 +537,14 @@ function secrets() {
     .filter((f) => !/\.(png|jpg|jpeg|gif|svg|ico|woff2?|pdf)$/i.test(f));
   const findings = [];
   for (const file of tracked) {
+    if (isKeyMaterialPath(file)) {
+      findings.push({ file, rule: "key material by path", line: 0, match: "a key, wallet, database or archive file is tracked" });
+      continue;
+    }
     findings.push(...scanSource(readFileSync(join(root, file), "utf8"), file).map((f) => ({ ...f, file })));
   }
   if (findings.length) report(findings);
-  console.log(`secret audit: ${tracked.length} tracked files, nothing that looks like a credential`);
+  console.log(`secret audit: ${tracked.length} tracked files, nothing that looks like a credential or a key file`);
 }
 
 /**

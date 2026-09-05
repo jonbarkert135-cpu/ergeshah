@@ -192,6 +192,47 @@ For a single VPS, in order of value per hour spent:
 An IDS you never read is theatre. Two alerts that reach your phone beat a dashboard nobody
 opens.
 
+## 10. Domain, registrar and DNS
+
+Everything above hardens the machine. The clearnet entrypoint is a *name*, and a name is held
+by a registrar account and a DNS provider that are not on the machine at all. The Solaris
+takeover (2023) ended with the market's traffic pointed at the competitor's site; nothing on
+the servers had to be beaten for that step, only whoever controlled the name. Four settings,
+each a few minutes, none of them undoable by an attacker who holds the server:
+
+1. **The registrar account.** Its own mailbox (not the one on the domain it controls),
+   hardware-key or TOTP second factor, and the registrar's *transfer lock* and *registry lock*
+   where offered. A registrar account is one password away from the whole deployment; treat it
+   like the root SSH key.
+2. **DNSSEC**, signed at the DNS provider and the DS record published at the registrar.
+   Without it a resolver cannot tell your answer from a forged one; with it a hijacked DNS
+   answer fails to validate instead of quietly winning.
+3. **A CAA record**, so that only the CA this deployment uses can issue for the name, and
+   only for the ACME account Caddy holds:
+
+   ```
+   your.domain.  CAA 0 issue "letsencrypt.org; accounturi=<Caddy's ACME account URL>"
+   your.domain.  CAA 0 issuewild ";"
+   your.domain.  CAA 0 iodef "mailto:security@your-other-domain"
+   ```
+
+   The account URL is in Caddy's data directory under `acme/…/users/`. `issuewild ";"`
+   refuses wildcard certificates outright — this deployment has no subdomains that need one.
+4. **Certificate-transparency monitoring.** Every publicly trusted certificate is logged; a
+   certificate for your name that you did not request is a hijack in progress. Subscribe the
+   domain to a CT monitor (crt.sh's RSS feed, or any of the free notification services) so the
+   alert reaches you before the certificate is used.
+
+The second entrypoint is the one no registrar controls: the onion service
+(`deploy/tor/`). Publish its address in more than one place you control — the canary text is a
+good one, since it is signed — so a user who finds the clearnet name pointing somewhere strange
+has an address to compare against. And a hijacked clearnet name still has to serve *something*:
+`npm run audit:deployment <origin>` compares what a name serves against what this source tree
+builds, byte for byte, which is how you tell a redirected name from a redeployed one.
+
+HSTS preload (§5) belongs on this list too, with the same caution: it removes the first-visit
+downgrade, and it takes months to undo.
+
 ## What this does not protect you from
 
 Your hosting provider, who can read the disk and the memory of the machine; a kernel

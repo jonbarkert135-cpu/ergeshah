@@ -40,6 +40,7 @@ to be a residual risk.
 | Downgrade | `upgrade-insecure-requests`, HSTS, no HTTP-only fallback in the app | First-visit downgrade before HSTS is pinned |
 | Replay of a captured request | Session cookie + CSRF token + per-message ratchet counters | — |
 | Injection into the page | `default-src 'self'` CSP; no inline script; no third-party origin | A compromised server can still change the CSP it sends |
+| Hijack of the clearnet *name* (registrar account, DNS provider, unauthorised transfer) pointing the domain at an impostor | Registrar lock and second factor, DNSSEC, a CAA record bound to the deployment's ACME account, certificate-transparency monitoring (`docs/HARDENING.md` §10); the onion address as an entrypoint no registrar holds; `npm run audit:deployment` to compare what a name serves against this source tree | Operator discipline, not code: an attacker who holds both the registrar and the DNS provider can remove the CAA record and obtain a certificate; users then have only the onion address and the published digests to notice |
 
 ### Server attacker (compromised VPS, malicious operator, stolen backup, leaked database)
 
@@ -276,6 +277,10 @@ and the same requests are not silently reconsidered later.
 | Behavioural biometrics (keystroke dynamics, mouse trajectories) | Client-side capture of typing cadence and cursor movement on the login and order forms, sent to the server to classify humans versus bots. | The contract says the server learns as little as possible about the person behind a session; a timing-and-motion profile is a biometric identifier that survives a username change and would be collected from every honest user to catch a few scripts. It is exactly the class of signal the `fingerprint-surface` lint (ADR-0098) forbids the client from reading, and a script that replays a recorded human trace defeats it anyway. The bot problem it names is already answered without identifying anybody: proof of work on the unauthenticated endpoints (ADR-0039) and the address-and-account rate limits. | отвергнуто |
 | Device-fingerprint risk scoring with adaptive proof-of-work | A per-session risk score built from device type, browser, time zone, address history and behaviour, which raises the proof-of-work difficulty or demands another factor when the pattern changes. | The score is a device fingerprint by another name — the threat register above lists browser fingerprinting as something this application does not perform — and "pattern changed" is what an honest user looks like after buying a laptop or moving to Tor Browser, where every session shares one address. A step-up that only fires when the server has profiled the device profiles the device. Proof-of-work cost stays a single operator-set value (`POW_BITS`) that every attempt pays alike; raising it is a deployment decision, not a per-user verdict. | отвергнуто |
 
+| Cryptocurrency mixers / tumblers, and treasury arrangements whose purpose is to survive seizure (BidenCash pattern) | Routing the platform's own funds through mixing services and spreading them so that no authority can freeze or trace them. | The goal is to make the *operator's* money untraceable to anyone, which is laundering infrastructure and contradicts the contract: the operator is accountable, the ledger is double-entry and auditable (`docs/PAYMENTS.md`), and escrow exists so that a dispute has a paper trail. The protection a treasury actually needs is against theft, not against a court, and that is already the design — private view key only on the server, a small hot float, the spend key offline. Monero's own transaction privacy protects users; nothing further is added for the operator. | отвергнуто |
+| Hidden or rotating domains, spread across registrars and fronted by proxies so the "real" domain cannot be found or seized | Treating the clearnet name as something to conceal and replace. | Concealing who operates an entrypoint is what a phishing operation does, and it destroys the properties honest users rely on: HSTS pins a name, SRI and the published digests are compared against a name, bookmarks and the canary point at a name. The safe version of the goal — not losing the name to a hijack — is `docs/HARDENING.md` §10 (registrar lock, DNSSEC, CAA, CT monitoring) plus the onion service as the second entrypoint. Operating from a jurisdiction chosen to be out of reach of a warrant is not a security mechanism and is not considered here. | отвергнуто |
+| Separate databases and servers per mirror (Tor and clearnet), so that one mirror's compromise reveals nothing about the other (DrugHub pattern) | Running the onion service and the clearnet site as two deployments with two databases. | Both entrypoints are the same operator's, publicly linked by `Onion-Location`, and an account, a conversation and an order have to be the same thing whichever door a user came through. Two databases would be two ledgers to reconcile and two places to leak; the correlation DrugHub was found by is a secret this deployment does not keep. What *is* kept apart is the address: on the onion every request arrives from loopback, so limits are keyed by account rather than address (`src/server/lib/rate_limit.ts`). | отвергнуто |
+
 Escrow, dispute-resolution, seller accountability (KYC), audit trails, and every mechanism
 that reduces what the *server* learns (E2EE, data minimisation, encryption at rest, sealed
 sender, no access logs, IDOR defence) are **in scope** and are built or on the roadmap; they
@@ -288,3 +293,18 @@ attachments, delivered files and the order channel, and the few columns the serv
 need are enumerated one by one, with their reason, in `docs/METADATA.md`. Blind signatures for unlinkable issuance were weighed and left
 unbuilt in ADR-0084, and zero-knowledge proofs as a general mechanism in ADR-0098; both stay
 where those decisions put them.
+
+A later batch (ADR-0117) arrived as lessons drawn from published marketplace and forum
+breaches of 2023–2026 — a full forum dump with 340 333 address rows beside account ids, a
+takeover that began with keys lifted from a repository, EXIF in a logo, e-mail addresses beside
+every password hash. Most of what it asked for was the existing design, stated in different
+words: no address, e-mail or user agent is stored (`docs/PRIVACY.md`), the rate limiter keeps a
+daily-rotating HMAC that is deleted after a day rather than a salted hash kept thirty, keys and
+messages are ciphertext the server cannot open, image and ISO-BMFF metadata is stripped before
+encryption, session cookies are `HttpOnly`/`SameSite=Strict`/`__Host-`, and the host guidance in
+`docs/HARDENING.md` covers SSH keys, the firewall and updates. What it added is two tests and a
+section: a full-dump probe that drives a session from a known address and user agent and reads
+every column of every table for either (`test/auth.test.ts`), a secret audit that refuses a key,
+wallet, database or archive file by its path in the tree and in history (SEC-2026-027), and
+`docs/HARDENING.md` §10 on the registrar, DNSSEC, CAA and certificate transparency. The three
+rows above are the parts that were declined.
